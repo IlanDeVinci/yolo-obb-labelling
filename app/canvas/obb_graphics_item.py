@@ -45,6 +45,10 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
         self._pre_modify_points: list[float] | None = None
         self._rebaking = False
         self._use_obb = use_obb
+        self._rotating_drag = False
+        self._rotate_center = QPointF(0.0, 0.0)
+        self._rotate_start_angle = 0.0
+        self._rotate_start_scene_pts: list[QPointF] = []
 
         poly = self._label_to_polygon(label, img_w, img_h)
         super().__init__(poly)
@@ -140,10 +144,45 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
         return super().itemChange(change, value)
 
     def mousePressEvent(self, event) -> None:
+        if (
+            self._use_obb
+            and event.button() == Qt.MouseButton.LeftButton
+            and bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        ):
+            self._begin_modify()
+            self.setSelected(True)
+            self._rotating_drag = True
+            self._rotate_center = self.centroid_scene()
+            self._rotate_start_scene_pts = self._scene_points()
+            sp = event.scenePos()
+            self._rotate_start_angle = math.atan2(
+                sp.y() - self._rotate_center.y(),
+                sp.x() - self._rotate_center.x(),
+            )
+            event.accept()
+            return
         self._begin_modify()
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event) -> None:
+        if self._rotating_drag:
+            sp = event.scenePos()
+            angle = math.atan2(
+                sp.y() - self._rotate_center.y(),
+                sp.x() - self._rotate_center.x(),
+            )
+            self._rotate_from_start(angle)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event) -> None:
+        if self._rotating_drag and event.button() == Qt.MouseButton.LeftButton:
+            self._rotating_drag = False
+            self._rotate_start_scene_pts = []
+            self._end_modify()
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
         # After drag, re-center at origin so item stays at pos=(0,0)
         if self.pos() != QPointF(0, 0):
@@ -243,6 +282,67 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
         self._sync_label_from_polygon()
         self._update_handles(skip_edge=skip_edge)
 
+    def _scene_points(self) -> list[QPointF]:
+        poly = self.polygon()
+        offset = self.pos()
+        return [QPointF(poly[i].x() + offset.x(), poly[i].y() + offset.y()) for i in range(poly.count())]
+
+    def _set_polygon_from_scene_points(self, points: list[QPointF]) -> None:
+        offset = self.pos()
+        local = QPolygonF([QPointF(p.x() - offset.x(), p.y() - offset.y()) for p in points])
+        self.setPolygon(local)
+        self._sync_label_from_polygon()
+        self._update_handles()
+
+    def scale_uniform_from_corner(
+        self,
+        start_points: list[QPointF],
+        corner_idx: int,
+        scene_pos: QPointF,
+    ) -> None:
+        if not start_points or corner_idx < 0 or corner_idx >= len(start_points):
+            return
+        center = self.centroid_scene()
+        start_corner = start_points[corner_idx]
+        start_dist = math.hypot(start_corner.x() - center.x(), start_corner.y() - center.y())
+        cur_dist = math.hypot(scene_pos.x() - center.x(), scene_pos.y() - center.y())
+        if start_dist < 1e-6:
+            return
+        scale = max(0.05, min(20.0, cur_dist / start_dist))
+        new_points = []
+        for p in start_points:
+            dx = p.x() - center.x()
+            dy = p.y() - center.y()
+            new_points.append(QPointF(center.x() + dx * scale, center.y() + dy * scale))
+        self._set_polygon_from_scene_points(new_points)
+
+    def scale_uniform_from_edge(
+        self,
+        start_points: list[QPointF],
+        edge_idx: int,
+        scene_pos: QPointF,
+    ) -> None:
+        if not start_points or len(start_points) < 4:
+            return
+        i0 = edge_idx % 4
+        i1 = (i0 + 1) % 4
+        center = self.centroid_scene()
+        start_mid = QPointF(
+            (start_points[i0].x() + start_points[i1].x()) / 2,
+            (start_points[i0].y() + start_points[i1].y()) / 2,
+        )
+        start_dist = math.hypot(start_mid.x() - center.x(), start_mid.y() - center.y())
+        cur_dist = math.hypot(scene_pos.x() - center.x(), scene_pos.y() - center.y())
+        if start_dist < 1e-6:
+            return
+        scale = max(0.05, min(20.0, cur_dist / start_dist))
+        new_points = []
+        for p in start_points:
+            dx = p.x() - center.x()
+            dy = p.y() - center.y()
+            new_points.append(QPointF(center.x() + dx * scale, center.y() + dy * scale))
+        self._set_polygon_from_scene_points(new_points)
+
     # ------------------------------------------------------------------
     # Handle management
     # ------------------------------------------------------------------
@@ -279,13 +379,22 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
             self._handles.append(eh)
 
         if self._use_obb:
-            # Rotation handle on the orbit around the centroid
+            # Rotation handles around the centroid, anchored to each corner direction.
             center = self.centroid_scene()
             R = self.rotation_orbit_radius()
-            rot_pos = QPointF(center.x(), center.y() - R)
-            rh = RotationHandleItem(self, center, rot_pos, R)
-            scene.addItem(rh)
-            self._handles.append(rh)
+            for corner_idx in range(n):
+                vx = poly[corner_idx].x() + offset.x() - center.x()
+                vy = poly[corner_idx].y() + offset.y() - center.y()
+                v_len = math.hypot(vx, vy)
+                if v_len < 1e-9:
+                    continue
+                rot_pos = QPointF(
+                    center.x() + (vx / v_len) * R,
+                    center.y() + (vy / v_len) * R,
+                )
+                rh = RotationHandleItem(self, center, rot_pos, R, corner_idx)
+                scene.addItem(rh)
+                self._handles.append(rh)
 
     def hide_handles(self) -> None:
         scene = self.scene()
@@ -306,7 +415,15 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
                 if not h._dragging:
                     h._center = QPointF(center)
                     h._orbit_radius = R
-                    h.setPos(QPointF(center.x(), center.y() - R))
+                    if 0 <= h.anchor_corner_idx < n:
+                        vx = poly[h.anchor_corner_idx].x() + offset.x() - center.x()
+                        vy = poly[h.anchor_corner_idx].y() + offset.y() - center.y()
+                        v_len = math.hypot(vx, vy)
+                        if v_len >= 1e-9:
+                            h.setPos(QPointF(
+                                center.x() + (vx / v_len) * R,
+                                center.y() + (vy / v_len) * R,
+                            ))
             elif isinstance(h, EdgeHandleItem):
                 if h.edge_idx != skip_edge and not h._dragging:
                     i = h.edge_idx
@@ -385,6 +502,22 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
         self._sync_label_from_polygon()
         # Update corner + edge handles (rotation handle skips itself when dragging)
         self._update_handles()
+
+    def _rotate_from_start(self, angle: float) -> None:
+        if not self._rotate_start_scene_pts:
+            return
+        delta = angle - self._rotate_start_angle
+        cos_a = math.cos(delta)
+        sin_a = math.sin(delta)
+        c = self._rotate_center
+        new_pts = []
+        for pt in self._rotate_start_scene_pts:
+            dx = pt.x() - c.x()
+            dy = pt.y() - c.y()
+            nx = c.x() + dx * cos_a - dy * sin_a
+            ny = c.y() + dx * sin_a + dy * cos_a
+            new_pts.append(QPointF(nx, ny))
+        self._set_polygon_from_scene_points(new_pts)
 
     # ------------------------------------------------------------------
     # Helpers

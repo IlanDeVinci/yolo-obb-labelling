@@ -47,6 +47,43 @@ class AddLabelCommand(QUndoCommand):
         self._canvas.labels_changed.emit()
 
 
+class AddLabelsCommand(QUndoCommand):
+    """Wraps the creation of multiple labels as one undo step.
+
+    Labels are already present in canvas + label manager when command is pushed,
+    so initial redo() is skipped.
+    """
+
+    def __init__(
+        self,
+        labels: list[Label],
+        canvas: "AnnotationCanvas",
+        label_mgr: "LabelManager",
+        action_label: str | None = None,
+    ) -> None:
+        n = len(labels)
+        super().__init__(action_label or f"Add {n} label{'s' if n != 1 else ''}")
+        self._labels = list(labels)
+        self._canvas = canvas
+        self._label_mgr = label_mgr
+        self._first_run = True
+
+    def redo(self) -> None:
+        if self._first_run:
+            self._first_run = False
+            return
+        for lbl in self._labels:
+            self._canvas.add_label_item(lbl)
+            self._label_mgr.add_label(lbl)
+        self._canvas.labels_changed.emit()
+
+    def undo(self) -> None:
+        for lbl in self._labels:
+            self._canvas.remove_label_item(lbl)
+            self._label_mgr.remove_label(lbl)
+        self._canvas.labels_changed.emit()
+
+
 class DeleteLabelsCommand(QUndoCommand):
     """Wraps the deletion of one or more labels (OBBLabel or BBoxLabel).
 

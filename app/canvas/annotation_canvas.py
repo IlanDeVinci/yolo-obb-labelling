@@ -54,6 +54,7 @@ class AnnotationCanvas(QGraphicsView):
         self._img_h: float = 1.0
         self._user_zoomed: bool = False   # True after any manual wheel/key zoom
         self._use_obb: bool = use_obb     # True = OBB mode, False = BBox mode
+        self._rubberband_select: bool = False
 
         # Middle-mouse-button pan state
         self._panning_mid: bool = False
@@ -170,7 +171,7 @@ class AnnotationCanvas(QGraphicsView):
         for item in self._label_items:
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.status_message.emit("Select mode  —  W = draw mode  |  Del = delete selected  |  F = fit view")
+        self.status_message.emit("Select mode  —  Ctrl+drag = multi-select  |  Del = delete selected  |  W = draw mode")
         self.mode_changed.emit(self.MODE_SELECT)
 
     def _set_draw_mode(self) -> None:
@@ -221,6 +222,14 @@ class AnnotationCanvas(QGraphicsView):
         self.add_label_item(label)
         self.label_added.emit(label)
         self.labels_changed.emit()
+
+    def select_all_labels(self) -> None:
+        """Select all labels in current image to support bulk actions."""
+        if self._mode != self.MODE_SELECT:
+            self._set_select_mode()
+        for item in self._label_items:
+            item.setSelected(True)
+        self._sync_selected_handles()
 
     # ------------------------------------------------------------------
     # Coordinate helpers
@@ -330,6 +339,11 @@ class AnnotationCanvas(QGraphicsView):
         elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self._delete_selected()
 
+        elif key == Qt.Key.Key_Control and self._mode == self.MODE_SELECT:
+            self._rubberband_select = True
+            self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
         elif key == Qt.Key.Key_W and mod == Qt.KeyboardModifier.NoModifier:
             self._set_draw_mode()
 
@@ -351,6 +365,17 @@ class AnnotationCanvas(QGraphicsView):
 
         else:
             super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event: QKeyEvent) -> None:
+        key = event.key()
+        if key == Qt.Key.Key_Control and self._mode == self.MODE_SELECT and self._rubberband_select:
+            self._rubberband_select = False
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self._sync_selected_handles()
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
 
     # ------------------------------------------------------------------
     # Zoom

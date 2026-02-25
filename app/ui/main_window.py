@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 from app.canvas.annotation_canvas import AnnotationCanvas
 from app.commands.label_commands import (
     AddLabelCommand,
+    AddLabelsCommand,
     DeleteLabelsCommand,
     ModifyLabelCommand,
     ToggleLabelModeCommand,
@@ -212,6 +213,13 @@ class MainWindow(QMainWindow):
         redo_action = self._undo_stack.createRedoAction(self, "&Redo")
         redo_action.setShortcut(QKeySequence.StandardKey.Redo)
         edit_menu.addAction(redo_action)
+
+        edit_menu.addSeparator()
+
+        act = QAction("Select &All Labels", self)
+        act.setShortcut(QKeySequence.StandardKey.SelectAll)
+        act.triggered.connect(self._canvas.select_all_labels)
+        edit_menu.addAction(act)
 
         edit_menu.addSeparator()
 
@@ -1041,11 +1049,25 @@ class MainWindow(QMainWindow):
         )
 
     def _on_inference_done(self, labels) -> None:
+        if not labels:
+            self._lbl_hint.setText("Model added 0 label(s).")
+            return
+
         for label in labels:
             self._label_mgr.add_label(label)
             self._canvas.add_label_item(label)
+
+        cmd = AddLabelsCommand(
+            labels=labels,
+            canvas=self._canvas,
+            label_mgr=self._label_mgr,
+            action_label=f"Add {len(labels)} labels (model)",
+        )
+        self._undo_stack.push(cmd)
+
         self._refresh_label_list()
         self._update_dirty_indicator()
+        self._autosave_timer.start()
         self._lbl_hint.setText(f"Model added {len(labels)} label(s).")
 
     def _on_inference_error(self, msg: str) -> None:
@@ -1655,6 +1677,8 @@ Esc — Cancel drawing<br>
 Click — Select label<br>
 Drag — Move label<br>
 Drag corner handle — Resize label<br>
+Alt/Ctrl + Drag corner/edge — Scale box up/down<br>
+Shift + Drag box (OBB) — Rotate quickly<br>
 Del — Delete selected label<br>
 Esc — Deselect<br>
 <br>

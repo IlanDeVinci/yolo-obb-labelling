@@ -126,6 +126,22 @@ class YoloPredictor:
         self._thread: QThread | None = None
         self._worker: _InferenceWorker | None = None
 
+    def _is_thread_running(self) -> bool:
+        thread = self._thread
+        if thread is None:
+            return False
+        try:
+            return thread.isRunning()
+        except RuntimeError:
+            # Underlying C++ object was already deleted.
+            self._thread = None
+            self._worker = None
+            return False
+
+    def _on_thread_finished(self) -> None:
+        self._thread = None
+        self._worker = None
+
     def predict_async(
         self,
         model_path: str,
@@ -145,7 +161,7 @@ class YoloPredictor:
             on_error: Callback with error message if inference fails
             use_obb: If True, output OBB labels; if False, output BBox labels
         """
-        if self._thread and self._thread.isRunning():
+        if self._is_thread_running():
             return  # Already running
 
         self._thread = QThread()
@@ -155,12 +171,15 @@ class YoloPredictor:
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(on_done)
         self._worker.finished.connect(self._thread.quit)
+        self._worker.finished.connect(self._worker.deleteLater)
         self._worker.error.connect(on_error)
         self._worker.error.connect(self._thread.quit)
+        self._worker.error.connect(self._worker.deleteLater)
         # Cleanup
+        self._thread.finished.connect(self._on_thread_finished)
         self._thread.finished.connect(self._thread.deleteLater)
 
         self._thread.start()
 
     def is_running(self) -> bool:
-        return bool(self._thread and self._thread.isRunning())
+        return self._is_thread_running()

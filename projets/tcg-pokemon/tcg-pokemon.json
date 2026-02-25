@@ -1,7 +1,7 @@
 {
   "name": "tcg-pokemon",
   "created_at": "2026-02-25T11:25:22.397350",
-  "modified_at": "2026-02-25T13:01:44.241048",
+  "modified_at": "2026-02-25T13:16:46.853829",
   "dataset_folder": "C:\\Users\\Ilan\\Documents\\GitHub\\yolo-obb-labelling\\projets\\tcg-pokemon\\images",
   "yaml_path": "",
   "class_names": [
@@ -184,10 +184,10 @@
       "PXL_20260224_092202578.MP.jpg"
     ]
   },
-  "current_index": 0,
+  "current_index": 1,
   "current_split": "train",
   "active_team_member": "Ilan",
   "use_obb": true,
   "model_path": "C:/Users/Ilan/Documents/GitHub/PokemonFullCardAI/runs/detect/train6/weights/best.pt",
-  "model_confidence": 0.25
+  "model_confidence": 0.65
 }
