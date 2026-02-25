@@ -367,12 +367,14 @@ class MainWindow(QMainWindow):
         status_menu = mb.addMenu("&Status")
 
         self._act_set_completed = QAction("Set as &Completed", self)
+        self._act_set_completed.setShortcut(QKeySequence("Ctrl+Shift+K"))
         self._act_set_completed.triggered.connect(
             lambda: self._set_current_image_completion("completed")
         )
         status_menu.addAction(self._act_set_completed)
 
         self._act_set_in_progress = QAction("Set as &In Progress", self)
+        self._act_set_in_progress.setShortcut(QKeySequence("Ctrl+Shift+J"))
         self._act_set_in_progress.triggered.connect(
             lambda: self._set_current_image_completion("in_progress")
         )
@@ -1901,6 +1903,10 @@ Ctrl+Shift+R — Run model on all images<br>
 <br>
 <b>Team</b><br>
 Ctrl+T — Team dialog (select member / progress)<br>
+<br>
+<b>Status</b><br>
+Ctrl+Shift+K — Set current image as completed<br>
+Ctrl+Shift+J — Set current image as in progress<br>
         """.strip()
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
 
