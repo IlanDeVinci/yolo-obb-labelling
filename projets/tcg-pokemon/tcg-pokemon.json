@@ -2,7 +2,7 @@
   "name": "tcg-pokemon",
   "created_at": "2026-02-25T11:25:22.397350",
   "modified_at": "2026-02-25T14:46:20.699533",
-  "dataset_folder": "dataset",
+  "dataset_folder": "images",
   "yaml_path": "",
   "class_names": [
     "card"
@@ -185,23 +185,34 @@
     ]
   },
   "image_completion": {
-    "PXL_20260224_083930328.MP.jpg": "in_progress",
+    "PXL_20260224_083930328.MP.jpg": "completed",
     "PXL_20260224_083844405.jpg": "in_progress",
-    "PXL_20260224_083909240.jpg": "in_progress",
+    "PXL_20260224_083909240.jpg": "completed",
     "PXL_20260224_090058057.MP.jpg": "in_progress",
-    "PXL_20260224_090104332.jpg": "in_progress",
+    "PXL_20260224_090104332.jpg": "completed",
     "PXL_20260224_090109327.jpg": "in_progress",
     "PXL_20260224_090113767.jpg": "in_progress",
     "PXL_20260224_090117989.jpg": "in_progress",
     "PXL_20260224_090749821.MP.jpg": "in_progress",
     "PXL_20260224_090757374.MP.jpg": "in_progress",
-    "PXL_20260224_090805248.MP.jpg": "in_progress",
+    "PXL_20260224_090805248.MP.jpg": "completed",
     "PXL_20260224_090811571.MP.jpg": "in_progress",
     "PXL_20260224_090816787.MP.jpg": "in_progress",
     "PXL_20260224_090820152.MP.jpg": "in_progress",
-    "PXL_20260224_090823845.MP.jpg": "in_progress",
+    "PXL_20260224_090823845.MP.jpg": "completed",
     "PXL_20260224_090829026.jpg": "in_progress",
-    "PXL_20260224_091221728.jpg": "in_progress",
-    "PXL_20260224_084624730.jpg": "in_progress"
+    "PXL_20260224_091221728.jpg": "completed",
+    "PXL_20260224_084624730.jpg": "in_progress",
+    "PXL_20260224_090037306.jpg": "completed",
+    "PXL_20260224_090045873.jpg": "completed",
+    "PXL_20260224_090048858.jpg": "completed",
+    "PXL_20260224_090121947.MP.jpg": "completed",
+    "PXL_20260224_090132162.MP.jpg": "completed",
+    "PXL_20260224_090136511.MP.jpg": "completed",
+    "PXL_20260224_090304574.MP.jpg": "completed",
+    "PXL_20260224_090341943.MP.jpg": "completed",
+    "PXL_20260224_091247240.MP.jpg": "completed",
+    "PXL_20260224_091313540.MP.jpg": "completed",
+    "PXL_20260224_091341686.MP.jpg": "in_progress"
   }
 }
