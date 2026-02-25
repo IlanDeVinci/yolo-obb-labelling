@@ -1492,7 +1492,6 @@ class MainWindow(QMainWindow):
         new_labels = self._convert_labels_for_mode(old_labels, target_use_obb)
         new_dirty = True
 
-        self._undo_stack.clear()
         cmd = ToggleLabelModeCommand(
             old_use_obb=old_mode,
             new_use_obb=target_use_obb,
@@ -1501,6 +1500,7 @@ class MainWindow(QMainWindow):
             old_dirty=old_dirty,
             new_dirty=new_dirty,
             apply_state=self._apply_label_mode_state,
+            action_label=f"Convert {source_name} -> {target_name}",
         )
         self._undo_stack.push(cmd)
 

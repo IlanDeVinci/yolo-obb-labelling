@@ -151,10 +151,11 @@ class ToggleLabelModeCommand(QUndoCommand):
         old_dirty: bool,
         new_dirty: bool,
         apply_state: Callable[[bool, list[Label], bool], None],
+        action_label: str | None = None,
     ) -> None:
         mode_from = "OBB" if old_use_obb else "BBox"
         mode_to = "OBB" if new_use_obb else "BBox"
-        super().__init__(f"Switch mode {mode_from} -> {mode_to}")
+        super().__init__(action_label or f"Switch mode {mode_from} -> {mode_to}")
         self._old_use_obb = old_use_obb
         self._new_use_obb = new_use_obb
         self._old_labels = old_labels
