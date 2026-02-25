@@ -282,6 +282,11 @@ class MainWindow(QMainWindow):
         self._act_convert_to_bb.triggered.connect(lambda: self._convert_labels_to_mode(False))
         ann_menu.addAction(self._act_convert_to_bb)
 
+        self._act_flip_orientation = QAction("Flip Selected Orientation 180°", self)
+        self._act_flip_orientation.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        self._act_flip_orientation.triggered.connect(self._flip_selected_orientation)
+        ann_menu.addAction(self._act_flip_orientation)
+
         ann_menu.addSeparator()
 
         act = QAction("Delete &Selected", self)
@@ -367,12 +372,14 @@ class MainWindow(QMainWindow):
         status_menu = mb.addMenu("&Status")
 
         self._act_set_completed = QAction("Set as &Completed", self)
+        self._act_set_completed.setShortcut(QKeySequence("Ctrl+Shift+K"))
         self._act_set_completed.triggered.connect(
             lambda: self._set_current_image_completion("completed")
         )
         status_menu.addAction(self._act_set_completed)
 
         self._act_set_in_progress = QAction("Set as &In Progress", self)
+        self._act_set_in_progress.setShortcut(QKeySequence("Ctrl+Shift+J"))
         self._act_set_in_progress.triggered.connect(
             lambda: self._set_current_image_completion("in_progress")
         )
@@ -1725,6 +1732,51 @@ class MainWindow(QMainWindow):
 
         self._lbl_hint.setText(f"Converted labels: {source_name} -> {target_name}")
 
+    def _flip_selected_orientation(self) -> None:
+        """Flip selected OBB labels by 180° (corner-order rotation).
+
+        This keeps geometry identical on-screen while swapping orientation
+        reference by cycling points [p1,p2,p3,p4] -> [p3,p4,p1,p2].
+        """
+        selected_items = [
+            item for item in self._canvas._label_items
+            if item.isSelected() and isinstance(item.label, OBBLabel)
+        ]
+
+        if not selected_items:
+            self._lbl_hint.setText("No selected OBB labels to flip.")
+            return
+
+        self._undo_stack.beginMacro("Flip selected orientation 180°")
+        try:
+            for item in selected_items:
+                label = item.label
+                if not isinstance(label, OBBLabel):
+                    continue
+
+                old_points = list(label.points)
+                if len(old_points) != 8:
+                    continue
+
+                new_points = old_points[4:] + old_points[:4]
+                if new_points == old_points:
+                    continue
+
+                label.points = list(new_points)
+                label.mark_manual()
+                item.refresh_from_label()
+
+                cmd = ModifyLabelCommand(label, old_points, new_points, self._canvas)
+                self._undo_stack.push(cmd)
+        finally:
+            self._undo_stack.endMacro()
+
+        self._canvas.labels_changed.emit()
+        self._refresh_label_list()
+        self._update_dirty_indicator()
+        self._autosave_timer.start()
+        self._lbl_hint.setText(f"Flipped orientation for {len(selected_items)} selected OBB label(s).")
+
     def _warn_once_before_mode_switch(self) -> bool:
         key = "warnings/mode_switch_seen"
         if self._settings.value(key, False, type=bool):
@@ -1876,6 +1928,7 @@ Drag — Move label<br>
 Drag corner handle — Resize label<br>
 Alt/Ctrl + Drag corner/edge — Scale box up/down<br>
 Shift + Drag box (OBB) — Rotate quickly<br>
+Ctrl+Shift+L — Flip selected OBB orientation 180°<br>
 Del — Delete selected label<br>
 Esc — Deselect<br>
 <br>
@@ -1901,6 +1954,10 @@ Ctrl+Shift+R — Run model on all images<br>
 <br>
 <b>Team</b><br>
 Ctrl+T — Team dialog (select member / progress)<br>
+<br>
+<b>Status</b><br>
+Ctrl+Shift+K — Set current image as completed<br>
+Ctrl+Shift+J — Set current image as in progress<br>
         """.strip()
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
 
