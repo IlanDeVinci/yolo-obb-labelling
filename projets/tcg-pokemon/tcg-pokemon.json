@@ -4,15 +4,8 @@
   "modified_at": "2026-02-25T14:46:42.867574",
   "dataset_folder": "C:\\Users\\Ilan\\Documents\\GitHub\\yolo-obb-labelling\\projets\\tcg-pokemon\\images",
   "yaml_path": "",
-  "class_names": [
-    "card"
-  ],
-  "team_members": [
-    "Ilan",
-    "Samuel",
-    "August",
-    "Alexandre"
-  ],
+  "class_names": ["card"],
+  "team_members": ["Ilan", "Samuel", "August", "Alexandre"],
   "team_percentages": {
     "Ilan": 16.0,
     "Samuel": 16.0,
