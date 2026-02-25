@@ -479,29 +479,36 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
     def rotate_to_angle(self, angle: float, center: QPointF) -> None:
         """Rotate all corners so the rotation handle sits at *angle* from center."""
         from app.canvas.handle_item import RotationHandleItem
-        rh = None
+        rh: RotationHandleItem | None = None
+
+        # Prefer the actively dragged rotation handle.
         for h in self._handles:
-            if isinstance(h, RotationHandleItem):
+            if isinstance(h, RotationHandleItem) and h._dragging:
                 rh = h
                 break
+
+        # Fallback: any handle that has start corners captured.
+        if rh is None:
+            for h in self._handles:
+                if isinstance(h, RotationHandleItem) and h._start_corners:
+                    rh = h
+                    break
+
         if rh is None or not rh._start_corners:
             return
 
         delta = angle - rh._start_angle
         cos_a = math.cos(delta)
         sin_a = math.sin(delta)
-        new_pts = []
+        new_scene_pts = []
         for pt in rh._start_corners:
             dx = pt.x() - center.x()
             dy = pt.y() - center.y()
             nx = center.x() + dx * cos_a - dy * sin_a
             ny = center.y() + dx * sin_a + dy * cos_a
-            new_pts.append(QPointF(nx, ny))
+            new_scene_pts.append(QPointF(nx, ny))
 
-        self.setPolygon(QPolygonF(new_pts))
-        self._sync_label_from_polygon()
-        # Update corner + edge handles (rotation handle skips itself when dragging)
-        self._update_handles()
+        self._set_polygon_from_scene_points(new_scene_pts)
 
     def _rotate_from_start(self, angle: float) -> None:
         if not self._rotate_start_scene_pts:

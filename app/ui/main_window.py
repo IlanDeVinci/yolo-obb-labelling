@@ -248,13 +248,9 @@ class MainWindow(QMainWindow):
 
         ds_menu.addSeparator()
 
-        self._act_train = QAction("Switch to &Train split", self)
-        self._act_train.triggered.connect(lambda: self._switch_split("train"))
-        ds_menu.addAction(self._act_train)
-
-        self._act_val = QAction("Switch to &Val split", self)
-        self._act_val.triggered.connect(lambda: self._switch_split("val"))
-        ds_menu.addAction(self._act_val)
+        self._act_toggle_completion = QAction("Mark Current Image &Completed", self)
+        self._act_toggle_completion.triggered.connect(self._toggle_current_image_completion)
+        ann_menu.addAction(self._act_toggle_completion)
 
         ds_menu.addSeparator()
 
@@ -284,13 +280,9 @@ class MainWindow(QMainWindow):
 
         ann_menu.addSeparator()
 
-        self._act_mark_in_progress = QAction("Mark Current Image &In Progress", self)
-        self._act_mark_in_progress.triggered.connect(lambda: self._set_current_image_completion("in_progress"))
-        ann_menu.addAction(self._act_mark_in_progress)
-
-        self._act_mark_completed = QAction("Mark Current Image &Completed", self)
-        self._act_mark_completed.triggered.connect(lambda: self._set_current_image_completion("completed"))
-        ann_menu.addAction(self._act_mark_completed)
+        self._act_toggle_completion = QAction("Mark Current Image &Completed", self)
+        self._act_toggle_completion.triggered.connect(self._toggle_current_image_completion)
+        ann_menu.addAction(self._act_toggle_completion)
 
         self._act_convert_to_obb = QAction("Convert Labels to &OBB", self)
         self._act_convert_to_obb.triggered.connect(lambda: self._convert_labels_to_mode(True))
@@ -486,6 +478,7 @@ class MainWindow(QMainWindow):
         self._update_index_label()
         self._browser.select_index(self._image_mgr.current_index)
         self._update_dirty_indicator()
+        self._update_completion_action()
 
         # Persist the new index
         self._schedule_project_autosave()
@@ -532,6 +525,7 @@ class MainWindow(QMainWindow):
         self._refresh_label_list()
 
     def _on_labels_changed(self) -> None:
+        self._auto_mark_current_image_in_progress()
         self._refresh_label_list()
         self._update_dirty_indicator()
         # Restart the auto-save countdown
@@ -595,6 +589,7 @@ class MainWindow(QMainWindow):
 
             self._apply_project_to_ui(project)
             self._lbl_hint.setText(f"Projet '{project.name}' restaure")
+            QTimer.singleShot(0, self._prompt_team_member_on_startup)
         except Exception:  # noqa: BLE001 — never crash on auto-restore
             pass
         finally:
@@ -881,6 +876,7 @@ class MainWindow(QMainWindow):
         self._settings.setValue("recent/project_file", str(dlg.selected_path))
         self._apply_project_to_ui(project)
         self._lbl_hint.setText(f"Projet '{project.name}' ouvert")
+        QTimer.singleShot(0, self._prompt_team_member_on_startup)
 
     def _project_settings(self) -> None:
         """Open project settings dialog."""
@@ -917,6 +913,7 @@ class MainWindow(QMainWindow):
             project.class_names = self._class_panel.class_names()
             project.use_obb = self._use_obb
             self._project_mgr.save_current()
+            self._project_mgr.save_user_state()
             self._lbl_hint.setText("Sauvegarde effectuee")
         else:
             self._lbl_hint.setText("Labels sauvegardes")
@@ -929,6 +926,7 @@ class MainWindow(QMainWindow):
             project.class_names = self._class_panel.class_names()
             project.use_obb = self._use_obb
             self._project_mgr.save_current()
+            self._project_mgr.save_user_state()
 
     def _get_image_completion_status(self, image_path: Path) -> str:
         project = self._project_mgr.current_project
@@ -945,8 +943,51 @@ class MainWindow(QMainWindow):
         project.set_image_completion(img.name, status)
         self._project_mgr.save_current()
         self._browser.refresh_item(self._image_mgr.current_index)
+        self._update_completion_action()
         label = "In Progress" if status == "in_progress" else "Completed"
         self._lbl_hint.setText(f"{img.name}: {label}")
+
+    def _toggle_current_image_completion(self) -> None:
+        img = self._image_mgr.current_image
+        if img is None:
+            return
+        current = self._get_image_completion_status(img)
+        target = "in_progress" if current == "completed" else "completed"
+        self._set_current_image_completion(target)
+
+    def _update_completion_action(self) -> None:
+        if not hasattr(self, "_act_toggle_completion"):
+            return
+        img = self._image_mgr.current_image
+        if img is None:
+            self._act_toggle_completion.setEnabled(False)
+            self._act_toggle_completion.setText("Mark Current Image &Completed")
+            return
+
+        self._act_toggle_completion.setEnabled(True)
+        current = self._get_image_completion_status(img)
+        if current == "completed":
+            self._act_toggle_completion.setText("Mark Current Image &In Progress")
+        else:
+            self._act_toggle_completion.setText("Mark Current Image &Completed")
+
+    def _auto_mark_current_image_in_progress(self) -> None:
+        """Default completion state when first labels appear on an image."""
+        project = self._project_mgr.current_project
+        img = self._image_mgr.current_image
+        if not project or img is None:
+            return
+        if not self._label_mgr.labels:
+            return
+
+        current = project.get_image_completion(img.name)
+        if current:
+            return
+
+        project.set_image_completion(img.name, "in_progress")
+        self._project_mgr.save_current()
+        self._browser.refresh_item(self._image_mgr.current_index)
+        self._update_completion_action()
 
     def _schedule_project_autosave(self) -> None:
         """Schedule a project auto-save."""
@@ -1066,7 +1107,7 @@ class MainWindow(QMainWindow):
         if project:
             project.model_path = dlg.model_path
             project.model_confidence = dlg.confidence
-            self._project_mgr.save_current()
+            self._project_mgr.save_user_state()
 
         self._model_path = dlg.model_path
         self._model_conf = dlg.confidence
@@ -1126,6 +1167,7 @@ class MainWindow(QMainWindow):
         )
         self._undo_stack.push(cmd)
 
+        self._auto_mark_current_image_in_progress()
         self._refresh_label_list()
         self._update_dirty_indicator()
         self._autosave_timer.start()
@@ -1379,7 +1421,7 @@ class MainWindow(QMainWindow):
             return
 
         project.active_team_member = "" if choice == "(Tous)" else choice
-        self._project_mgr.save_current()
+        self._project_mgr.save_user_state()
         self._apply_team_filter()
 
     def _team_dialog(self) -> None:
@@ -1455,7 +1497,36 @@ class MainWindow(QMainWindow):
         project = self._project_mgr.current_project
         if project:
             project.active_team_member = ""
-            self._project_mgr.save_current()
+            self._project_mgr.save_user_state()
+        self._apply_team_filter()
+
+    def _prompt_team_member_on_startup(self) -> None:
+        """Ask the user to pick their team member when project opens at launch."""
+        project = self._project_mgr.current_project
+        if not project or not project.team_members:
+            return
+
+        options = list(project.team_members)
+        current = project.active_team_member if project.active_team_member in options else ""
+        current_index = options.index(current) if current else 0
+
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Qui etes-vous ?",
+            "Selectionnez votre membre d'equipe:",
+            options,
+            current_index,
+            False,
+        )
+        if not ok:
+            if not current:
+                project.active_team_member = options[0]
+                self._project_mgr.save_user_state()
+                self._apply_team_filter()
+            return
+
+        project.active_team_member = choice
+        self._project_mgr.save_user_state()
         self._apply_team_filter()
 
     def _apply_team_filter(self) -> None:

@@ -1,6 +1,9 @@
 """Project management — unified project file with team, classes, and state."""
 from __future__ import annotations
 import json
+import os
+import random
+import re
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from datetime import datetime
@@ -8,6 +11,16 @@ from typing import Optional
 
 # Default projects directory (relative to app root)
 PROJECTS_DIR_NAME = "projets"
+LOCAL_STATE_DIR_NAME = ".local"
+
+_PERSONAL_STATE_KEYS = {
+    "current_index",
+    "current_split",
+    "active_team_member",
+    "use_obb",
+    "model_path",
+    "model_confidence",
+}
 
 
 @dataclass
@@ -128,6 +141,10 @@ class Project:
         if not unassigned:
             return
 
+        # Randomize assignment order so redistribution does not follow
+        # filename/order sequence every time.
+        random.shuffle(unassigned)
+
         # Calculate distribution based on percentages
         total_percentage = sum(self.team_percentages.get(m, 0.0) for m in self.team_members)
 
@@ -195,12 +212,15 @@ class Project:
     # Persistence
     # ------------------------------------------------------------------
 
-    def save(self, path: Path) -> bool:
+    def save(self, path: Path, include_personal: bool = True) -> bool:
         """Save project to a JSON file. Returns True on success."""
         self.modified_at = datetime.now().isoformat()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             data = asdict(self)
+            if not include_personal:
+                for key in _PERSONAL_STATE_KEYS:
+                    data.pop(key, None)
             path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
             return True
         except OSError:
@@ -248,6 +268,7 @@ class ProjectManager:
         self._projects_dir.mkdir(parents=True, exist_ok=True)
         self._current_project: Project | None = None
         self._current_path: Path | None = None
+        self._current_user_state: dict[str, object] = {}
 
     @property
     def projects_dir(self) -> Path:
@@ -311,7 +332,16 @@ class ProjectManager:
 
         # Save project JSON inside the folder
         self._current_path = project_folder / f"{safe_name}.json"
-        self._current_project.save(self._current_path)
+        self._current_project.save(self._current_path, include_personal=False)
+        self._current_user_state = {
+            "current_index": self._current_project.current_index,
+            "current_split": self._current_project.current_split,
+            "active_team_member": self._current_project.active_team_member,
+            "use_obb": self._current_project.use_obb,
+            "model_path": self._current_project.model_path,
+            "model_confidence": self._current_project.model_confidence,
+        }
+        self.save_user_state()
 
         return self._current_project
 
@@ -327,22 +357,83 @@ class ProjectManager:
         if project:
             self._current_project = project
             self._current_path = path
+            state = self._load_user_state(path.parent)
+            if not state:
+                # Migration fallback from legacy monolithic project json.
+                state = {
+                    "current_index": project.current_index,
+                    "current_split": project.current_split,
+                    "active_team_member": project.active_team_member,
+                    "use_obb": project.use_obb,
+                    "model_path": project.model_path,
+                    "model_confidence": project.model_confidence,
+                }
+            self._current_user_state = state
+            self._apply_user_state_to_project(project, state)
         return project
 
     def save_current(self) -> bool:
         """Save the current project. Returns True on success."""
         if self._current_project and self._current_path:
-            return self._current_project.save(self._current_path)
+            return self._current_project.save(self._current_path, include_personal=False)
         return False
 
     def save_as(self, path: Path) -> bool:
         """Save current project to a new path."""
         if self._current_project:
             self._current_path = path
-            return self._current_project.save(path)
+            return self._current_project.save(path, include_personal=False)
         return False
+
+    def save_user_state(self) -> bool:
+        """Save per-user runtime state in a local sidecar file."""
+        if not self._current_project or not self._current_path:
+            return False
+        payload = {
+            "current_index": int(self._current_project.current_index),
+            "current_split": str(self._current_project.current_split or "train"),
+            "active_team_member": str(self._current_project.active_team_member or ""),
+            "use_obb": bool(self._current_project.use_obb),
+            "model_path": str(self._current_project.model_path or ""),
+            "model_confidence": float(self._current_project.model_confidence),
+        }
+        self._current_user_state = payload
+        try:
+            state_path = self._user_state_path(self._current_path.parent)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+            return True
+        except OSError:
+            return False
 
     def close_project(self) -> None:
         """Close the current project."""
         self._current_project = None
         self._current_path = None
+        self._current_user_state = {}
+
+    @staticmethod
+    def _apply_user_state_to_project(project: Project, state: dict[str, object]) -> None:
+        project.current_index = max(0, int(state.get("current_index", project.current_index)))
+        project.current_split = str(state.get("current_split", project.current_split or "train"))
+        project.active_team_member = str(state.get("active_team_member", project.active_team_member or ""))
+        project.use_obb = bool(state.get("use_obb", project.use_obb))
+        project.model_path = str(state.get("model_path", project.model_path or ""))
+        project.model_confidence = float(state.get("model_confidence", project.model_confidence))
+
+    def _load_user_state(self, project_folder: Path) -> dict[str, object]:
+        state_path = self._user_state_path(project_folder)
+        if not state_path.exists():
+            return {}
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        return {}
+
+    def _user_state_path(self, project_folder: Path) -> Path:
+        user = os.environ.get("USERNAME") or os.environ.get("USER") or "default"
+        safe_user = re.sub(r"[^A-Za-z0-9._-]", "_", user)
+        return project_folder / LOCAL_STATE_DIR_NAME / f"user-state-{safe_user}.json"

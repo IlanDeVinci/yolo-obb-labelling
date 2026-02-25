@@ -291,9 +291,7 @@ class RotationHandleItem(QGraphicsEllipseItem):
             self.pos().y() - self._center.y(),
             self.pos().x() - self._center.x(),
         )
-        self._start_corners = [
-            QPointF(pt.x(), pt.y()) for pt in self._parent_obb.polygon()
-        ]
+        self._start_corners = self._parent_obb._scene_points()
         self._parent_obb._begin_modify()
         self._dragging = True
         # Re-select the parent (scene clears selection on non-selectable press)
