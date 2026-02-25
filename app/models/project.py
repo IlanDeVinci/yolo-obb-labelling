@@ -61,7 +61,8 @@ class Project:
     def __post_init__(self):
         if not self.created_at:
             self.created_at = datetime.now().isoformat()
-        self.modified_at = datetime.now().isoformat()
+        if not self.modified_at:
+            self.modified_at = datetime.now().isoformat()
 
     # ------------------------------------------------------------------
     # Team management
@@ -214,7 +215,6 @@ class Project:
 
     def save(self, path: Path, include_personal: bool = True) -> bool:
         """Save project to a JSON file. Returns True on success."""
-        self.modified_at = datetime.now().isoformat()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             data = asdict(self)

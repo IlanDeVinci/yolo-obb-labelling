@@ -1,23 +1,11 @@
 {
   "name": "tcg-pokemon",
   "created_at": "2026-02-25T11:25:22.397350",
-<<<<<<< HEAD
   "modified_at": "2026-02-25T14:46:20.699533",
   "dataset_folder": "C:\\Users\\augus\\Desktop\\yolo-obb-labelling\\projets\\tcg-pokemon\\images",
-=======
-  "modified_at": "2026-02-25T14:40:21.885535",
-  "dataset_folder": "C:\\Users\\Ilan\\Documents\\GitHub\\yolo-obb-labelling\\projets\\tcg-pokemon\\images",
->>>>>>> 15f188e400af001b11ff53e87f06ac5806cc48e8
   "yaml_path": "",
-  "class_names": [
-    "card"
-  ],
-  "team_members": [
-    "Ilan",
-    "Samuel",
-    "August",
-    "Alexandre"
-  ],
+  "class_names": ["card"],
+  "team_members": ["Ilan", "Samuel", "August", "Alexandre"],
   "team_percentages": {
     "Ilan": 16.0,
     "Samuel": 16.0,
