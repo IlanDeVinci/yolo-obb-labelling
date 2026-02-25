@@ -42,7 +42,7 @@ class Project:
 
     # Model settings
     model_path: str = ""
-    model_confidence: float = 0.25
+    model_confidence: float = 0.7
 
     def __post_init__(self):
         if not self.created_at:
@@ -208,7 +208,7 @@ class Project:
                 active_team_member=data.get("active_team_member", ""),
                 use_obb=data.get("use_obb", True),
                 model_path=data.get("model_path", ""),
-                model_confidence=float(data.get("model_confidence", 0.25)),
+                model_confidence=float(data.get("model_confidence", 0.7)),
             )
         except Exception:
             return None

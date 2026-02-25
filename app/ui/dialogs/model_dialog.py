@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 
 
 class ModelDialog(QDialog):
-    def __init__(self, current_path: str = "", current_conf: float = 0.25, parent=None) -> None:
+    def __init__(self, current_path: str = "", current_conf: float = 0.7, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Load YOLO OBB Model")
         self.setMinimumWidth(420)

@@ -98,7 +98,7 @@ class MainWindow(QMainWindow):
         # Get use_obb from current project or default
         self._use_obb: bool = True  # Will be updated from project
         self._model_path: str = ""
-        self._model_conf: float = 0.25
+        self._model_conf: float = 0.7
 
         # Build UI
         self._build_ui()
@@ -272,6 +272,14 @@ class MainWindow(QMainWindow):
         self._act_toggle_obb.setShortcut(QKeySequence("Ctrl+B"))
         self._act_toggle_obb.triggered.connect(self._toggle_label_mode)
         ann_menu.addAction(self._act_toggle_obb)
+
+        self._act_convert_to_obb = QAction("Convert Labels to &OBB", self)
+        self._act_convert_to_obb.triggered.connect(lambda: self._convert_labels_to_mode(True))
+        ann_menu.addAction(self._act_convert_to_obb)
+
+        self._act_convert_to_bb = QAction("Convert Labels to &BBox", self)
+        self._act_convert_to_bb.triggered.connect(lambda: self._convert_labels_to_mode(False))
+        ann_menu.addAction(self._act_convert_to_bb)
 
         ann_menu.addSeparator()
 
@@ -979,7 +987,7 @@ class MainWindow(QMainWindow):
     def _load_model(self) -> None:
         project = self._project_mgr.current_project
         model_path = project.model_path if project else ""
-        model_conf = project.model_confidence if project else 0.25
+        model_conf = project.model_confidence if project else 0.7
 
         dlg = ModelDialog(model_path, model_conf, self)
         if dlg.exec() != ModelDialog.DialogCode.Accepted:
@@ -1451,6 +1459,52 @@ class MainWindow(QMainWindow):
 
         mode_name = "OBB (Oriented Bounding Box)" if self._use_obb else "BBox (Axis-Aligned)"
         self._lbl_hint.setText(f"Mode: {mode_name}")
+
+    def _convert_labels_to_mode(self, target_use_obb: bool) -> None:
+        """Convert labels to target format and overwrite current in-memory state.
+
+        Unlike mode toggle, this operation always converts the currently loaded
+        labels and does not restore previously saved labels from the other mode.
+        """
+        source_name = "OBB" if self._use_obb else "BBox"
+        target_name = "OBB" if target_use_obb else "BBox"
+
+        if self._use_obb == target_use_obb:
+            self._lbl_hint.setText(f"Already in {target_name} mode.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            f"Convert {source_name} -> {target_name}",
+            f"Convert all current labels from {source_name} to {target_name}?\n\n"
+            "This overwrites the current working labels in memory.\n"
+            "You can undo with Ctrl+Z if needed.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        old_mode = self._use_obb
+        old_labels = self._clone_labels(self._label_mgr.labels)
+        old_dirty = self._label_mgr.is_dirty
+
+        new_labels = self._convert_labels_for_mode(old_labels, target_use_obb)
+        new_dirty = True
+
+        self._undo_stack.clear()
+        cmd = ToggleLabelModeCommand(
+            old_use_obb=old_mode,
+            new_use_obb=target_use_obb,
+            old_labels=old_labels,
+            new_labels=new_labels,
+            old_dirty=old_dirty,
+            new_dirty=new_dirty,
+            apply_state=self._apply_label_mode_state,
+        )
+        self._undo_stack.push(cmd)
+
+        self._lbl_hint.setText(f"Converted labels: {source_name} -> {target_name}")
 
     def _warn_once_before_mode_switch(self) -> bool:
         key = "warnings/mode_switch_seen"
