@@ -92,15 +92,15 @@ class ImageBrowserPanel(QWidget):
             if self._label_manager else False
         )
         completion = self._completion_provider(img) if self._completion_provider else ""
-        if completion == "completed":
-            item.setForeground(QColor("#90ee90"))
-            status_suffix = " [DONE]"
-        elif completion == "in_progress":
+        if completion == "in_progress":
             item.setForeground(QColor("#f6d86b"))
-            status_suffix = " [IP]"
+            status_suffix = ""
+        elif completion == "completed" or has_labels:
+            item.setForeground(QColor("#90ee90"))
+            status_suffix = " ✓"
         else:
-            item.setForeground(QColor("#90ee90") if has_labels else QColor("#ddd"))
-            status_suffix = " ✓" if has_labels else ""
+            item.setForeground(QColor("#ddd"))
+            status_suffix = ""
         item.setText(img.name + status_suffix)
 
     def _on_row_changed(self, row: int) -> None:

@@ -248,12 +248,6 @@ class MainWindow(QMainWindow):
 
         ds_menu.addSeparator()
 
-        self._act_toggle_completion = QAction("Mark Current Image &Completed", self)
-        self._act_toggle_completion.triggered.connect(self._toggle_current_image_completion)
-        ann_menu.addAction(self._act_toggle_completion)
-
-        ds_menu.addSeparator()
-
         act = QAction("&Build Dataset from Labeled Images…", self)
         act.triggered.connect(self._build_dataset)
         ds_menu.addAction(act)
@@ -279,10 +273,6 @@ class MainWindow(QMainWindow):
         ann_menu.addAction(self._act_toggle_obb)
 
         ann_menu.addSeparator()
-
-        self._act_toggle_completion = QAction("Mark Current Image &Completed", self)
-        self._act_toggle_completion.triggered.connect(self._toggle_current_image_completion)
-        ann_menu.addAction(self._act_toggle_completion)
 
         self._act_convert_to_obb = QAction("Convert Labels to &OBB", self)
         self._act_convert_to_obb.triggered.connect(lambda: self._convert_labels_to_mode(True))
@@ -372,6 +362,21 @@ class MainWindow(QMainWindow):
         act = QAction("&Keyboard Shortcuts", self)
         act.triggered.connect(self._show_shortcuts)
         help_menu.addAction(act)
+
+        # ---- Status ----
+        status_menu = mb.addMenu("&Status")
+
+        self._act_set_completed = QAction("Set as &Completed", self)
+        self._act_set_completed.triggered.connect(
+            lambda: self._set_current_image_completion("completed")
+        )
+        status_menu.addAction(self._act_set_completed)
+
+        self._act_set_in_progress = QAction("Set as &In Progress", self)
+        self._act_set_in_progress.triggered.connect(
+            lambda: self._set_current_image_completion("in_progress")
+        )
+        status_menu.addAction(self._act_set_in_progress)
 
     def _build_status_bar(self) -> None:
         sb = QStatusBar()
@@ -645,6 +650,47 @@ class MainWindow(QMainWindow):
                 return local_images
         return None
 
+    def _normalize_project_completion_states(self) -> None:
+        """Normalize completion states for all known images in the open project.
+
+        - Converts legacy/explicit "completed" entries to "in_progress"
+          (single visual convention requested).
+        - Removes entries for images no longer present in the project.
+        - Ensures labeled images at least get "in_progress".
+        """
+        project = self._project_mgr.current_project
+        if not project:
+            return
+
+        known_images: list[Path] = []
+        if self._dataset.train_images or self._dataset.val_images:
+            known_images = list(self._dataset.train_images) + list(self._dataset.val_images)
+        elif self._all_images:
+            known_images = list(self._all_images)
+
+        if not known_images:
+            return
+
+        known_names = {img.name for img in known_images}
+        normalized: dict[str, str] = {}
+
+        for image_name, status in project.image_completion.items():
+            if image_name not in known_names:
+                continue
+            normalized_status = str(status).strip().lower()
+            if normalized_status == "completed":
+                normalized_status = "in_progress"
+            if normalized_status in {"in_progress", "completed"}:
+                normalized[image_name] = normalized_status
+
+        for img in known_images:
+            if img.name not in normalized and self._label_mgr.has_labels_for(img):
+                normalized[img.name] = "in_progress"
+
+        if normalized != project.image_completion:
+            project.image_completion = normalized
+            self._project_mgr.save_current()
+
     def _load_folder_into_ui(self, folder: Path) -> None:
         """Load a folder into the UI without creating a new project."""
         existing_classes = self._class_panel.class_names()
@@ -656,6 +702,7 @@ class MainWindow(QMainWindow):
         self._dataset.load_from_folder(folder, existing_classes)
         self._all_images = list(self._dataset.train_images)
         self._image_mgr.load_split(self._all_images, "")
+        self._normalize_project_completion_states()
         self._browser.set_images(self._image_mgr.images)
         self._load_current_image()
 
@@ -956,20 +1003,36 @@ class MainWindow(QMainWindow):
         self._set_current_image_completion(target)
 
     def _update_completion_action(self) -> None:
-        if not hasattr(self, "_act_toggle_completion"):
-            return
-        img = self._image_mgr.current_image
-        if img is None:
-            self._act_toggle_completion.setEnabled(False)
-            self._act_toggle_completion.setText("Mark Current Image &Completed")
+        has_completed_action = hasattr(self, "_act_set_completed")
+        has_in_progress_action = hasattr(self, "_act_set_in_progress")
+        has_toggle_action = hasattr(self, "_act_toggle_completion")
+        if not (has_completed_action or has_in_progress_action or has_toggle_action):
             return
 
-        self._act_toggle_completion.setEnabled(True)
+        img = self._image_mgr.current_image
+        if img is None:
+            if has_completed_action:
+                self._act_set_completed.setEnabled(False)
+            if has_in_progress_action:
+                self._act_set_in_progress.setEnabled(False)
+            if has_toggle_action:
+                self._act_toggle_completion.setEnabled(False)
+                self._act_toggle_completion.setText("Mark Current Image &Completed")
+            return
+
         current = self._get_image_completion_status(img)
-        if current == "completed":
-            self._act_toggle_completion.setText("Mark Current Image &In Progress")
-        else:
-            self._act_toggle_completion.setText("Mark Current Image &Completed")
+
+        if has_completed_action:
+            self._act_set_completed.setEnabled(current != "completed")
+        if has_in_progress_action:
+            self._act_set_in_progress.setEnabled(current != "in_progress")
+
+        if has_toggle_action:
+            self._act_toggle_completion.setEnabled(True)
+            if current == "completed":
+                self._act_toggle_completion.setText("Mark Current Image &In Progress")
+            else:
+                self._act_toggle_completion.setText("Mark Current Image &Completed")
 
     def _auto_mark_current_image_in_progress(self) -> None:
         """Default completion state when first labels appear on an image."""
@@ -1062,6 +1125,8 @@ class MainWindow(QMainWindow):
     def _load_split_images(self, split: str) -> None:
         images = self._dataset.train_images if split == "train" else self._dataset.val_images
         self._all_images = list(images)
+
+        self._normalize_project_completion_states()
 
         # Apply team filter if active
         project = self._project_mgr.current_project
