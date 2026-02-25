@@ -1,8 +1,8 @@
 {
   "name": "tcg-pokemon",
   "created_at": "2026-02-25T11:25:22.397350",
-  "modified_at": "2026-02-25T14:30:33.572594",
-  "dataset_folder": "C:\\Users\\Ilan\\Documents\\GitHub\\yolo-obb-labelling\\projets\\tcg-pokemon\\images",
+  "modified_at": "2026-02-25T14:48:45.965473",
+  "dataset_folder": "C:\\Users\\alexm\\Documents\\IIM\\A2\\Labelisation\\yolo-obb-labelling\\projets\\tcg-pokemon\\images",
   "yaml_path": "",
   "class_names": [
     "card"
