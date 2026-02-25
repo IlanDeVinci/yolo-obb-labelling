@@ -69,7 +69,9 @@ class HandleItem(QGraphicsEllipseItem):
         mods = event.modifiers()
         if mods & (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ControlModifier):
             self._parent_obb.scale_uniform_from_corner(self._start_scene_points, self.corner_idx, scene_pos)
-            self.setPos(scene_pos)
+            pts = self._parent_obb._scene_points()
+            if 0 <= self.corner_idx < len(pts):
+                self.setPos(pts[self.corner_idx])
         else:
             self.setPos(scene_pos)
             self._parent_obb.update_corner(self.corner_idx, scene_pos)
@@ -174,7 +176,15 @@ class EdgeHandleItem(QGraphicsPolygonItem):
 
         if mods & (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ControlModifier):
             self._parent_obb.scale_uniform_from_edge(self._start_scene_points, self.edge_idx, scene_pos)
-            self.setPos(scene_pos)
+            pts = self._parent_obb._scene_points()
+            if len(pts) >= 4:
+                i0 = self.edge_idx % 4
+                i1 = (i0 + 1) % 4
+                mid = QPointF(
+                    (pts[i0].x() + pts[i1].x()) / 2,
+                    (pts[i0].y() + pts[i1].y()) / 2,
+                )
+                self.setPos(mid)
             event.accept()
             return
 

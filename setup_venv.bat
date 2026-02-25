@@ -2,6 +2,10 @@
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
+set "INSTALL_INFERENCE=0"
+if /I "%~1"=="--with-inference" set "INSTALL_INFERENCE=1"
+if /I "%YOLO_INSTALL_INFERENCE%"=="1" set "INSTALL_INFERENCE=1"
+
 echo [1/4] Verification de Python...
 set "PY_CMD="
 where py >nul 2>nul
@@ -41,17 +45,24 @@ if errorlevel 1 (
     exit /b 1
 )
 
-".venv\Scripts\python.exe" -m pip install -r requirements-inference.txt
-if errorlevel 1 (
-    echo Echec installation requirements-inference.txt
-    exit /b 1
-)
+if "%INSTALL_INFERENCE%"=="1" (
+    echo [4/4] Installation inference optionnelle ^(ultralytics + torch^)...
+    ".venv\Scripts\python.exe" -m pip install -r requirements-inference.txt
+    if errorlevel 1 (
+        echo Attention: echec installation requirements-inference.txt
+        echo Le mode annotation reste utilisable.
+        exit /b 0
+    )
 
-echo [4/4] Verification inference (ultralytics + torch)...
-".venv\Scripts\python.exe" -c "import ultralytics, torch; print('ultralytics', ultralytics.__version__); print('torch', torch.__version__)"
-if errorlevel 1 (
-    echo Attention: inference non validee. Le mode annotation reste utilisable.
-    exit /b 1
+    echo Verification inference ^(ultralytics + torch^)...
+    ".venv\Scripts\python.exe" -c "import ultralytics, torch; print('ultralytics', ultralytics.__version__); print('torch', torch.__version__)"
+    if errorlevel 1 (
+        echo Attention: inference non validee. Le mode annotation reste utilisable.
+        exit /b 0
+    )
+) else (
+    echo [4/4] Inference non installee ^(optionnelle^).
+    echo Pour l'activer: setup_venv.bat --with-inference
 )
 
 echo Setup termine avec succes.

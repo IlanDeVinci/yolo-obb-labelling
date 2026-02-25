@@ -40,6 +40,14 @@ Then run:
 
 Inference uses `ultralytics` + `torch` (CPU wheels by default in this project).
 
+Inference install is optional. Base setup installs annotation dependencies only.
+
+To install inference later:
+
+```powershell
+.\install_inference.bat
+```
+
 If inference is missing/broken in the project environment:
 
 ```powershell
