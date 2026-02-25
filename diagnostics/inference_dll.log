@@ -1,0 +1,44 @@
+[2026-02-25 12:42:13.154] pid=15216 import_yolo start
+[2026-02-25 12:42:15.652] pid=15216 attempt_import success
+[2026-02-25 12:42:15.652] pid=15216 import_yolo stage1_success
+[2026-02-25 12:42:34.913] pid=16756 import_yolo start
+[2026-02-25 12:42:36.039] pid=16756 attempt_import failed OSError: [WinError 1114] Une routine d’initialisation d’une bibliothèque de liens dynamiques (DLL) a échoué. Error loading "C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib\c10.dll" or one of its dependencies.
+[2026-02-25 12:42:36.390] pid=16756 import_yolo sleep_0.35_done
+[2026-02-25 12:42:36.392] pid=16756 prepare_dlls exe=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Scripts\python.exe torch_lib=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib
+[2026-02-25 12:42:36.392] pid=16756 prepare_dlls add_dll_directory_ok
+[2026-02-25 12:42:37.299] pid=16756 preload_dlls failed c10.dll
+[2026-02-25 12:42:38.640] pid=16756 preload_dlls failed torch_cpu.dll
+[2026-02-25 12:42:38.991] pid=16756 import_yolo post_prepare_sleep_0.35_done
+[2026-02-25 12:42:38.992] pid=16756 prepare_dlls exe=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Scripts\python.exe torch_lib=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib
+[2026-02-25 12:42:38.992] pid=16756 prepare_dlls add_dll_directory_ok
+[2026-02-25 12:42:39.949] pid=16756 preload_dlls failed c10.dll
+[2026-02-25 12:42:41.263] pid=16756 preload_dlls failed torch_cpu.dll
+[2026-02-25 12:42:42.197] pid=16756 attempt_import failed OSError: [WinError 1114] Une routine d’initialisation d’une bibliothèque de liens dynamiques (DLL) a échoué. Error loading "C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib\c10.dll" or one of its dependencies.
+[2026-02-25 12:42:42.197] pid=16756 import_yolo retry_failed delay=0.0
+[2026-02-25 12:42:42.548] pid=16756 import_yolo retry_sleep_0.35
+[2026-02-25 12:42:42.549] pid=16756 prepare_dlls exe=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Scripts\python.exe torch_lib=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib
+[2026-02-25 12:42:42.550] pid=16756 prepare_dlls add_dll_directory_ok
+[2026-02-25 12:42:43.585] pid=16756 preload_dlls failed c10.dll
+[2026-02-25 12:42:44.855] pid=16756 preload_dlls failed torch_cpu.dll
+[2026-02-25 12:42:45.757] pid=16756 attempt_import failed OSError: [WinError 1114] Une routine d’initialisation d’une bibliothèque de liens dynamiques (DLL) a échoué. Error loading "C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib\c10.dll" or one of its dependencies.
+[2026-02-25 12:42:45.758] pid=16756 import_yolo retry_failed delay=0.35
+[2026-02-25 12:42:46.509] pid=16756 import_yolo retry_sleep_0.75
+[2026-02-25 12:42:46.510] pid=16756 prepare_dlls exe=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Scripts\python.exe torch_lib=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib
+[2026-02-25 12:42:46.511] pid=16756 prepare_dlls add_dll_directory_ok
+[2026-02-25 12:42:47.477] pid=16756 preload_dlls failed c10.dll
+[2026-02-25 12:42:48.763] pid=16756 preload_dlls failed torch_cpu.dll
+[2026-02-25 12:42:49.664] pid=16756 attempt_import failed OSError: [WinError 1114] Une routine d’initialisation d’une bibliothèque de liens dynamiques (DLL) a échoué. Error loading "C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib\c10.dll" or one of its dependencies.
+[2026-02-25 12:42:49.665] pid=16756 import_yolo retry_failed delay=0.75
+[2026-02-25 12:42:49.665] pid=16756 import_yolo final_fail [WinError 1114] Une routine d’initialisation d’une bibliothèque de liens dynamiques (DLL) a échoué. Error loading "C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib\c10.dll" or one of its dependencies.
+[2026-02-25 12:44:55.721] pid=10548 prepare_dlls exe=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Scripts\python.exe torch_lib=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib
+[2026-02-25 12:44:55.721] pid=10548 prepare_dlls add_dll_directory_ok
+[2026-02-25 12:44:55.722] pid=10548 import_yolo start
+[2026-02-25 12:44:58.428] pid=10548 attempt_import success
+[2026-02-25 12:44:58.429] pid=10548 import_yolo stage1_success
+[2026-02-25 12:45:41.613] pid=4280 prepare_dlls exe=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Scripts\python.exe torch_lib=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib
+[2026-02-25 12:45:41.613] pid=4280 prepare_dlls add_dll_directory_ok
+[2026-02-25 12:45:41.614] pid=4280 import_yolo start
+[2026-02-25 12:45:44.119] pid=4280 attempt_import success
+[2026-02-25 12:45:44.119] pid=4280 import_yolo stage1_success
+[2026-02-25 12:45:44.620] pid=4280 prepare_dlls exe=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Scripts\python.exe torch_lib=C:\Users\Ilan\Documents\GitHub\yolo-obb-labelling\.venv\Lib\site-packages\torch\lib
+[2026-02-25 12:45:44.622] pid=4280 prepare_dlls add_dll_directory_ok

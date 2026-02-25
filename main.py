@@ -1,7 +1,13 @@
 """Entry point for the YOLO OBB Labeller."""
 import os
 import sys
+import time
 from pathlib import Path
+
+from app.inference.runtime_bootstrap import (
+    prepare_windows_ml_runtime,
+    warmup_inference_runtime,
+)
 
 
 def _apply_dark_palette(app) -> None:
@@ -32,27 +38,17 @@ def _apply_dark_palette(app) -> None:
 
 def _prepare_windows_ml_runtime() -> None:
     """Best-effort Windows runtime prep for torch/ultralytics DLL loading."""
-    if os.name != "nt":
-        return
-
-    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-    os.environ.setdefault("OMP_NUM_THREADS", "1")
-
-    venv_site = Path(sys.executable).resolve().parent.parent / "Lib" / "site-packages"
-    torch_lib = venv_site / "torch" / "lib"
-    if torch_lib.exists():
-        path = os.environ.get("PATH", "")
-        torch_lib_str = str(torch_lib)
-        if torch_lib_str not in path:
-            os.environ["PATH"] = torch_lib_str + os.pathsep + path
-        try:
-            os.add_dll_directory(torch_lib_str)
-        except Exception:
-            pass
+    prepare_windows_ml_runtime()
 
 
 def main() -> None:
     _prepare_windows_ml_runtime()
+
+    # Warmup inference runtime before loading Qt to reduce WinError 1114 races.
+    warmup_inference_runtime()
+    if os.name == "nt":
+        time.sleep(0.5)
+        _prepare_windows_ml_runtime()
 
     from PyQt6.QtWidgets import QApplication
     from app.ui.main_window import MainWindow

@@ -47,6 +47,7 @@ from app.ui.dialogs.project_dialog import (
 )
 from app.inference.yolo_predictor import (
     YoloPredictor,
+    get_inference_diag_log_path,
     get_yolo_class,
     is_inference_available,
 )
@@ -1046,6 +1047,7 @@ class MainWindow(QMainWindow):
     def _show_inference_missing_message(self, inference_error: str = "") -> None:
         details = f"\n\nDetail: {inference_error}" if inference_error else ""
         runtime = f"\n\nInterpreteur actuel:\n    {sys.executable}"
+        diag_log = f"\n\nLog diagnostic:\n    {get_inference_diag_log_path()}"
         win1114_help = ""
         if "WinError 1114" in inference_error:
             win1114_help = (
@@ -1061,7 +1063,7 @@ class MainWindow(QMainWindow):
             "Le module d'inference 'ultralytics' n'est pas disponible dans l'environnement Python actuel.\n\n"
             "Installez-le dans CE MEME environnement avec:\n"
             "    python -m pip install -r requirements-inference.txt"
-            f"{runtime}{details}{win1114_help}",
+            f"{runtime}{diag_log}{details}{win1114_help}",
         )
 
     def _run_on_all(self) -> None:

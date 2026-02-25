@@ -1,116 +1,26 @@
 """YOLO inference — async worker using QThread. Supports both OBB and regular detection models."""
 from __future__ import annotations
-import ctypes
-import os
-import sys
 from pathlib import Path
 from typing import Callable
-
-_YOLO = None
-INFERENCE_ERROR = ""
-
-
-def _prepare_windows_torch_dlls() -> None:
-    if os.name != "nt":
-        return
-
-    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-    os.environ.setdefault("OMP_NUM_THREADS", "1")
-
-    venv_site = Path(sys.executable).resolve().parent.parent / "Lib" / "site-packages"
-    torch_lib = venv_site / "torch" / "lib"
-    if not torch_lib.exists():
-        return
-
-    torch_lib_str = str(torch_lib)
-    current_path = os.environ.get("PATH", "")
-    if torch_lib_str not in current_path:
-        os.environ["PATH"] = torch_lib_str + os.pathsep + current_path
-
-    try:
-        os.add_dll_directory(torch_lib_str)
-    except Exception:
-        pass
-
-
-def _preload_torch_core_dlls() -> None:
-    if os.name != "nt":
-        return
-
-    venv_site = Path(sys.executable).resolve().parent.parent / "Lib" / "site-packages"
-    torch_lib = venv_site / "torch" / "lib"
-    if not torch_lib.exists():
-        return
-
-    # Best-effort preload for flaky DLL init order on some Windows setups.
-    for dll_name in ("c10.dll", "torch_cpu.dll", "fbgemm.dll"):
-        dll_path = torch_lib / dll_name
-        if not dll_path.exists():
-            continue
-        try:
-            ctypes.WinDLL(str(dll_path))
-        except Exception:
-            pass
-
-
-def _try_import_yolo() -> bool:
-    """Try to import ultralytics.YOLO lazily.
-
-    Returns:
-        True if YOLO is available in the current Python environment.
-    """
-    global _YOLO, INFERENCE_ERROR
-
-    if _YOLO is not None:
-        INFERENCE_ERROR = ""
-        return True
-
-    _prepare_windows_torch_dlls()
-
-    try:
-        import torch  # noqa: F401
-        from ultralytics import YOLO as yolo_class
-
-        _YOLO = yolo_class
-        INFERENCE_ERROR = ""
-        return True
-    except Exception as exc:
-        # Retry once with conservative env knobs for common Windows DLL init issues
-        if "WinError 1114" in str(exc):
-            _prepare_windows_torch_dlls()
-            _preload_torch_core_dlls()
-            try:
-                import torch  # noqa: F401
-                from ultralytics import YOLO as yolo_class
-
-                _YOLO = yolo_class
-                INFERENCE_ERROR = ""
-                return True
-            except Exception as retry_exc:
-                _YOLO = None
-                INFERENCE_ERROR = str(retry_exc)
-                return False
-
-        _YOLO = None
-        INFERENCE_ERROR = str(exc)
-        return False
+from app.inference.runtime_bootstrap import (
+    get_inference_diag_log_path,
+    get_yolo_class as _bootstrap_get_yolo_class,
+    warmup_inference_runtime,
+)
 
 
 def is_inference_available() -> tuple[bool, str]:
     """Return runtime inference availability and error detail if missing."""
-    available = _try_import_yolo()
-    return available, INFERENCE_ERROR
+    return warmup_inference_runtime()
 
 
 def get_yolo_class():
     """Return YOLO class or raise RuntimeError with detail."""
-    if not _try_import_yolo():
-        raise RuntimeError(INFERENCE_ERROR or "ultralytics import failed")
-    return _YOLO
+    return _bootstrap_get_yolo_class()
 
 
 # Important on Windows: pre-load torch/ultralytics before Qt imports.
-INFERENCE_AVAILABLE = _try_import_yolo()
+INFERENCE_AVAILABLE, INFERENCE_ERROR = warmup_inference_runtime()
 from PyQt6.QtCore import QThread, QObject, pyqtSignal
 
 from app.models.obb_label import OBBLabel, BBoxLabel, Label
