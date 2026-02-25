@@ -1,18 +1,9 @@
 {
   "name": "tcg-pokemon",
   "created_at": "2026-02-25T11:25:22.397350",
-  "modified_at": "2026-02-25T14:01:46.074855",
-  "dataset_folder": "C:\\Users\\alexm\\Documents\\IIM\\A2\\Labelisation\\yolo-obb-labelling\\projets\\tcg-pokemon\\images",
   "yaml_path": "",
-  "class_names": [
-    "card"
-  ],
-  "team_members": [
-    "Ilan",
-    "Samuel",
-    "August",
-    "Alexandre"
-  ],
+  "class_names": ["card"],
+  "team_members": ["Ilan", "Samuel", "August", "Alexandre"],
   "team_percentages": {
     "Ilan": 15.0,
     "Samuel": 15.0,
@@ -184,9 +175,6 @@
       "PXL_20260224_092202578.MP.jpg"
     ]
   },
-  "current_index": 8,
-  "current_split": "train",
-  "active_team_member": "Alexandre",
   "image_completion": {},
   "use_obb": true,
   "model_path": "C:/Users/Ilan/Documents/GitHub/PokemonFullCardAI/runs/detect/train6/weights/best.pt",
