@@ -1,0 +1,17 @@
+{
+  "name": "tcgpokemon",
+  "created_at": "2026-02-25T13:51:09.951087",
+  "modified_at": "2026-02-25T13:51:09.956316",
+  "dataset_folder": "C:\\Users\\augus\\Desktop\\yolo-obb-labelling\\projets\\tcgpokemon\\images",
+  "yaml_path": "",
+  "class_names": [],
+  "team_members": [],
+  "team_percentages": {},
+  "team_assignments": {},
+  "current_index": 0,
+  "current_split": "train",
+  "active_team_member": "",
+  "use_obb": true,
+  "model_path": "",
+  "model_confidence": 0.7
+}
