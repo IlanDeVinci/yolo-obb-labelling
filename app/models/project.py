@@ -357,6 +357,7 @@ class ProjectManager:
         if project:
             self._current_project = project
             self._current_path = path
+            normalized = self._normalize_dataset_folder(path)
             state = self._load_user_state(path.parent)
             if not state:
                 # Migration fallback from legacy monolithic project json.
@@ -370,11 +371,14 @@ class ProjectManager:
                 }
             self._current_user_state = state
             self._apply_user_state_to_project(project, state)
+            if normalized:
+                project.save(path, include_personal=False)
         return project
 
     def save_current(self) -> bool:
         """Save the current project. Returns True on success."""
         if self._current_project and self._current_path:
+            self._normalize_dataset_folder(self._current_path)
             return self._current_project.save(self._current_path, include_personal=False)
         return False
 
@@ -382,8 +386,38 @@ class ProjectManager:
         """Save current project to a new path."""
         if self._current_project:
             self._current_path = path
+            self._normalize_dataset_folder(path)
             return self._current_project.save(path, include_personal=False)
         return False
+
+    def resolve_dataset_folder(self, project: Project | None = None) -> Path | None:
+        """Resolve project.dataset_folder to an absolute path in project scope.
+
+        dataset_folder is stored as a path relative to the project folder.
+        """
+        if project is None:
+            project = self._current_project
+        if project is None or self._current_path is None:
+            return None
+
+        project_folder = self._current_path.parent
+        raw = str(project.dataset_folder or "").strip()
+        if not raw:
+            return None
+
+        rel = Path(raw)
+        if rel.is_absolute():
+            try:
+                rel = rel.resolve().relative_to(project_folder.resolve())
+            except Exception:
+                return None
+
+        resolved = (project_folder / rel).resolve()
+        try:
+            resolved.relative_to(project_folder.resolve())
+        except Exception:
+            return None
+        return resolved
 
     def save_user_state(self) -> bool:
         """Save per-user runtime state in a local sidecar file."""
@@ -411,6 +445,38 @@ class ProjectManager:
         self._current_project = None
         self._current_path = None
         self._current_user_state = {}
+
+    def _normalize_dataset_folder(self, project_path: Path) -> bool:
+        """Normalize dataset_folder to a project-local relative path.
+
+        Returns True when the in-memory value changed.
+        """
+        project = self._current_project
+        if project is None:
+            return False
+
+        project_folder = project_path.parent.resolve()
+        raw = str(project.dataset_folder or "").strip()
+        if not raw:
+            return False
+
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = (project_folder / candidate)
+
+        try:
+            candidate_resolved = candidate.resolve()
+            rel = candidate_resolved.relative_to(project_folder)
+        except Exception:
+            fallback = Path("images")
+            new_value = fallback.as_posix()
+        else:
+            new_value = rel.as_posix() if rel.as_posix() else "."
+
+        if project.dataset_folder != new_value:
+            project.dataset_folder = new_value
+            return True
+        return False
 
     @staticmethod
     def _apply_user_state_to_project(project: Project, state: dict[str, object]) -> None:
