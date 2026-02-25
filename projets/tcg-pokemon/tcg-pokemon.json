@@ -4,8 +4,15 @@
   "modified_at": "2026-02-25T14:46:20.699533",
   "dataset_folder": "images",
   "yaml_path": "",
-  "class_names": ["card"],
-  "team_members": ["Ilan", "Samuel", "August", "Alexandre"],
+  "class_names": [
+    "card"
+  ],
+  "team_members": [
+    "Ilan",
+    "Samuel",
+    "August",
+    "Alexandre"
+  ],
   "team_percentages": {
     "Ilan": 16.0,
     "Samuel": 16.0,
@@ -176,36 +183,5 @@
       "PXL_20260224_091832728.MP.jpg",
       "PXL_20260224_090642009.MP.jpg"
     ]
-  },
-  "image_completion": {
-    "PXL_20260224_083930328.MP.jpg": "in_progress",
-    "PXL_20260224_083844405.jpg": "in_progress",
-    "PXL_20260224_083909240.jpg": "in_progress",
-    "PXL_20260224_090058057.MP.jpg": "in_progress",
-    "PXL_20260224_090104332.jpg": "in_progress",
-    "PXL_20260224_090109327.jpg": "in_progress",
-    "PXL_20260224_090113767.jpg": "in_progress",
-    "PXL_20260224_090117989.jpg": "in_progress",
-    "PXL_20260224_090749821.MP.jpg": "in_progress",
-    "PXL_20260224_090757374.MP.jpg": "in_progress",
-    "PXL_20260224_090805248.MP.jpg": "in_progress",
-    "PXL_20260224_090811571.MP.jpg": "in_progress",
-    "PXL_20260224_090816787.MP.jpg": "in_progress",
-    "PXL_20260224_090820152.MP.jpg": "in_progress",
-    "PXL_20260224_090823845.MP.jpg": "in_progress",
-    "PXL_20260224_090829026.jpg": "in_progress",
-    "PXL_20260224_091221728.jpg": "in_progress",
-    "PXL_20260224_084624730.jpg": "completed",
-    "PXL_20260224_084944746.jpg": "completed",
-    "PXL_20260224_084020114.jpg": "in_progress",
-    "PXL_20260224_090148604.MP.jpg": "in_progress",
-    "PXL_20260224_090154310.MP.jpg": "in_progress",
-    "PXL_20260224_090221164.MP.jpg": "in_progress",
-    "PXL_20260224_090243920.jpg": "in_progress",
-    "PXL_20260224_090309284.MP.jpg": "in_progress",
-    "PXL_20260224_090314331.jpg": "in_progress",
-    "PXL_20260224_090319778.jpg": "in_progress",
-    "PXL_20260224_090328801.MP.jpg": "in_progress",
-    "PXL_20260224_090336118.MP.jpg": "in_progress"
   }
 }
