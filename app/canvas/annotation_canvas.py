@@ -38,6 +38,7 @@ class AnnotationCanvas(QGraphicsView):
     labels_changed = pyqtSignal()
     status_message = pyqtSignal(str)
     mode_changed = pyqtSignal(str)
+    label_selection_changed = pyqtSignal(list)  # list[int]
 
     def __init__(self, parent=None, use_obb: bool = True) -> None:
         super().__init__(parent)
@@ -54,6 +55,8 @@ class AnnotationCanvas(QGraphicsView):
         self._img_h: float = 1.0
         self._user_zoomed: bool = False   # True after any manual wheel/key zoom
         self._use_obb: bool = use_obb     # True = OBB mode, False = BBox mode
+        self._show_class_names: bool = True
+        self._accentuate_boxes: bool = False
         self._rubberband_select: bool = False
 
         # Middle-mouse-button pan state
@@ -143,6 +146,8 @@ class AnnotationCanvas(QGraphicsView):
             label, self._img_w, self._img_h, name,
             on_modified=self._on_label_modified,
             use_obb=self._use_obb,
+            show_class_name=self._show_class_names,
+            accentuate_boxes=self._accentuate_boxes,
         )
         item.setZValue(1)
         self._scene.addItem(item)
@@ -203,6 +208,19 @@ class AnnotationCanvas(QGraphicsView):
 
     def set_class_names(self, names: list[str]) -> None:
         self._class_names = names
+        for item in self._label_items:
+            class_name = names[item.label.class_idx] if item.label.class_idx < len(names) else ""
+            item.update_class_name(class_name)
+
+    def set_show_class_names(self, show: bool) -> None:
+        self._show_class_names = show
+        for item in self._label_items:
+            item.set_show_class_name(show)
+
+    def set_accentuate_boxes(self, accentuate: bool) -> None:
+        self._accentuate_boxes = accentuate
+        for item in self._label_items:
+            item.set_accentuate_boxes(accentuate)
 
     def set_use_obb(self, use_obb: bool) -> None:
         """Switch between OBB and BBox mode."""
@@ -229,6 +247,15 @@ class AnnotationCanvas(QGraphicsView):
             self._set_select_mode()
         for item in self._label_items:
             item.setSelected(True)
+        self._sync_selected_handles()
+
+    def select_label_index(self, index: int) -> None:
+        """Select one label by index and focus handles accordingly."""
+        if self._mode != self.MODE_SELECT:
+            self._set_select_mode()
+        self._scene.clearSelection()
+        if 0 <= index < len(self._label_items):
+            self._label_items[index].setSelected(True)
         self._sync_selected_handles()
 
     # ------------------------------------------------------------------
@@ -312,6 +339,11 @@ class AnnotationCanvas(QGraphicsView):
 
     def _sync_selected_handles(self) -> None:
         """Show handles on selected items, hide on deselected."""
+        selected_indices: list[int] = []
+        for idx, item in enumerate(self._label_items):
+            if item.isSelected():
+                selected_indices.append(idx)
+
         for item in self._label_items:
             if item.isSelected():
                 if not item._handles:
@@ -320,6 +352,7 @@ class AnnotationCanvas(QGraphicsView):
                 # Don't hide handles during an active drag / rotation
                 if item._handles and item._pre_modify_points is None:
                     item.hide_handles()
+        self.label_selection_changed.emit(selected_indices)
 
     # ------------------------------------------------------------------
     # Keyboard events

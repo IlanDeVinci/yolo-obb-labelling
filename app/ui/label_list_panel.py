@@ -55,6 +55,8 @@ class LabelListPanel(QWidget):
 
     def set_class_names(self, names: list[str]) -> None:
         self._class_names = names
+        if self._labels:
+            self.refresh(self._labels)
 
     def refresh(self, labels: list[Label]) -> None:
         self._labels = labels
@@ -74,3 +76,11 @@ class LabelListPanel(QWidget):
     def clear(self) -> None:
         self._list.clear()
         self._labels = []
+
+    def select_index(self, index: int) -> None:
+        self._list.blockSignals(True)
+        if 0 <= index < self._list.count():
+            self._list.setCurrentRow(index)
+        else:
+            self._list.clearSelection()
+        self._list.blockSignals(False)

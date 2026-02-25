@@ -41,7 +41,7 @@ class ImageBrowserPanel(QWidget):
             "QListWidget { background: #2a2a2a; color: #ddd; border: none; }"
             "QListWidget::item:selected { background: #3a5a8a; }"
         )
-        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list.currentRowChanged.connect(self._on_row_changed)
         layout.addWidget(self._list)
 
@@ -72,6 +72,15 @@ class ImageBrowserPanel(QWidget):
             item = self._list.item(idx)
             if item:
                 self._decorate_item(item, self._images[idx])
+
+    def selected_images(self) -> list[Path]:
+        """Return all currently selected image paths in the list."""
+        out: list[Path] = []
+        for item in self._list.selectedItems():
+            row = self._list.row(item)
+            if 0 <= row < len(self._images):
+                out.append(self._images[row])
+        return out
 
     # ------------------------------------------------------------------
     # Internal
