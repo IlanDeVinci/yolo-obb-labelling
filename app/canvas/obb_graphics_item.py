@@ -34,6 +34,8 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
         class_name: str = "",
         on_modified: Callable[[Label, list, list], None] | None = None,
         use_obb: bool = True,
+        show_class_name: bool = True,
+        accentuate_boxes: bool = False,
     ) -> None:
         r, g, b = get_color(label.class_idx)
         self._color = QColor(r, g, b)
@@ -45,6 +47,8 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
         self._pre_modify_points: list[float] | None = None
         self._rebaking = False
         self._use_obb = use_obb
+        self._show_class_name = show_class_name
+        self._accentuate_boxes = accentuate_boxes
         self._rotating_drag = False
         self._rotate_center = QPointF(0.0, 0.0)
         self._rotate_start_angle = 0.0
@@ -72,25 +76,46 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
         option: QStyleOptionGraphicsItem,
         widget: QWidget | None = None,
     ) -> None:
+        if painter is None or not painter.isActive():
+            return
+
+        if not self._show_class_name:
+            red_pen = QPen(QColor(225, 60, 60), 1.0)
+            red_pen.setCosmetic(True)
+            painter.setPen(red_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPolygon(self.polygon())
+            return
+
         selected = self.isSelected()
         pen_width = 2.5 if selected else 1.5
-        pen = QPen(self._color, pen_width)
+        pen_color = QColor(self._color)
+        fill_alpha = 60 if selected else 30
+        if self._accentuate_boxes:
+            pen_width = 3.6 if selected else 3.0
+            pen_color = pen_color.lighter(120)
+            fill_alpha = 95 if selected else 72
+
+        pen = QPen(pen_color, pen_width)
         pen.setCosmetic(True)
         painter.setPen(pen)
 
         fill = QColor(self._color)
-        fill.setAlpha(60 if selected else 30)
+        fill.setAlpha(fill_alpha)
         painter.setBrush(QBrush(fill))
         painter.drawPolygon(self.polygon())
 
         poly = self.polygon()
-        if poly.count() > 0:
+        if self._show_class_name and poly.count() > 0:
             p1 = poly[0]
             self._paint_text_badge(painter, p1, selected)
 
     def _paint_text_badge(
         self, painter, origin: QPointF, selected: bool
     ) -> None:
+        if painter is None or not painter.isActive():
+            return
+
         conf_str = ""
         if self.label.is_preannoted():
             conf_str = f" {self.label.conf:.0%}"
@@ -555,6 +580,14 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
 
     def update_class_name(self, name: str) -> None:
         self._class_name = name
+        self.update()
+
+    def set_show_class_name(self, show: bool) -> None:
+        self._show_class_name = show
+        self.update()
+
+    def set_accentuate_boxes(self, accentuate: bool) -> None:
+        self._accentuate_boxes = accentuate
         self.update()
 
     def set_use_obb(self, use_obb: bool) -> None:

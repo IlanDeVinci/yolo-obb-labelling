@@ -98,8 +98,15 @@ class MainWindow(QMainWindow):
 
         # Get use_obb from current project or default
         self._use_obb: bool = True  # Will be updated from project
+        self._show_class_names: bool = self._settings.value(
+            "view/show_class_names", True, type=bool
+        )
+        self._accentuate_boxes: bool = self._settings.value(
+            "view/accentuate_boxes", False, type=bool
+        )
         self._model_path: str = ""
         self._model_conf: float = 0.7
+        self._syncing_label_selection: bool = False
 
         # Build UI
         self._build_ui()
@@ -145,6 +152,8 @@ class MainWindow(QMainWindow):
 
         # Center: annotation canvas
         self._canvas = AnnotationCanvas(use_obb=self._use_obb)
+        self._canvas.set_show_class_names(self._show_class_names)
+        self._canvas.set_accentuate_boxes(self._accentuate_boxes)
         splitter.addWidget(self._canvas)
         splitter.setStretchFactor(1, 1)
 
@@ -299,6 +308,20 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self._canvas.fit_in_view)
         ann_menu.addAction(act)
 
+        self._act_toggle_class_names = QAction("Show Class &Names", self)
+        self._act_toggle_class_names.setCheckable(True)
+        self._act_toggle_class_names.setChecked(self._show_class_names)
+        self._act_toggle_class_names.setShortcut(QKeySequence("Ctrl+Shift+H"))
+        self._act_toggle_class_names.triggered.connect(self._toggle_class_names)
+        ann_menu.addAction(self._act_toggle_class_names)
+
+        self._act_toggle_accentuated_boxes = QAction("Very &Accentuated Boxes", self)
+        self._act_toggle_accentuated_boxes.setCheckable(True)
+        self._act_toggle_accentuated_boxes.setChecked(self._accentuate_boxes)
+        self._act_toggle_accentuated_boxes.setShortcut(QKeySequence("Ctrl+Shift+U"))
+        self._act_toggle_accentuated_boxes.triggered.connect(self._toggle_accentuated_boxes)
+        ann_menu.addAction(self._act_toggle_accentuated_boxes)
+
         # ---- Model ----
         model_menu = mb.addMenu("&Model")
 
@@ -356,6 +379,11 @@ class MainWindow(QMainWindow):
 
         act = QAction("&Distribuer les images", self)
         act.triggered.connect(self._distribute_images)
+        team_menu.addAction(act)
+
+        act = QAction("&Reassign Selected Images...", self)
+        act.setShortcut(QKeySequence("Ctrl+Shift+M"))
+        act.triggered.connect(self._reassign_selected_images)
         team_menu.addAction(act)
 
         act = QAction("&Voir toutes les images", self)
@@ -437,6 +465,10 @@ class MainWindow(QMainWindow):
 
         # Image browser
         self._browser.image_selected.connect(self._navigate_to_image)
+
+        # Label list <-> canvas selection sync
+        self._label_list.label_selected.connect(self._on_label_list_selected)
+        self._canvas.label_selection_changed.connect(self._on_canvas_label_selection_changed)
 
         # Navigation shortcuts (window-level so they work regardless of focus)
         for key in ("A", "Left"):
@@ -544,8 +576,30 @@ class MainWindow(QMainWindow):
         self._autosave_timer.start()
 
     def _refresh_label_list(self) -> None:
-        self._label_list.set_class_names(self._dataset.class_names or self._class_panel.class_names())
+        class_names = self._class_panel.class_names() or self._dataset.class_names
+        self._label_list.set_class_names(class_names)
         self._label_list.refresh(self._label_mgr.labels)
+
+    def _on_label_list_selected(self, index: int) -> None:
+        if self._syncing_label_selection:
+            return
+        self._syncing_label_selection = True
+        try:
+            self._canvas.select_label_index(index)
+        finally:
+            self._syncing_label_selection = False
+
+    def _on_canvas_label_selection_changed(self, selected_indices: list[int]) -> None:
+        if self._syncing_label_selection:
+            return
+        self._syncing_label_selection = True
+        try:
+            if selected_indices:
+                self._label_list.select_index(selected_indices[0])
+            else:
+                self._label_list.select_index(-1)
+        finally:
+            self._syncing_label_selection = False
 
     # ------------------------------------------------------------------
     # Auto-save
@@ -615,6 +669,8 @@ class MainWindow(QMainWindow):
         # Set label mode
         self._use_obb = project.use_obb
         self._canvas.set_use_obb(self._use_obb)
+        self._canvas.set_show_class_names(self._show_class_names)
+        self._canvas.set_accentuate_boxes(self._accentuate_boxes)
         self._label_mgr.set_use_obb(self._use_obb)
         self._update_format_indicator()
         self._update_model_indicator()
@@ -629,6 +685,7 @@ class MainWindow(QMainWindow):
 
         # Set class names
         if project.class_names:
+            self._dataset.class_names = list(project.class_names)
             self._class_panel.set_classes(project.class_names)
             self._canvas.set_class_names(project.class_names)
             self._label_list.set_class_names(project.class_names)
@@ -1498,6 +1555,72 @@ class MainWindow(QMainWindow):
         self._project_mgr.save_user_state()
         self._apply_team_filter()
 
+    def _reassign_selected_images(self) -> None:
+        """Reassign selected images (or current image) to another team member."""
+        project = self._project_mgr.current_project
+        if not project:
+            QMessageBox.information(
+                self, "Pas de projet", "Creez ou ouvrez d'abord un projet."
+            )
+            return
+        if not project.team_members:
+            QMessageBox.information(
+                self, "Pas de membres", "Ajoutez d'abord des membres via Equipe > Gerer les membres."
+            )
+            return
+
+        selected_paths = self._browser.selected_images()
+        if not selected_paths:
+            current = self._image_mgr.current_image
+            if current is not None:
+                selected_paths = [current]
+
+        if not selected_paths:
+            QMessageBox.information(self, "Aucune image", "Selectionnez au moins une image.")
+            return
+
+        options = list(project.team_members)
+        default_member = project.active_team_member if project.active_team_member in options else options[0]
+        default_index = options.index(default_member)
+
+        target_member, ok = QInputDialog.getItem(
+            self,
+            "Reassign Images",
+            "Assigner a:",
+            options,
+            default_index,
+            False,
+        )
+        if not ok:
+            return
+
+        selected_names = {p.name for p in selected_paths}
+        moved_count = 0
+
+        for member in project.team_members:
+            current_assigned = list(project.team_assignments.get(member, []))
+            filtered = [name for name in current_assigned if name not in selected_names]
+            project.team_assignments[member] = filtered
+
+        target_list = list(project.team_assignments.get(target_member, []))
+        target_set = set(target_list)
+        ordered = [img.name for img in self._all_images if img.name in selected_names]
+        for name in ordered:
+            if name not in target_set:
+                target_list.append(name)
+                target_set.add(name)
+                moved_count += 1
+
+        project.team_assignments[target_member] = target_list
+        self._project_mgr.save_current()
+
+        if project.active_team_member:
+            self._apply_team_filter()
+        else:
+            self._browser.set_images(self._image_mgr.images)
+
+        self._lbl_hint.setText(f"{moved_count} image(s) reassigned to {target_member}.")
+
     def _team_dialog(self) -> None:
         """Open the team members management dialog."""
         project = self._project_mgr.current_project
@@ -1573,6 +1696,24 @@ class MainWindow(QMainWindow):
             project.active_team_member = ""
             self._project_mgr.save_user_state()
         self._apply_team_filter()
+
+    def _toggle_class_names(self, checked: bool) -> None:
+        """Show/hide class name badges on boxes."""
+        self._show_class_names = bool(checked)
+        self._canvas.set_show_class_names(self._show_class_names)
+        self._settings.setValue("view/show_class_names", self._show_class_names)
+        self._lbl_hint.setText(
+            "Class names shown" if self._show_class_names else "Class names hidden"
+        )
+
+    def _toggle_accentuated_boxes(self, checked: bool) -> None:
+        """Toggle stronger (but clean) box rendering for easier visual scanning."""
+        self._accentuate_boxes = bool(checked)
+        self._canvas.set_accentuate_boxes(self._accentuate_boxes)
+        self._settings.setValue("view/accentuate_boxes", self._accentuate_boxes)
+        self._lbl_hint.setText(
+            "Accentuated boxes enabled" if self._accentuate_boxes else "Accentuated boxes disabled"
+        )
 
     def _prompt_team_member_on_startup(self) -> None:
         """Ask the user to pick their team member when project opens at launch."""
@@ -1931,6 +2072,8 @@ Drag corner handle — Resize label<br>
 Alt/Ctrl + Drag corner/edge — Scale box up/down<br>
 Shift + Drag box (OBB) — Rotate quickly<br>
 Ctrl+Shift+L — Flip selected OBB orientation 180°<br>
+Ctrl+Shift+H — Show/hide class names on boxes<br>
+Ctrl+Shift+U — Toggle very accentuated boxes<br>
 Del — Delete selected label<br>
 Esc — Deselect<br>
 <br>
@@ -1956,6 +2099,7 @@ Ctrl+Shift+R — Run model on all images<br>
 <br>
 <b>Team</b><br>
 Ctrl+T — Team dialog (select member / progress)<br>
+Ctrl+Shift+M — Reassign selected image(s) to a member<br>
 <br>
 <b>Status</b><br>
 Ctrl+Shift+K — Set current image as completed<br>
