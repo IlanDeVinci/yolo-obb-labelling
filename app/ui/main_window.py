@@ -645,14 +645,15 @@ class MainWindow(QMainWindow):
             self._load_current_image()
 
     def _resolve_project_dataset_folder(self, project: Project) -> Path | None:
-        if project.dataset_folder and Path(project.dataset_folder).is_dir():
-            return Path(project.dataset_folder)
+        resolved = self._project_mgr.resolve_dataset_folder(project)
+        if resolved and resolved.is_dir():
+            return resolved
 
         project_folder = self._project_mgr.get_project_folder()
         if project_folder:
             local_images = project_folder / "images"
             if local_images.is_dir():
-                project.dataset_folder = str(local_images)
+                project.dataset_folder = "images"
                 self._project_mgr.save_current()
                 return local_images
         return None
@@ -739,7 +740,7 @@ class MainWindow(QMainWindow):
             labels_folder.mkdir(exist_ok=True)
 
             # Set the images folder as dataset folder
-            project.dataset_folder = str(images_folder)
+            project.dataset_folder = "images"
             self._project_mgr.save_current()
 
             # Open the project folder in explorer
@@ -834,7 +835,7 @@ class MainWindow(QMainWindow):
         progress.setValue(len(files))
 
         # Update project and reload
-        project.dataset_folder = str(images_folder)
+        project.dataset_folder = "images"
         self._project_mgr.save_current()
         self._load_folder_into_ui(images_folder)
 
@@ -902,7 +903,7 @@ class MainWindow(QMainWindow):
         progress.setValue(len(image_files))
 
         # Update and reload
-        project.dataset_folder = str(images_folder)
+        project.dataset_folder = "images"
         self._project_mgr.save_current()
         self._load_folder_into_ui(images_folder)
 
@@ -946,8 +947,9 @@ class MainWindow(QMainWindow):
             self._canvas.set_class_names(project.class_names)
             self._label_list.set_class_names(project.class_names)
 
-            if project.dataset_folder and Path(project.dataset_folder).is_dir():
-                self._load_folder_into_ui(Path(project.dataset_folder))
+            dataset_folder = self._resolve_project_dataset_folder(project)
+            if dataset_folder and dataset_folder.is_dir():
+                self._load_folder_into_ui(dataset_folder)
 
             self._update_window_title()
             self._project_mgr.save_current()

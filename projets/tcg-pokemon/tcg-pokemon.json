@@ -2,7 +2,7 @@
   "name": "tcg-pokemon",
   "created_at": "2026-02-25T11:25:22.397350",
   "modified_at": "2026-02-25T14:46:20.699533",
-  "dataset_folder": "C:\\Users\\augus\\Desktop\\yolo-obb-labelling\\projets\\tcg-pokemon\\images",
+  "dataset_folder": "dataset",
   "yaml_path": "",
   "class_names": [
     "card"
