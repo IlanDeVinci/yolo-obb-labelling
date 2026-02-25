@@ -137,6 +137,7 @@ class MainWindow(QMainWindow):
 
         self._browser = ImageBrowserPanel()
         self._browser.set_label_manager(self._label_mgr)
+        self._browser.set_completion_provider(self._get_image_completion_status)
         left_splitter.addWidget(self._browser)
         left_splitter.setSizes([200, 500])
 
@@ -280,6 +281,16 @@ class MainWindow(QMainWindow):
         self._act_toggle_obb.setShortcut(QKeySequence("Ctrl+B"))
         self._act_toggle_obb.triggered.connect(self._toggle_label_mode)
         ann_menu.addAction(self._act_toggle_obb)
+
+        ann_menu.addSeparator()
+
+        self._act_mark_in_progress = QAction("Mark Current Image &In Progress", self)
+        self._act_mark_in_progress.triggered.connect(lambda: self._set_current_image_completion("in_progress"))
+        ann_menu.addAction(self._act_mark_in_progress)
+
+        self._act_mark_completed = QAction("Mark Current Image &Completed", self)
+        self._act_mark_completed.triggered.connect(lambda: self._set_current_image_completion("completed"))
+        ann_menu.addAction(self._act_mark_completed)
 
         self._act_convert_to_obb = QAction("Convert Labels to &OBB", self)
         self._act_convert_to_obb.triggered.connect(lambda: self._convert_labels_to_mode(True))
@@ -547,17 +558,34 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _try_restore_last_session(self) -> None:
-        """Called once at startup — silently reopens the last used project."""
+        """Called once at startup — reopens recent project or first available."""
+        project_path: Path | None = None
+
         last_project_str: str = self._settings.value("recent/project_file", "", type=str)
-        if not last_project_str:
-            return
-        last_project = Path(last_project_str)
-        if not last_project.exists():
+        if last_project_str:
+            candidate = Path(last_project_str)
+            if candidate.exists():
+                project_path = candidate
+
+        if project_path is None:
+            projects = self._project_mgr.list_projects()
+            if projects:
+                # Prefer most recently modified project file; fallback to first listed.
+                sorted_by_mtime = sorted(
+                    projects,
+                    key=lambda p: p[1].stat().st_mtime if p[1].exists() else 0,
+                    reverse=True,
+                )
+                project_path = sorted_by_mtime[0][1] if sorted_by_mtime else projects[0][1]
+
+        if project_path is None:
             return
 
-        project = self._project_mgr.open_project(last_project)
+        project = self._project_mgr.open_project(project_path)
         if not project:
             return
+
+        self._settings.setValue("recent/project_file", str(project_path))
 
         self._restoring_state = True
         try:
@@ -587,8 +615,10 @@ class MainWindow(QMainWindow):
         # Load dataset if specified
         if project.yaml_path and Path(project.yaml_path).is_file():
             self._load_dataset_yaml(Path(project.yaml_path))
-        elif project.dataset_folder and Path(project.dataset_folder).is_dir():
-            self._load_folder_into_ui(Path(project.dataset_folder))
+        else:
+            dataset_folder = self._resolve_project_dataset_folder(project)
+            if dataset_folder and dataset_folder.is_dir():
+                self._load_folder_into_ui(dataset_folder)
 
         # Set class names
         if project.class_names:
@@ -606,6 +636,19 @@ class MainWindow(QMainWindow):
         if idx > 0:
             self._image_mgr.go_to(idx)
             self._load_current_image()
+
+    def _resolve_project_dataset_folder(self, project: Project) -> Path | None:
+        if project.dataset_folder and Path(project.dataset_folder).is_dir():
+            return Path(project.dataset_folder)
+
+        project_folder = self._project_mgr.get_project_folder()
+        if project_folder:
+            local_images = project_folder / "images"
+            if local_images.is_dir():
+                project.dataset_folder = str(local_images)
+                self._project_mgr.save_current()
+                return local_images
+        return None
 
     def _load_folder_into_ui(self, folder: Path) -> None:
         """Load a folder into the UI without creating a new project."""
@@ -886,6 +929,24 @@ class MainWindow(QMainWindow):
             project.class_names = self._class_panel.class_names()
             project.use_obb = self._use_obb
             self._project_mgr.save_current()
+
+    def _get_image_completion_status(self, image_path: Path) -> str:
+        project = self._project_mgr.current_project
+        if not project:
+            return ""
+        return project.get_image_completion(image_path.name)
+
+    def _set_current_image_completion(self, status: str) -> None:
+        project = self._project_mgr.current_project
+        img = self._image_mgr.current_image
+        if not project or img is None:
+            return
+
+        project.set_image_completion(img.name, status)
+        self._project_mgr.save_current()
+        self._browser.refresh_item(self._image_mgr.current_index)
+        label = "In Progress" if status == "in_progress" else "Completed"
+        self._lbl_hint.setText(f"{img.name}: {label}")
 
     def _schedule_project_autosave(self) -> None:
         """Schedule a project auto-save."""

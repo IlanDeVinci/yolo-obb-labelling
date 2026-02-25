@@ -1,6 +1,7 @@
 """Left panel: image file browser with label-count indicators."""
 from __future__ import annotations
 from pathlib import Path
+from typing import Callable
 
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
@@ -25,6 +26,7 @@ class ImageBrowserPanel(QWidget):
         super().__init__(parent)
         self._images: list[Path] = []
         self._label_manager: LabelManager | None = None
+        self._completion_provider: Callable[[Path], str] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -49,6 +51,9 @@ class ImageBrowserPanel(QWidget):
 
     def set_label_manager(self, lm: LabelManager) -> None:
         self._label_manager = lm
+
+    def set_completion_provider(self, provider: Callable[[Path], str] | None) -> None:
+        self._completion_provider = provider
 
     def set_images(self, images: list[Path]) -> None:
         self._images = list(images)
@@ -86,9 +91,17 @@ class ImageBrowserPanel(QWidget):
             self._label_manager.has_labels_for(img)
             if self._label_manager else False
         )
-        item.setForeground(QColor("#90ee90") if has_labels else QColor("#ddd"))
-        suffix = " ✓" if has_labels else ""
-        item.setText(img.name + suffix)
+        completion = self._completion_provider(img) if self._completion_provider else ""
+        if completion == "completed":
+            item.setForeground(QColor("#90ee90"))
+            status_suffix = " [DONE]"
+        elif completion == "in_progress":
+            item.setForeground(QColor("#f6d86b"))
+            status_suffix = " [IP]"
+        else:
+            item.setForeground(QColor("#90ee90") if has_labels else QColor("#ddd"))
+            status_suffix = " ✓" if has_labels else ""
+        item.setText(img.name + status_suffix)
 
     def _on_row_changed(self, row: int) -> None:
         if 0 <= row < len(self._images):

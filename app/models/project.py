@@ -36,6 +36,7 @@ class Project:
     current_index: int = 0
     current_split: str = "train"
     active_team_member: str = ""
+    image_completion: dict[str, str] = field(default_factory=dict)  # image name -> "in_progress"|"completed"
 
     # Label mode
     use_obb: bool = True  # True = OBB, False = BBox
@@ -174,6 +175,23 @@ class Project:
         return any(len(v) > 0 for v in self.team_assignments.values())
 
     # ------------------------------------------------------------------
+    # Image completion state
+    # ------------------------------------------------------------------
+
+    def set_image_completion(self, image_name: str, status: str) -> None:
+        status = status.strip().lower()
+        if status in {"in_progress", "completed"}:
+            self.image_completion[image_name] = status
+        else:
+            self.image_completion.pop(image_name, None)
+
+    def get_image_completion(self, image_name: str) -> str:
+        status = self.image_completion.get(image_name, "")
+        if status in {"in_progress", "completed"}:
+            return status
+        return ""
+
+    # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
 
@@ -206,6 +224,7 @@ class Project:
                 current_index=max(0, int(data.get("current_index", 0))),
                 current_split=data.get("current_split", "train"),
                 active_team_member=data.get("active_team_member", ""),
+                image_completion=data.get("image_completion", {}),
                 use_obb=data.get("use_obb", True),
                 model_path=data.get("model_path", ""),
                 model_confidence=float(data.get("model_confidence", 0.7)),
