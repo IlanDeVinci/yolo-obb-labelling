@@ -17,6 +17,7 @@ _PERSONAL_STATE_KEYS = {
     "current_index",
     "current_split",
     "active_team_member",
+    "image_completion",
     "use_obb",
     "model_path",
     "model_confidence",
@@ -365,12 +366,15 @@ class ProjectManager:
                     "current_index": project.current_index,
                     "current_split": project.current_split,
                     "active_team_member": project.active_team_member,
+                    "image_completion": dict(project.image_completion),
                     "use_obb": project.use_obb,
                     "model_path": project.model_path,
                     "model_confidence": project.model_confidence,
                 }
             self._current_user_state = state
             self._apply_user_state_to_project(project, state)
+            if project.image_completion:
+                self.save_user_state()
             if normalized:
                 project.save(path, include_personal=False)
         return project
@@ -427,6 +431,7 @@ class ProjectManager:
             "current_index": int(self._current_project.current_index),
             "current_split": str(self._current_project.current_split or "train"),
             "active_team_member": str(self._current_project.active_team_member or ""),
+            "image_completion": dict(self._current_project.image_completion),
             "use_obb": bool(self._current_project.use_obb),
             "model_path": str(self._current_project.model_path or ""),
             "model_confidence": float(self._current_project.model_confidence),
@@ -483,6 +488,13 @@ class ProjectManager:
         project.current_index = max(0, int(state.get("current_index", project.current_index)))
         project.current_split = str(state.get("current_split", project.current_split or "train"))
         project.active_team_member = str(state.get("active_team_member", project.active_team_member or ""))
+        completion = state.get("image_completion")
+        if isinstance(completion, dict):
+            project.image_completion = {
+                str(k): str(v)
+                for k, v in completion.items()
+                if str(v).strip().lower() in {"in_progress", "completed"}
+            }
         project.use_obb = bool(state.get("use_obb", project.use_obb))
         project.model_path = str(state.get("model_path", project.model_path or ""))
         project.model_confidence = float(state.get("model_confidence", project.model_confidence))

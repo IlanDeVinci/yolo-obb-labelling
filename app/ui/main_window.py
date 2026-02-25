@@ -1,5 +1,6 @@
 """Main application window."""
 from __future__ import annotations
+import math
 import shutil
 import subprocess
 import sys
@@ -296,6 +297,26 @@ class MainWindow(QMainWindow):
         self._act_flip_orientation.triggered.connect(self._flip_selected_orientation)
         ann_menu.addAction(self._act_flip_orientation)
 
+        self._act_rotate_sel_ccw = QAction("Rotate Selected -15°", self)
+        self._act_rotate_sel_ccw.setShortcut(QKeySequence("Ctrl+Alt+Q"))
+        self._act_rotate_sel_ccw.triggered.connect(lambda: self._rotate_selected_labels(-15.0))
+        ann_menu.addAction(self._act_rotate_sel_ccw)
+
+        self._act_rotate_sel_cw = QAction("Rotate Selected +15°", self)
+        self._act_rotate_sel_cw.setShortcut(QKeySequence("Ctrl+Alt+E"))
+        self._act_rotate_sel_cw.triggered.connect(lambda: self._rotate_selected_labels(15.0))
+        ann_menu.addAction(self._act_rotate_sel_cw)
+
+        self._act_scale_sel_up = QAction("Scale Selected +10%", self)
+        self._act_scale_sel_up.setShortcut(QKeySequence("Ctrl+Alt+W"))
+        self._act_scale_sel_up.triggered.connect(lambda: self._scale_selected_labels(1.10))
+        ann_menu.addAction(self._act_scale_sel_up)
+
+        self._act_scale_sel_down = QAction("Scale Selected -10%", self)
+        self._act_scale_sel_down.setShortcut(QKeySequence("Ctrl+Alt+S"))
+        self._act_scale_sel_down.triggered.connect(lambda: self._scale_selected_labels(0.90))
+        ann_menu.addAction(self._act_scale_sel_down)
+
         ann_menu.addSeparator()
 
         act = QAction("Delete &Selected", self)
@@ -467,7 +488,7 @@ class MainWindow(QMainWindow):
         self._browser.image_selected.connect(self._navigate_to_image)
 
         # Label list <-> canvas selection sync
-        self._label_list.label_selected.connect(self._on_label_list_selected)
+        self._label_list.labels_selection_changed.connect(self._on_label_list_selection_changed)
         self._canvas.label_selection_changed.connect(self._on_canvas_label_selection_changed)
 
         # Navigation shortcuts (window-level so they work regardless of focus)
@@ -580,12 +601,12 @@ class MainWindow(QMainWindow):
         self._label_list.set_class_names(class_names)
         self._label_list.refresh(self._label_mgr.labels)
 
-    def _on_label_list_selected(self, index: int) -> None:
+    def _on_label_list_selection_changed(self, indices: list[int]) -> None:
         if self._syncing_label_selection:
             return
         self._syncing_label_selection = True
         try:
-            self._canvas.select_label_index(index)
+            self._canvas.select_label_indices(indices)
         finally:
             self._syncing_label_selection = False
 
@@ -594,10 +615,7 @@ class MainWindow(QMainWindow):
             return
         self._syncing_label_selection = True
         try:
-            if selected_indices:
-                self._label_list.select_index(selected_indices[0])
-            else:
-                self._label_list.select_index(-1)
+            self._label_list.select_indices(selected_indices)
         finally:
             self._syncing_label_selection = False
 
@@ -754,7 +772,7 @@ class MainWindow(QMainWindow):
 
         if normalized != project.image_completion:
             project.image_completion = normalized
-            self._project_mgr.save_current()
+            self._project_mgr.save_user_state()
 
     def _load_folder_into_ui(self, folder: Path) -> None:
         """Load a folder into the UI without creating a new project."""
@@ -1054,7 +1072,7 @@ class MainWindow(QMainWindow):
             return
 
         project.set_image_completion(img.name, status)
-        self._project_mgr.save_current()
+        self._project_mgr.save_user_state()
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()
         label = "In Progress" if status == "in_progress" else "Completed"
@@ -1114,7 +1132,7 @@ class MainWindow(QMainWindow):
             return
 
         project.set_image_completion(img.name, "in_progress")
-        self._project_mgr.save_current()
+        self._project_mgr.save_user_state()
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()
 
@@ -1447,9 +1465,17 @@ class MainWindow(QMainWindow):
 
     def _copy_selected(self) -> None:
         """Copy selected labels to the internal clipboard."""
-        selected = [
-            item.label for item in self._canvas._label_items if item.isSelected()
-        ]
+        selected_indices = self._label_list.selected_indices()
+        if selected_indices:
+            selected = [
+                self._label_mgr.labels[i]
+                for i in selected_indices
+                if 0 <= i < len(self._label_mgr.labels)
+            ]
+        else:
+            selected = [
+                item.label for item in self._canvas._label_items if item.isSelected()
+            ]
         if not selected:
             self._lbl_hint.setText("Nothing selected to copy.")
             return
@@ -1920,6 +1946,108 @@ class MainWindow(QMainWindow):
         self._autosave_timer.start()
         self._lbl_hint.setText(f"Flipped orientation for {len(selected_items)} selected OBB label(s).")
 
+    def _rotate_selected_labels(self, angle_deg: float) -> None:
+        self._transform_selected_labels(scale_factor=None, rotate_degrees=angle_deg)
+
+    def _scale_selected_labels(self, factor: float) -> None:
+        self._transform_selected_labels(scale_factor=factor, rotate_degrees=None)
+
+    def _transform_selected_labels(self, scale_factor: float | None, rotate_degrees: float | None) -> None:
+        selected_items = [item for item in self._canvas._label_items if item.isSelected()]
+        if not selected_items:
+            self._lbl_hint.setText("No selected labels to transform.")
+            return
+
+        action_label = "Transform selected labels"
+        self._undo_stack.beginMacro(action_label)
+        changed_count = 0
+        skipped_count = 0
+        try:
+            for item in selected_items:
+                label = item.label
+
+                if isinstance(label, OBBLabel):
+                    old_points = list(label.points)
+                    if len(old_points) != 8:
+                        skipped_count += 1
+                        continue
+
+                    pts = [QPointF(old_points[i], old_points[i + 1]) for i in range(0, 8, 2)]
+                    cx = sum(p.x() for p in pts) / 4.0
+                    cy = sum(p.y() for p in pts) / 4.0
+                    center = QPointF(cx, cy)
+
+                    if rotate_degrees is not None:
+                        angle = math.radians(rotate_degrees)
+                        cos_a = math.cos(angle)
+                        sin_a = math.sin(angle)
+                        rotated: list[QPointF] = []
+                        for p in pts:
+                            dx = p.x() - center.x()
+                            dy = p.y() - center.y()
+                            rx = center.x() + dx * cos_a - dy * sin_a
+                            ry = center.y() + dx * sin_a + dy * cos_a
+                            rotated.append(QPointF(min(1.0, max(0.0, rx)), min(1.0, max(0.0, ry))))
+                        pts = rotated
+
+                    if scale_factor is not None:
+                        scaled: list[QPointF] = []
+                        for p in pts:
+                            sx = center.x() + (p.x() - center.x()) * scale_factor
+                            sy = center.y() + (p.y() - center.y()) * scale_factor
+                            scaled.append(QPointF(min(1.0, max(0.0, sx)), min(1.0, max(0.0, sy))))
+                        pts = scaled
+
+                    new_points: list[float] = []
+                    for p in pts:
+                        new_points.extend([p.x(), p.y()])
+
+                    if new_points == old_points:
+                        continue
+
+                    label.points = list(new_points)
+                    label.mark_manual()
+                    item.refresh_from_label()
+                    self._undo_stack.push(ModifyLabelCommand(label, old_points, new_points, self._canvas))
+                    changed_count += 1
+
+                elif isinstance(label, BBoxLabel):
+                    if rotate_degrees is not None:
+                        skipped_count += 1
+                        continue
+
+                    old_points = label.to_corners()
+                    if scale_factor is None:
+                        skipped_count += 1
+                        continue
+
+                    label.width = max(1e-6, min(1.0, label.width * scale_factor))
+                    label.height = max(1e-6, min(1.0, label.height * scale_factor))
+                    new_points = label.to_corners()
+                    if new_points == old_points:
+                        continue
+
+                    label.mark_manual()
+                    item.refresh_from_label()
+                    self._undo_stack.push(ModifyLabelCommand(label, old_points, new_points, self._canvas))
+                    changed_count += 1
+                else:
+                    skipped_count += 1
+        finally:
+            self._undo_stack.endMacro()
+
+        if changed_count > 0:
+            self._canvas.labels_changed.emit()
+            self._refresh_label_list()
+            self._update_dirty_indicator()
+            self._autosave_timer.start()
+            if skipped_count > 0:
+                self._lbl_hint.setText(f"Transformed {changed_count} labels ({skipped_count} skipped).")
+            else:
+                self._lbl_hint.setText(f"Transformed {changed_count} labels.")
+        else:
+            self._lbl_hint.setText("No labels transformed.")
+
     def _warn_once_before_mode_switch(self) -> bool:
         key = "warnings/mode_switch_seen"
         if self._settings.value(key, False, type=bool):
@@ -2072,6 +2200,8 @@ Drag corner handle — Resize label<br>
 Alt/Ctrl + Drag corner/edge — Scale box up/down<br>
 Shift + Drag box (OBB) — Rotate quickly<br>
 Ctrl+Shift+L — Flip selected OBB orientation 180°<br>
+Ctrl+Alt+Q / Ctrl+Alt+E — Rotate selected labels -15° / +15°<br>
+Ctrl+Alt+S / Ctrl+Alt+W — Scale selected labels -10% / +10%<br>
 Ctrl+Shift+H — Show/hide class names on boxes<br>
 Ctrl+Shift+U — Toggle very accentuated boxes<br>
 Del — Delete selected label<br>

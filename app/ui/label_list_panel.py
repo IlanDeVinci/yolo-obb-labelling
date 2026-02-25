@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QAbstractItemView,
 )
 
 from app.models.obb_label import Label
@@ -27,6 +28,7 @@ class LabelListPanel(QWidget):
     """Shows all labels for the current image."""
 
     label_selected = pyqtSignal(int)   # index into label list
+    labels_selection_changed = pyqtSignal(list)  # list[int]
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -46,7 +48,9 @@ class LabelListPanel(QWidget):
             "QListWidget { background: #2a2a2a; color: #ddd; border: none; }"
             "QListWidget::item:selected { background: #3a5a8a; }"
         )
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list.currentRowChanged.connect(lambda r: self.label_selected.emit(r) if r >= 0 else None)
+        self._list.itemSelectionChanged.connect(self._emit_selection_changed)
         layout.addWidget(self._list)
 
     # ------------------------------------------------------------------
@@ -84,3 +88,27 @@ class LabelListPanel(QWidget):
         else:
             self._list.clearSelection()
         self._list.blockSignals(False)
+
+    def select_indices(self, indices: list[int]) -> None:
+        wanted = {i for i in indices if 0 <= i < self._list.count()}
+        self._list.blockSignals(True)
+        if not wanted:
+            self._list.clearSelection()
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            if item is not None:
+                item.setSelected(i in wanted)
+        if wanted:
+            self._list.setCurrentRow(min(wanted))
+        self._list.blockSignals(False)
+
+    def selected_indices(self) -> list[int]:
+        out: list[int] = []
+        for item in self._list.selectedItems():
+            idx = self._list.row(item)
+            if idx >= 0:
+                out.append(idx)
+        return sorted(out)
+
+    def _emit_selection_changed(self) -> None:
+        self.labels_selection_changed.emit(self.selected_indices())
