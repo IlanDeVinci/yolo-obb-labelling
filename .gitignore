@@ -2,3 +2,4 @@
 /.venv
 /diagnostics
 projets/**/.local/
+/__pycache__/

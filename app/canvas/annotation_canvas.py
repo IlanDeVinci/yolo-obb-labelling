@@ -258,6 +258,17 @@ class AnnotationCanvas(QGraphicsView):
             self._label_items[index].setSelected(True)
         self._sync_selected_handles()
 
+    def select_label_indices(self, indices: list[int]) -> None:
+        """Select multiple labels by indices."""
+        if self._mode != self.MODE_SELECT:
+            self._set_select_mode()
+        wanted = {i for i in indices if 0 <= i < len(self._label_items)}
+        self._scene.clearSelection()
+        for idx, item in enumerate(self._label_items):
+            if idx in wanted:
+                item.setSelected(True)
+        self._sync_selected_handles()
+
     # ------------------------------------------------------------------
     # Coordinate helpers
     # ------------------------------------------------------------------
