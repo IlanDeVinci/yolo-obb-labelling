@@ -4,8 +4,6 @@ import sys
 import time
 from pathlib import Path
 
-from PyQt6.QtCore import qInstallMessageHandler
-
 from app.inference.runtime_bootstrap import (
     prepare_windows_ml_runtime,
     warmup_inference_runtime,
@@ -56,6 +54,8 @@ def _install_qt_log_filter() -> None:
     """Suppress known noisy Qt painter warnings while keeping other Qt logs."""
     if os.environ.get("YOLO_LABELLER_SHOW_QT_PAINTER_LOGS", "").strip() == "1":
         return
+
+    from PyQt6.QtCore import qInstallMessageHandler
 
     def _handler(msg_type, context, message):
         text = str(message or "")

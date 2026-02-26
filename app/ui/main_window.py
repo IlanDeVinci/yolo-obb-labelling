@@ -2255,6 +2255,7 @@ Ctrl+Shift+J — Set current image as in progress<br>
         total_files = int(health.get("total_files", 0))
         valid_files = int(health.get("valid_files", 0))
         malformed_files = int(health.get("malformed_files", 0))
+        tampered_files = int(health.get("tampered_files", 0))
         duplicate_images = int(health.get("duplicate_images", 0))
 
         message = (
@@ -2263,6 +2264,7 @@ Ctrl+Shift+J — Set current image as in progress<br>
             f"Total files: {total_files}\n"
             f"Valid files: {valid_files}\n"
             f"Malformed files: {malformed_files}\n"
+            f"Tampered files: {tampered_files}\n"
             f"Duplicate image entries: {duplicate_images}"
         )
         QMessageBox.information(self, "Status Store Health", message)

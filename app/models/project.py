@@ -5,6 +5,7 @@ import os
 import random
 import re
 import hashlib
+import hmac
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from datetime import datetime
@@ -14,6 +15,9 @@ from typing import Optional
 PROJECTS_DIR_NAME = "projets"
 LOCAL_STATE_DIR_NAME = ".local"
 IMAGE_STATUS_DIR_NAME = "image-status"
+
+# HMAC key used to sign per-image status files so external edits are detected.
+_STATUS_SIG_KEY = b"yolo-obb-labeller-status-v1"
 
 _PERSONAL_STATE_KEYS = {
     "current_index",
@@ -515,6 +519,8 @@ class ProjectManager:
                 resolved.stat().st_mtime
             ).astimezone().isoformat(timespec="seconds")
 
+        metadata["sig"] = self._compute_status_sig(metadata)
+
         try:
             status_path = self._image_status_file(self._current_path.parent, image_name)
             status_path.parent.mkdir(parents=True, exist_ok=True)
@@ -586,6 +592,7 @@ class ProjectManager:
         total_files = 0
         valid_files = 0
         malformed_files = 0
+        tampered_files = 0
         seen_images: set[str] = set()
         duplicate_images = 0
 
@@ -608,6 +615,10 @@ class ProjectManager:
                 malformed_files += 1
                 continue
 
+            if "sig" in data and not ProjectManager._verify_status_sig(data):
+                tampered_files += 1
+                continue
+
             valid_files += 1
             if image_name in seen_images:
                 duplicate_images += 1
@@ -620,6 +631,7 @@ class ProjectManager:
             "total_files": total_files,
             "valid_files": valid_files,
             "malformed_files": malformed_files,
+            "tampered_files": tampered_files,
             "duplicate_images": duplicate_images,
         }
 
@@ -662,6 +674,7 @@ class ProjectManager:
             return {}
 
         completion: dict[str, tuple[str, str]] = {}
+
         for status_file in status_dir.glob("*.json"):
             try:
                 data = json.loads(status_file.read_text(encoding="utf-8"))
@@ -669,6 +682,12 @@ class ProjectManager:
                 continue
             if not isinstance(data, dict):
                 continue
+
+            # Files written before signature support have no "sig" field and are
+            # accepted as-is.  Files that do carry a signature must pass verification
+            # — a mismatch means the file was edited outside the app.
+            if "sig" in data and not self._verify_status_sig(data):
+                continue  # Tampered — reject silently
 
             image_name = str(data.get("image_name", "")).strip()
             status = str(data.get("status", "")).strip().lower()
@@ -696,6 +715,25 @@ class ProjectManager:
             if candidate.exists():
                 return candidate
         return None
+
+    @staticmethod
+    def _compute_status_sig(payload: dict) -> str:
+        """HMAC-SHA256 over the core status fields to detect external tampering."""
+        canonical = "|".join([
+            str(payload.get("image_name", "")),
+            str(payload.get("status", "")),
+            str(payload.get("status_updated_at", "")),
+            str(payload.get("status_updated_by", "")),
+        ])
+        return hmac.new(_STATUS_SIG_KEY, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def _verify_status_sig(data: dict) -> bool:
+        stored = str(data.get("sig", ""))
+        if not stored:
+            return False
+        expected = ProjectManager._compute_status_sig(data)
+        return hmac.compare_digest(stored, expected)
 
     def _image_status_file(self, project_folder: Path, image_name: str) -> Path:
         stem = Path(image_name).stem
