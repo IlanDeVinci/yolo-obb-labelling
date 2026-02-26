@@ -72,6 +72,7 @@ class MainWindow(QMainWindow):
 
         # Clipboard for copy/paste
         self._clipboard: list[Label] = []
+        self._clipboard_source_size: tuple[int, int] | None = None
 
         # All images (unfiltered) for team management
         self._all_images: list[Path] = []
@@ -1537,6 +1538,11 @@ class MainWindow(QMainWindow):
         if not selected:
             self._lbl_hint.setText("Nothing selected to copy.")
             return
+
+        src_w = int(getattr(self._canvas, "_img_w", 0) or 0)
+        src_h = int(getattr(self._canvas, "_img_h", 0) or 0)
+        self._clipboard_source_size = (src_w, src_h) if src_w > 0 and src_h > 0 else None
+
         # Deep-copy the labels
         self._clipboard = []
         for lbl in selected:
@@ -1558,7 +1564,12 @@ class MainWindow(QMainWindow):
         self._lbl_hint.setText(f"{len(self._clipboard)} label(s) copied.")
 
     def _paste_labels(self) -> None:
-        """Paste clipboard labels onto the current image with a small offset."""
+        """Paste clipboard labels onto the current image with a small offset.
+
+        Geometry is preserved across aspect-ratio changes by converting copied
+        normalized coordinates to source pixels, then back to destination
+        normalized coordinates.
+        """
         if not self._clipboard:
             self._lbl_hint.setText("Clipboard is empty.")
             return
@@ -1566,23 +1577,60 @@ class MainWindow(QMainWindow):
             return
 
         OFFSET = 0.02  # 2% offset to make pasted labels visible
+        dst_w = int(getattr(self._canvas, "_img_w", 0) or 0)
+        dst_h = int(getattr(self._canvas, "_img_h", 0) or 0)
+        src_size = self._clipboard_source_size
+        has_size_transform = (
+            src_size is not None
+            and src_size[0] > 0
+            and src_size[1] > 0
+            and dst_w > 0
+            and dst_h > 0
+        )
+        dx_px = OFFSET * dst_w
+        dy_px = OFFSET * dst_h
+
+        def _clamp01(value: float) -> float:
+            return min(1.0, max(0.0, value))
+
         for src in self._clipboard:
             if isinstance(src, OBBLabel):
-                new_points = []
-                for v in src.points:
-                    new_points.append(min(1.0, max(0.0, v + OFFSET)))
+                new_points: list[float] = []
+                if has_size_transform and src_size is not None:
+                    src_w, src_h = src_size
+                    for i, v in enumerate(src.points):
+                        if i % 2 == 0:
+                            px = v * src_w
+                            new_points.append(_clamp01((px + dx_px) / dst_w))
+                        else:
+                            py = v * src_h
+                            new_points.append(_clamp01((py + dy_px) / dst_h))
+                else:
+                    for v in src.points:
+                        new_points.append(_clamp01(v + OFFSET))
                 label = OBBLabel(
                     class_idx=src.class_idx,
                     points=new_points,
                     conf=1.0,
                 )
             elif isinstance(src, BBoxLabel):
+                if has_size_transform and src_size is not None:
+                    src_w, src_h = src_size
+                    x_center = _clamp01((src.x_center * src_w + dx_px) / dst_w)
+                    y_center = _clamp01((src.y_center * src_h + dy_px) / dst_h)
+                    width = _clamp01((src.width * src_w) / dst_w)
+                    height = _clamp01((src.height * src_h) / dst_h)
+                else:
+                    x_center = _clamp01(src.x_center + OFFSET)
+                    y_center = _clamp01(src.y_center + OFFSET)
+                    width = _clamp01(src.width)
+                    height = _clamp01(src.height)
                 label = BBoxLabel(
                     class_idx=src.class_idx,
-                    x_center=min(1.0, max(0.0, src.x_center + OFFSET)),
-                    y_center=min(1.0, max(0.0, src.y_center + OFFSET)),
-                    width=src.width,
-                    height=src.height,
+                    x_center=x_center,
+                    y_center=y_center,
+                    width=width,
+                    height=height,
                     conf=1.0,
                 )
             else:
