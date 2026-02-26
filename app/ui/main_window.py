@@ -736,8 +736,6 @@ class MainWindow(QMainWindow):
     def _normalize_project_completion_states(self) -> None:
         """Normalize completion states for all known images in the open project.
 
-        - Converts legacy/explicit "completed" entries to "in_progress"
-          (single visual convention requested).
         - Removes entries for images no longer present in the project.
         - Ensures labeled images at least get "in_progress".
         """
@@ -755,14 +753,13 @@ class MainWindow(QMainWindow):
             return
 
         known_names = {img.name for img in known_images}
+        self._project_mgr.prune_shared_image_completion(known_names)
         normalized: dict[str, str] = {}
 
         for image_name, status in project.image_completion.items():
             if image_name not in known_names:
                 continue
             normalized_status = str(status).strip().lower()
-            if normalized_status == "completed":
-                normalized_status = "in_progress"
             if normalized_status in {"in_progress", "completed"}:
                 normalized[image_name] = normalized_status
 
@@ -772,6 +769,7 @@ class MainWindow(QMainWindow):
 
         if normalized != project.image_completion:
             project.image_completion = normalized
+            self._project_mgr.persist_all_image_completion(normalized)
             self._project_mgr.save_user_state()
 
     def _load_folder_into_ui(self, folder: Path) -> None:
@@ -1072,6 +1070,7 @@ class MainWindow(QMainWindow):
             return
 
         project.set_image_completion(img.name, status)
+        self._project_mgr.persist_image_completion(img.name, status, img)
         self._project_mgr.save_user_state()
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()
@@ -1132,6 +1131,7 @@ class MainWindow(QMainWindow):
             return
 
         project.set_image_completion(img.name, "in_progress")
+        self._project_mgr.persist_image_completion(img.name, "in_progress", img)
         self._project_mgr.save_user_state()
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()

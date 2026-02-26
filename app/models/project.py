@@ -4,6 +4,7 @@ import json
 import os
 import random
 import re
+import hashlib
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from datetime import datetime
@@ -12,6 +13,7 @@ from typing import Optional
 # Default projects directory (relative to app root)
 PROJECTS_DIR_NAME = "projets"
 LOCAL_STATE_DIR_NAME = ".local"
+IMAGE_STATUS_DIR_NAME = "image-status"
 
 _PERSONAL_STATE_KEYS = {
     "current_index",
@@ -373,8 +375,9 @@ class ProjectManager:
                 }
             self._current_user_state = state
             self._apply_user_state_to_project(project, state)
-            if project.image_completion:
-                self.save_user_state()
+            self._migrate_local_completion_to_shared(path.parent)
+            project.image_completion = self._load_shared_image_completion(path.parent)
+            self.save_user_state()
             if normalized:
                 project.save(path, include_personal=False)
         return project
@@ -431,7 +434,6 @@ class ProjectManager:
             "current_index": int(self._current_project.current_index),
             "current_split": str(self._current_project.current_split or "train"),
             "active_team_member": str(self._current_project.active_team_member or ""),
-            "image_completion": dict(self._current_project.image_completion),
             "use_obb": bool(self._current_project.use_obb),
             "model_path": str(self._current_project.model_path or ""),
             "model_confidence": float(self._current_project.model_confidence),
@@ -482,6 +484,162 @@ class ProjectManager:
             project.dataset_folder = new_value
             return True
         return False
+
+    def persist_image_completion(
+        self,
+        image_name: str,
+        status: str,
+        image_path: Path | None = None,
+    ) -> bool:
+        """Persist one image completion entry to a shared per-image JSON file."""
+        if not self._current_project or not self._current_path:
+            return False
+
+        image_name = str(image_name or "").strip()
+        normalized_status = str(status or "").strip().lower()
+        if not image_name or normalized_status not in {"in_progress", "completed"}:
+            return False
+
+        self._current_project.set_image_completion(image_name, normalized_status)
+
+        metadata = {
+            "image_name": image_name,
+            "status": normalized_status,
+            "status_updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "status_updated_by": self._current_username(),
+        }
+
+        resolved = self._resolve_image_path_for_name(image_name, image_path)
+        if resolved and resolved.exists():
+            metadata["image_last_modified"] = datetime.fromtimestamp(
+                resolved.stat().st_mtime
+            ).astimezone().isoformat(timespec="seconds")
+
+        try:
+            status_path = self._image_status_file(self._current_path.parent, image_name)
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            status_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+            return True
+        except OSError:
+            return False
+
+    def persist_all_image_completion(self, image_completion: dict[str, str]) -> int:
+        """Persist many completion entries into shared per-image JSON files."""
+        if not self._current_path:
+            return 0
+
+        count = 0
+        for image_name, status in image_completion.items():
+            if self.persist_image_completion(image_name, status):
+                count += 1
+        return count
+
+    def prune_shared_image_completion(self, valid_image_names: set[str]) -> int:
+        """Remove shared per-image status files for images not in the current project image set."""
+        if not self._current_path:
+            return 0
+
+        status_dir = self._current_path.parent / IMAGE_STATUS_DIR_NAME
+        if not status_dir.exists():
+            return 0
+
+        removed = 0
+        for status_file in status_dir.glob("*.json"):
+            try:
+                data = json.loads(status_file.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(data, dict):
+                continue
+            image_name = str(data.get("image_name", "")).strip()
+            if image_name and image_name not in valid_image_names:
+                try:
+                    status_file.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+        return removed
+
+    def _migrate_local_completion_to_shared(self, project_folder: Path) -> None:
+        """Move local/legacy completion statuses into shared per-image files."""
+        if not self._current_project:
+            return
+
+        local_completion = self._current_user_state.get("image_completion")
+        migrated = False
+        if isinstance(local_completion, dict):
+            for image_name, status in local_completion.items():
+                if self.persist_image_completion(str(image_name), str(status)):
+                    migrated = True
+
+        if self._current_project.image_completion:
+            for image_name, status in self._current_project.image_completion.items():
+                if self.persist_image_completion(str(image_name), str(status)):
+                    migrated = True
+
+        if migrated:
+            self._current_project.image_completion = self._load_shared_image_completion(project_folder)
+
+        if isinstance(local_completion, dict) and local_completion:
+            self._current_user_state["image_completion"] = {}
+            try:
+                state_path = self._user_state_path(project_folder)
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.write_text(
+                    json.dumps(self._current_user_state, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
+
+    def _load_shared_image_completion(self, project_folder: Path) -> dict[str, str]:
+        """Read shared per-image completion metadata as an image->status map."""
+        status_dir = project_folder / IMAGE_STATUS_DIR_NAME
+        if not status_dir.exists():
+            return {}
+
+        completion: dict[str, tuple[str, str]] = {}
+        for status_file in status_dir.glob("*.json"):
+            try:
+                data = json.loads(status_file.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(data, dict):
+                continue
+
+            image_name = str(data.get("image_name", "")).strip()
+            status = str(data.get("status", "")).strip().lower()
+            updated_at = str(data.get("status_updated_at", "")).strip()
+            if not image_name or status not in {"in_progress", "completed"}:
+                continue
+
+            current = completion.get(image_name)
+            if current is None or updated_at > current[1]:
+                completion[image_name] = (status, updated_at)
+
+        return {image_name: payload[0] for image_name, payload in completion.items()}
+
+    @staticmethod
+    def _current_username() -> str:
+        return os.environ.get("USERNAME") or os.environ.get("USER") or "unknown"
+
+    def _resolve_image_path_for_name(self, image_name: str, image_path: Path | None) -> Path | None:
+        if image_path is not None:
+            return image_path
+
+        dataset_folder = self.resolve_dataset_folder(self._current_project)
+        if dataset_folder:
+            candidate = dataset_folder / image_name
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _image_status_file(self, project_folder: Path, image_name: str) -> Path:
+        stem = Path(image_name).stem
+        safe_stem = re.sub(r"[^A-Za-z0-9._-]", "_", stem).strip("._") or "image"
+        digest = hashlib.sha1(image_name.encode("utf-8")).hexdigest()[:10]
+        file_name = f"{safe_stem}-{digest}.json"
+        return project_folder / IMAGE_STATUS_DIR_NAME / file_name
 
     @staticmethod
     def _apply_user_state_to_project(project: Project, state: dict[str, object]) -> None:
