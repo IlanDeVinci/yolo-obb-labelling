@@ -22,10 +22,13 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QApplication,
+    QSpinBox,
+    QComboBox,
 )
 
 from app.models.label_manager import LabelManager
 from app.utils.yaml_io import build_dataset_dict, save_dataset_yaml
+from app.utils.dataset_augmentation import AugmentationOptions, generate_split_augmentations
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
 
@@ -69,6 +72,10 @@ class DatasetBuilderDialog(QDialog):
         scan_btn.clicked.connect(self._scan_folder)
         scan_btn.setMaximumWidth(100)
         src_grid.addWidget(scan_btn, 1, 2)
+
+        self._scan_hint_label = QLabel("")
+        self._scan_hint_label.setStyleSheet("color: #aaa; font-style: italic;")
+        src_grid.addWidget(self._scan_hint_label, 2, 0, 1, 3)
         layout.addWidget(src_group)
 
         # ---- Class Names ----
@@ -142,6 +149,134 @@ class DatasetBuilderDialog(QDialog):
         out_grid.addLayout(action_row, 2, 0, 1, 3)
         layout.addWidget(out_group)
 
+        # ---- Augmentations ----
+        aug_group = QGroupBox("Extra Augmentations")
+        aug_grid = QGridLayout(aug_group)
+
+        row = 0
+        self._aug_brightness_check = QCheckBox("Duplicate with darkness/light filters")
+        aug_grid.addWidget(self._aug_brightness_check, row, 0, 1, 2)
+        self._aug_brightness_count = QSpinBox()
+        self._aug_brightness_count.setRange(1, 8)
+        self._aug_brightness_count.setValue(2)
+        self._aug_brightness_count.setSuffix(" / image")
+        aug_grid.addWidget(self._aug_brightness_count, row, 2)
+
+        row += 1
+        self._aug_crop_check = QCheckBox("Duplicate with safe random crops (never cuts boxes)")
+        aug_grid.addWidget(self._aug_crop_check, row, 0, 1, 2)
+        self._aug_crop_count = QSpinBox()
+        self._aug_crop_count.setRange(1, 8)
+        self._aug_crop_count.setValue(1)
+        self._aug_crop_count.setSuffix(" / image")
+        aug_grid.addWidget(self._aug_crop_count, row, 2)
+
+        row += 1
+        aug_grid.addWidget(QLabel("Max crop margin (% each side):"), row, 0, 1, 2)
+        self._aug_crop_margin = QSpinBox()
+        self._aug_crop_margin.setRange(5, 45)
+        self._aug_crop_margin.setValue(20)
+        self._aug_crop_margin.setSuffix(" %")
+        aug_grid.addWidget(self._aug_crop_margin, row, 2)
+
+        row += 1
+        self._aug_cutout_check = QCheckBox("Extract random boxes and compose on random backgrounds")
+        aug_grid.addWidget(self._aug_cutout_check, row, 0, 1, 2)
+        self._aug_cutout_count = QSpinBox()
+        self._aug_cutout_count.setRange(1, 8)
+        self._aug_cutout_count.setValue(1)
+        self._aug_cutout_count.setSuffix(" / image")
+        aug_grid.addWidget(self._aug_cutout_count, row, 2)
+
+        row += 1
+        aug_grid.addWidget(QLabel("Objects per composite (min/max):"), row, 0, 1, 2)
+        objects_row = QHBoxLayout()
+        self._aug_cutout_min = QSpinBox()
+        self._aug_cutout_min.setRange(1, 30)
+        self._aug_cutout_min.setValue(2)
+        self._aug_cutout_max = QSpinBox()
+        self._aug_cutout_max.setRange(1, 40)
+        self._aug_cutout_max.setValue(8)
+        objects_row.addWidget(self._aug_cutout_min)
+        objects_row.addWidget(QLabel("to"))
+        objects_row.addWidget(self._aug_cutout_max)
+        aug_grid.addLayout(objects_row, row, 2)
+
+        row += 1
+        aug_grid.addWidget(QLabel("Effects strength (%):"), row, 0, 1, 2)
+        self._aug_effect_strength = QSpinBox()
+        self._aug_effect_strength.setRange(5, 95)
+        self._aug_effect_strength.setValue(35)
+        self._aug_effect_strength.setSuffix(" %")
+        aug_grid.addWidget(self._aug_effect_strength, row, 2)
+
+        row += 1
+        aug_grid.addWidget(QLabel("Background source mode:"), row, 0, 1, 2)
+        self._aug_bg_mode_combo = QComboBox()
+        self._aug_bg_mode_combo.addItem("Generated only", "generated")
+        self._aug_bg_mode_combo.addItem("Mix folder + generated", "mix")
+        self._aug_bg_mode_combo.addItem("Folder only", "folder")
+        self._aug_bg_mode_combo.setCurrentIndex(1)
+        aug_grid.addWidget(self._aug_bg_mode_combo, row, 2)
+
+        row += 1
+        aug_grid.addWidget(QLabel("Background images folder:"), row, 0)
+        bg_img_row = QHBoxLayout()
+        self._aug_backgrounds_folder_edit = QLineEdit()
+        self._aug_backgrounds_folder_edit.setPlaceholderText("Optional: folder of background images/textures")
+        bg_img_row.addWidget(self._aug_backgrounds_folder_edit)
+        bg_img_browse = QPushButton("Browse…")
+        bg_img_browse.clicked.connect(self._browse_aug_backgrounds)
+        bg_img_browse.setMaximumWidth(80)
+        bg_img_row.addWidget(bg_img_browse)
+        aug_grid.addLayout(bg_img_row, row, 1, 1, 2)
+
+        row += 1
+        aug_grid.addWidget(QLabel("Extra random-object folder:"), row, 0)
+        bg_row = QHBoxLayout()
+        self._aug_objects_folder_edit = QLineEdit()
+        self._aug_objects_folder_edit.setPlaceholderText("Optional: folder with phones/computers/napkins/headphones/etc")
+        bg_row.addWidget(self._aug_objects_folder_edit)
+        bg_browse = QPushButton("Browse…")
+        bg_browse.clicked.connect(self._browse_aug_objects)
+        bg_browse.setMaximumWidth(80)
+        bg_row.addWidget(bg_browse)
+        aug_grid.addLayout(bg_row, row, 1, 1, 2)
+
+        row += 1
+        presets_row = QHBoxLayout()
+        presets_row.addWidget(QLabel("Aug presets:"))
+        mild_btn = QPushButton("Mild")
+        mild_btn.clicked.connect(lambda: self._apply_aug_preset("mild"))
+        balanced_btn = QPushButton("Balanced")
+        balanced_btn.clicked.connect(lambda: self._apply_aug_preset("balanced"))
+        aggressive_btn = QPushButton("Aggressive")
+        aggressive_btn.clicked.connect(lambda: self._apply_aug_preset("aggressive"))
+        presets_row.addWidget(mild_btn)
+        presets_row.addWidget(balanced_btn)
+        presets_row.addWidget(aggressive_btn)
+        presets_row.addStretch()
+        aug_grid.addLayout(presets_row, row, 0, 1, 3)
+
+        row += 1
+        estimate_row = QHBoxLayout()
+        estimate_row.addWidget(QLabel("Target total:"))
+        self._target_total_spin = QSpinBox()
+        self._target_total_spin.setRange(100, 100000)
+        self._target_total_spin.setSingleStep(100)
+        self._target_total_spin.setValue(1500)
+        self._target_total_spin.setSuffix(" images")
+        estimate_row.addWidget(self._target_total_spin)
+        estimate_row.addStretch()
+        aug_grid.addLayout(estimate_row, row, 0, 1, 3)
+
+        row += 1
+        self._estimate_label = QLabel("Estimated total after augmentation: ~0 images")
+        self._estimate_label.setStyleSheet("color: #ddd; font-weight: 600;")
+        aug_grid.addWidget(self._estimate_label, row, 0, 1, 3)
+
+        layout.addWidget(aug_group)
+
         # ---- Buttons ----
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -153,6 +288,8 @@ class DatasetBuilderDialog(QDialog):
         layout.addWidget(btns)
 
         # Auto-scan if a folder was provided
+        self._wire_estimate_signals()
+        self._refresh_estimate()
         if default_folder:
             self._scan_folder()
 
@@ -171,12 +308,113 @@ class DatasetBuilderDialog(QDialog):
         if folder:
             self._out_folder_edit.setText(folder)
 
+    def _browse_aug_objects(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Select random object/background folder")
+        if folder:
+            self._aug_objects_folder_edit.setText(folder)
+            self._refresh_estimate()
+
+    def _browse_aug_backgrounds(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Select background images folder")
+        if folder:
+            self._aug_backgrounds_folder_edit.setText(folder)
+            self._refresh_estimate()
+
     # ------------------------------------------------------------------
     # Slider
     # ------------------------------------------------------------------
 
     def _on_slider_changed(self, val: int) -> None:
         self._split_label.setText(f"{val} % train  /  {100 - val} % val")
+
+    def _wire_estimate_signals(self) -> None:
+        for widget in (
+            self._aug_brightness_check,
+            self._aug_crop_check,
+            self._aug_cutout_check,
+        ):
+            widget.stateChanged.connect(self._refresh_estimate)
+
+        for widget in (
+            self._aug_brightness_count,
+            self._aug_crop_count,
+            self._aug_crop_margin,
+            self._aug_cutout_count,
+            self._aug_cutout_min,
+            self._aug_cutout_max,
+            self._aug_effect_strength,
+            self._target_total_spin,
+        ):
+            widget.valueChanged.connect(self._refresh_estimate)
+
+        self._aug_bg_mode_combo.currentIndexChanged.connect(self._refresh_estimate)
+        self._aug_backgrounds_folder_edit.textChanged.connect(self._refresh_estimate)
+        self._aug_objects_folder_edit.textChanged.connect(self._refresh_estimate)
+
+    def _apply_aug_preset(self, name: str) -> None:
+        if name == "mild":
+            self._aug_brightness_check.setChecked(True)
+            self._aug_brightness_count.setValue(1)
+            self._aug_crop_check.setChecked(False)
+            self._aug_crop_count.setValue(1)
+            self._aug_cutout_check.setChecked(True)
+            self._aug_cutout_count.setValue(1)
+            self._aug_cutout_min.setValue(1)
+            self._aug_cutout_max.setValue(4)
+            self._aug_effect_strength.setValue(20)
+            self._aug_crop_margin.setValue(12)
+        elif name == "balanced":
+            self._aug_brightness_check.setChecked(True)
+            self._aug_brightness_count.setValue(2)
+            self._aug_crop_check.setChecked(True)
+            self._aug_crop_count.setValue(1)
+            self._aug_cutout_check.setChecked(True)
+            self._aug_cutout_count.setValue(2)
+            self._aug_cutout_min.setValue(2)
+            self._aug_cutout_max.setValue(8)
+            self._aug_effect_strength.setValue(35)
+            self._aug_crop_margin.setValue(20)
+        elif name == "aggressive":
+            self._aug_brightness_check.setChecked(True)
+            self._aug_brightness_count.setValue(3)
+            self._aug_crop_check.setChecked(True)
+            self._aug_crop_count.setValue(2)
+            self._aug_cutout_check.setChecked(True)
+            self._aug_cutout_count.setValue(4)
+            self._aug_cutout_min.setValue(3)
+            self._aug_cutout_max.setValue(12)
+            self._aug_effect_strength.setValue(50)
+            self._aug_crop_margin.setValue(25)
+        self._refresh_estimate()
+
+    def _refresh_estimate(self) -> None:
+        base = len(self._labeled_pairs)
+        extra_per_image = 0
+        if self._aug_brightness_check.isChecked():
+            extra_per_image += self._aug_brightness_count.value()
+        if self._aug_crop_check.isChecked():
+            extra_per_image += self._aug_crop_count.value()
+        if self._aug_cutout_check.isChecked():
+            extra_per_image += self._aug_cutout_count.value()
+
+        estimated_total = base * (1 + extra_per_image)
+        target = self._target_total_spin.value()
+        if estimated_total >= target:
+            status = f"Target {target} reached"
+            color = "#6f6"
+        elif estimated_total == 0:
+            status = "Scan a folder with labeled images"
+            color = "#f96"
+        else:
+            missing = target - estimated_total
+            status = f"Need about {missing} more"
+            color = "#ffd166"
+
+        self._estimate_label.setText(
+            f"Estimated total after augmentation: ~{estimated_total} images "
+            f"(base {base}, +~{estimated_total - base}) — {status}"
+        )
+        self._estimate_label.setStyleSheet(f"color: {color}; font-weight: 600;")
 
     # ------------------------------------------------------------------
     # Scan
@@ -188,29 +426,39 @@ class DatasetBuilderDialog(QDialog):
             self._scan_label.setText("No folder selected.")
             return
 
-        p = Path(folder_str)
-        if not p.is_dir():
+        source_root = Path(folder_str)
+        if not source_root.is_dir():
             self._scan_label.setText("⚠ Folder not found.")
+            self._scan_hint_label.setText("")
             self._labeled_pairs = []
+            self._refresh_estimate()
             return
+
+        scan_root = source_root
+        if source_root.name.lower() != "images":
+            images_child = source_root / "images"
+            if images_child.is_dir():
+                scan_root = images_child
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             all_images = sorted(
-                f for f in p.iterdir()
+                f for f in scan_root.rglob("*")
                 if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS
             )
 
             labeled: list[tuple[Path, Path]] = []
             for img in all_images:
-                lp = LabelManager._derive_label_path(img)
-                if lp.exists() and lp.stat().st_size > 0:
-                    try:
-                        content = lp.read_text(encoding="utf-8").strip()
-                        if content:
-                            labeled.append((img, lp))
-                    except OSError:
-                        pass
+                obb_path, bb_path, legacy_path = LabelManager._derive_label_path_triplet(img)
+                for lp in (obb_path, bb_path, legacy_path):
+                    if lp.exists() and lp.stat().st_size > 0:
+                        try:
+                            content = lp.read_text(encoding="utf-8").strip()
+                            if content:
+                                labeled.append((img, lp))
+                                break
+                        except OSError:
+                            pass
 
             self._labeled_pairs = labeled
             n_total = len(all_images)
@@ -222,6 +470,11 @@ class DatasetBuilderDialog(QDialog):
             self._scan_label.setStyleSheet(
                 "color: #6f6;" if n_labeled > 0 else "color: #f96;"
             )
+            if scan_root != source_root:
+                self._scan_hint_label.setText(f"Scanning images from: {scan_root}")
+            else:
+                self._scan_hint_label.setText("")
+            self._refresh_estimate()
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -249,6 +502,17 @@ class DatasetBuilderDialog(QDialog):
             QMessageBox.warning(self, "No dataset name", "Please enter a dataset name.")
             return
 
+        if self._aug_cutout_check.isChecked():
+            bg_mode = str(self._aug_bg_mode_combo.currentData() or "mix")
+            bg_folder = self._aug_backgrounds_folder_edit.text().strip()
+            if bg_mode == "folder" and (not bg_folder or not Path(bg_folder).is_dir()):
+                QMessageBox.warning(
+                    self,
+                    "Background folder required",
+                    "Background mode is set to 'Folder only', but no valid background folder is selected.",
+                )
+                return
+
         out_path = Path(out_folder_str) / name
         if out_path.exists():
             reply = QMessageBox.question(
@@ -262,7 +526,7 @@ class DatasetBuilderDialog(QDialog):
 
         # Build
         try:
-            n_train, n_val = self._do_build(out_path)
+            n_train, n_val, n_augmented = self._do_build(out_path)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Build failed", f"Failed to create dataset:\n{exc}")
             return
@@ -270,11 +534,14 @@ class DatasetBuilderDialog(QDialog):
         QMessageBox.information(
             self,
             "Dataset created",
-            f"Dataset created at:\n{out_path}\n\nTrain : {n_train} image(s)\nVal   : {n_val} image(s)",
+            f"Dataset created at:\n{out_path}\n\n"
+            f"Train : {n_train} image(s)\n"
+            f"Val   : {n_val} image(s)\n"
+            f"Augmented created : {n_augmented} image(s)",
         )
         self.accept()
 
-    def _do_build(self, out_path: Path) -> tuple[int, int]:
+    def _do_build(self, out_path: Path) -> tuple[int, int, int]:
         """Perform the actual file copy/move and YAML generation."""
         pairs = list(self._labeled_pairs)
 
@@ -297,13 +564,35 @@ class DatasetBuilderDialog(QDialog):
         def _transfer(src: Path, dst: Path) -> None:
             file_action(str(src), str(dst))
 
+        train_out_pairs: list[tuple[Path, Path]] = []
         for img_path, lp in train_pairs:
-            _transfer(img_path, out_path / "images" / "train" / img_path.name)
-            _transfer(lp, out_path / "labels" / "train" / lp.name)
+            out_img = out_path / "images" / "train" / img_path.name
+            out_lbl = out_path / "labels" / "train" / lp.name
+            _transfer(img_path, out_img)
+            _transfer(lp, out_lbl)
+            train_out_pairs.append((out_img, out_lbl))
 
+        val_out_pairs: list[tuple[Path, Path]] = []
         for img_path, lp in val_pairs:
-            _transfer(img_path, out_path / "images" / "val" / img_path.name)
-            _transfer(lp, out_path / "labels" / "val" / lp.name)
+            out_img = out_path / "images" / "val" / img_path.name
+            out_lbl = out_path / "labels" / "val" / lp.name
+            _transfer(img_path, out_img)
+            _transfer(lp, out_lbl)
+            val_out_pairs.append((out_img, out_lbl))
+
+        options = self._build_augmentation_options()
+        n_augmented = 0
+        if options is not None:
+            n_augmented += generate_split_augmentations(
+                out_path / "images" / "train",
+                out_path / "labels" / "train",
+                options,
+            )
+            n_augmented += generate_split_augmentations(
+                out_path / "images" / "val",
+                out_path / "labels" / "val",
+                options,
+            )
 
         # Parse class names from text area
         raw = self._class_edit.toPlainText().strip()
@@ -314,4 +603,33 @@ class DatasetBuilderDialog(QDialog):
         yaml_path = out_path / f"{out_path.name}.yaml"
         save_dataset_yaml(data, yaml_path)
 
-        return len(train_pairs), len(val_pairs)
+        return len(train_out_pairs), len(val_out_pairs), n_augmented
+
+    def _build_augmentation_options(self) -> AugmentationOptions | None:
+        brightness = self._aug_brightness_check.isChecked()
+        crop = self._aug_crop_check.isChecked()
+        cutout = self._aug_cutout_check.isChecked()
+        if not (brightness or crop or cutout):
+            return None
+
+        min_objects = self._aug_cutout_min.value()
+        max_objects = self._aug_cutout_max.value()
+        if min_objects > max_objects:
+            min_objects, max_objects = max_objects, min_objects
+
+        return AugmentationOptions(
+            brightness_enabled=brightness,
+            brightness_count=self._aug_brightness_count.value(),
+            brightness_strength=self._aug_effect_strength.value() / 100.0,
+            safe_crop_enabled=crop,
+            safe_crop_count=self._aug_crop_count.value(),
+            safe_crop_max_ratio=self._aug_crop_margin.value() / 100.0,
+            cutout_enabled=cutout,
+            cutout_count=self._aug_cutout_count.value(),
+            cutout_min_objects=min_objects,
+            cutout_max_objects=max_objects,
+            cutout_effect_strength=self._aug_effect_strength.value() / 100.0,
+            background_images_dir=self._aug_backgrounds_folder_edit.text().strip(),
+            background_source_mode=str(self._aug_bg_mode_combo.currentData() or "mix"),
+            background_objects_dir=self._aug_objects_folder_edit.text().strip(),
+        )

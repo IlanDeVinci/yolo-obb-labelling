@@ -379,7 +379,6 @@ class ProjectManager:
                 }
             self._current_user_state = state
             self._apply_user_state_to_project(project, state)
-            self._migrate_local_completion_to_shared(path.parent)
             project.image_completion = self._load_shared_image_completion(path.parent)
             self.save_user_state()
             if normalized:
