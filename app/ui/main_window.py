@@ -107,6 +107,7 @@ class MainWindow(QMainWindow):
         )
         self._model_path: str = ""
         self._model_conf: float = 0.7
+        self._model_class_filter: list[int] = []
         self._syncing_label_selection: bool = False
 
         # Build UI
@@ -674,6 +675,7 @@ class MainWindow(QMainWindow):
             # Load model settings from project
             self._model_path = project.model_path
             self._model_conf = project.model_confidence
+            self._model_class_filter = list(project.model_class_filter)
 
             self._apply_project_to_ui(project)
             self._lbl_hint.setText(f"Projet '{project.name}' restaure")
@@ -997,6 +999,7 @@ class MainWindow(QMainWindow):
         # Load model settings from project
         self._model_path = project.model_path
         self._model_conf = project.model_confidence
+        self._model_class_filter = list(project.model_class_filter)
         self._update_model_indicator()
 
         self._settings.setValue("recent/project_file", str(dlg.selected_path))
@@ -1293,8 +1296,9 @@ class MainWindow(QMainWindow):
         project = self._project_mgr.current_project
         model_path = project.model_path if project else ""
         model_conf = project.model_confidence if project else 0.7
+        model_class_filter = list(project.model_class_filter) if project else []
 
-        dlg = ModelDialog(model_path, model_conf, self)
+        dlg = ModelDialog(model_path, model_conf, model_class_filter, self)
         if dlg.exec() != ModelDialog.DialogCode.Accepted:
             return
 
@@ -1302,10 +1306,12 @@ class MainWindow(QMainWindow):
         if project:
             project.model_path = dlg.model_path
             project.model_confidence = dlg.confidence
+            project.model_class_filter = list(dlg.class_filter or [])
             self._project_mgr.save_user_state()
 
         self._model_path = dlg.model_path
         self._model_conf = dlg.confidence
+        self._model_class_filter = list(dlg.class_filter or [])
         self._update_model_indicator()
 
     def _update_model_indicator(self) -> None:
@@ -1316,7 +1322,11 @@ class MainWindow(QMainWindow):
         if self._model_path:
             model_name = Path(self._model_path).name
             self._act_load_model.setText("✓ &Load Model…")
-            self._act_load_model.setToolTip(f"Loaded: {model_name}")
+            if self._model_class_filter:
+                classes = ", ".join(str(v) for v in self._model_class_filter)
+                self._act_load_model.setToolTip(f"Loaded: {model_name} | Classes: {classes}")
+            else:
+                self._act_load_model.setToolTip(f"Loaded: {model_name} | Classes: all")
         else:
             self._act_load_model.setText("&Load Model…")
             self._act_load_model.setToolTip("No model loaded")
@@ -1340,6 +1350,7 @@ class MainWindow(QMainWindow):
             model_path=self._model_path,
             image_path=img,
             conf=self._model_conf,
+            class_filter=(self._model_class_filter or None),
             on_done=self._on_inference_done,
             on_error=self._on_inference_error,
             use_obb=self._use_obb,
@@ -1436,6 +1447,7 @@ class MainWindow(QMainWindow):
                 results = model.predict(
                     source=str(img_path),
                     conf=self._model_conf,
+                    classes=(self._model_class_filter or None),
                     save=False,
                     verbose=False,
                 )
