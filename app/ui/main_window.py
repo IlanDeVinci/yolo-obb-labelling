@@ -740,8 +740,9 @@ class MainWindow(QMainWindow):
     def _normalize_project_completion_states(self) -> None:
         """Normalize completion states for all known images in the open project.
 
-        - Removes entries for images no longer present in the project.
-        - Ensures labeled images at least get "in_progress".
+        This is intentionally in-memory only.
+        It must never write shared image-status JSON files automatically
+        during startup, split changes, or folder loading.
         """
         project = self._project_mgr.current_project
         if not project:
@@ -757,7 +758,6 @@ class MainWindow(QMainWindow):
             return
 
         known_names = {img.name for img in known_images}
-        self._project_mgr.prune_shared_image_completion(known_names)
         normalized: dict[str, str] = {}
 
         for image_name, status in project.image_completion.items():
@@ -767,14 +767,8 @@ class MainWindow(QMainWindow):
             if normalized_status in {"in_progress", "completed"}:
                 normalized[image_name] = normalized_status
 
-        for img in known_images:
-            if img.name not in normalized and self._label_mgr.has_labels_for(img):
-                normalized[img.name] = "in_progress"
-
         if normalized != project.image_completion:
             project.image_completion = normalized
-            self._project_mgr.persist_all_image_completion(normalized)
-            self._project_mgr.save_user_state()
 
     def _load_folder_into_ui(self, folder: Path) -> None:
         """Load a folder into the UI without creating a new project."""
@@ -1042,6 +1036,17 @@ class MainWindow(QMainWindow):
         # Save project
         project = self._project_mgr.current_project
         if project:
+            current_img = self._image_mgr.current_image
+            if current_img is not None and self._label_mgr.labels:
+                current_status = project.get_image_completion(current_img.name)
+                if not current_status:
+                    project.set_image_completion(current_img.name, "in_progress")
+                    self._project_mgr.persist_image_completion(
+                        current_img.name,
+                        "in_progress",
+                        current_img,
+                    )
+
             project.current_index = self._image_mgr.current_index
             project.class_names = self._class_panel.class_names()
             project.use_obb = self._use_obb
@@ -1166,8 +1171,6 @@ class MainWindow(QMainWindow):
             return
 
         project.set_image_completion(img.name, "in_progress")
-        self._project_mgr.persist_image_completion(img.name, "in_progress", img)
-        self._project_mgr.save_user_state()
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()
 
@@ -1270,6 +1273,14 @@ class MainWindow(QMainWindow):
         """Open the Dataset Builder dialog."""
         project_folder = self._project_mgr.get_project_folder()
         default_folder = str(project_folder) if project_folder else ""
+        project = self._project_mgr.current_project
+        resolved_dataset = self._project_mgr.resolve_dataset_folder(project)
+        if resolved_dataset and resolved_dataset.is_dir():
+            default_folder = str(resolved_dataset)
+        elif project_folder:
+            images_dir = project_folder / "images"
+            if images_dir.is_dir():
+                default_folder = str(images_dir)
         default_names = list(self._dataset.class_names or self._class_panel.class_names())
         dlg = DatasetBuilderDialog(default_folder, default_names, self)
         dlg.exec()
