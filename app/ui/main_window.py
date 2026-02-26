@@ -427,14 +427,14 @@ class MainWindow(QMainWindow):
         self._act_set_completed = QAction("Set as &Completed", self)
         self._act_set_completed.setShortcut(QKeySequence("Ctrl+Shift+K"))
         self._act_set_completed.triggered.connect(
-            lambda: self._set_current_image_completion("completed")
+            lambda: self._set_selected_images_completion("completed")
         )
         status_menu.addAction(self._act_set_completed)
 
         self._act_set_in_progress = QAction("Set as &In Progress", self)
         self._act_set_in_progress.setShortcut(QKeySequence("Ctrl+Shift+J"))
         self._act_set_in_progress.triggered.connect(
-            lambda: self._set_current_image_completion("in_progress")
+            lambda: self._set_selected_images_completion("in_progress")
         )
         status_menu.addAction(self._act_set_in_progress)
 
@@ -1080,6 +1080,37 @@ class MainWindow(QMainWindow):
         self._update_completion_action()
         label = "In Progress" if status == "in_progress" else "Completed"
         self._lbl_hint.setText(f"{img.name}: {label}")
+
+    def _set_selected_images_completion(self, status: str) -> None:
+        project = self._project_mgr.current_project
+        if not project:
+            return
+
+        selected = self._browser.selected_images()
+        if not selected:
+            img = self._image_mgr.current_image
+            if img is None:
+                return
+            selected = [img]
+
+        selected_names = {p.name for p in selected}
+        for img_path in selected:
+            project.set_image_completion(img_path.name, status)
+            self._project_mgr.persist_image_completion(img_path.name, status, img_path)
+
+        self._project_mgr.save_user_state()
+
+        for idx, img in enumerate(self._image_mgr.images):
+            if img.name in selected_names:
+                self._browser.refresh_item(idx)
+
+        self._update_completion_action()
+        label = "In Progress" if status == "in_progress" else "Completed"
+        n = len(selected)
+        if n == 1:
+            self._lbl_hint.setText(f"{selected[0].name}: {label}")
+        else:
+            self._lbl_hint.setText(f"{n} images set as {label}")
 
     def _toggle_current_image_completion(self) -> None:
         img = self._image_mgr.current_image
