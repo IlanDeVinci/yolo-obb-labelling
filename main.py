@@ -4,9 +4,20 @@ import sys
 import time
 from pathlib import Path
 
+from PyQt6.QtCore import qInstallMessageHandler
+
 from app.inference.runtime_bootstrap import (
     prepare_windows_ml_runtime,
     warmup_inference_runtime,
+)
+
+
+_QT_PREV_HANDLER = None
+_QT_PAINTER_NOISE_PREFIXES = (
+    "QPainter::end: Painter not active, aborted",
+    "QPainter::begin: Paint device returned engine == 0, type: 3",
+    "QPainter::setCompositionMode: Painter not active",
+    "QPainter::fillRect: Painter not active",
 )
 
 
@@ -41,6 +52,24 @@ def _prepare_windows_ml_runtime() -> None:
     prepare_windows_ml_runtime()
 
 
+def _install_qt_log_filter() -> None:
+    """Suppress known noisy Qt painter warnings while keeping other Qt logs."""
+    if os.environ.get("YOLO_LABELLER_SHOW_QT_PAINTER_LOGS", "").strip() == "1":
+        return
+
+    def _handler(msg_type, context, message):
+        text = str(message or "")
+        if text.startswith(_QT_PAINTER_NOISE_PREFIXES):
+            return
+        if _QT_PREV_HANDLER is not None:
+            _QT_PREV_HANDLER(msg_type, context, message)
+        else:
+            print(text, file=sys.stderr)
+
+    global _QT_PREV_HANDLER
+    _QT_PREV_HANDLER = qInstallMessageHandler(_handler)
+
+
 def main() -> None:
     _prepare_windows_ml_runtime()
 
@@ -52,6 +81,8 @@ def main() -> None:
 
     from PyQt6.QtWidgets import QApplication
     from app.ui.main_window import MainWindow
+
+    _install_qt_log_filter()
 
     app = QApplication(sys.argv)
     app.setApplicationName("YOLO OBB Labeller")

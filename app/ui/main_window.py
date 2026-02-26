@@ -417,6 +417,10 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self._show_shortcuts)
         help_menu.addAction(act)
 
+        act = QAction("Status Store &Health", self)
+        act.triggered.connect(self._show_status_store_health)
+        help_menu.addAction(act)
+
         # ---- Status ----
         status_menu = mb.addMenu("&Status")
 
@@ -2236,6 +2240,32 @@ Ctrl+Shift+K — Set current image as completed<br>
 Ctrl+Shift+J — Set current image as in progress<br>
         """.strip()
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
+
+    def _show_status_store_health(self) -> None:
+        health = self._project_mgr.get_image_status_store_health()
+        if not bool(health.get("has_project")):
+            QMessageBox.information(
+                self,
+                "Status Store Health",
+                "No project is currently open.",
+            )
+            return
+
+        status_dir = str(health.get("status_dir", ""))
+        total_files = int(health.get("total_files", 0))
+        valid_files = int(health.get("valid_files", 0))
+        malformed_files = int(health.get("malformed_files", 0))
+        duplicate_images = int(health.get("duplicate_images", 0))
+
+        message = (
+            "Shared image-status store health\n\n"
+            f"Folder: {status_dir}\n"
+            f"Total files: {total_files}\n"
+            f"Valid files: {valid_files}\n"
+            f"Malformed files: {malformed_files}\n"
+            f"Duplicate image entries: {duplicate_images}"
+        )
+        QMessageBox.information(self, "Status Store Health", message)
 
     # ------------------------------------------------------------------
     # Close

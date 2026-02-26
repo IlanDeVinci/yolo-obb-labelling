@@ -560,6 +560,69 @@ class ProjectManager:
                     pass
         return removed
 
+    def get_image_status_store_health(self) -> dict[str, object]:
+        """Return basic health metrics for shared per-image status storage."""
+        if not self._current_path:
+            return {
+                "has_project": False,
+                "status_dir": "",
+                "total_files": 0,
+                "valid_files": 0,
+                "malformed_files": 0,
+                "duplicate_images": 0,
+            }
+
+        status_dir = self._current_path.parent / IMAGE_STATUS_DIR_NAME
+        if not status_dir.exists():
+            return {
+                "has_project": True,
+                "status_dir": str(status_dir),
+                "total_files": 0,
+                "valid_files": 0,
+                "malformed_files": 0,
+                "duplicate_images": 0,
+            }
+
+        total_files = 0
+        valid_files = 0
+        malformed_files = 0
+        seen_images: set[str] = set()
+        duplicate_images = 0
+
+        for status_file in status_dir.glob("*.json"):
+            total_files += 1
+            try:
+                data = json.loads(status_file.read_text(encoding="utf-8"))
+            except Exception:
+                malformed_files += 1
+                continue
+
+            if not isinstance(data, dict):
+                malformed_files += 1
+                continue
+
+            image_name = str(data.get("image_name", "")).strip()
+            status = str(data.get("status", "")).strip().lower()
+            updated_at = str(data.get("status_updated_at", "")).strip()
+            if not image_name or status not in {"in_progress", "completed"} or not updated_at:
+                malformed_files += 1
+                continue
+
+            valid_files += 1
+            if image_name in seen_images:
+                duplicate_images += 1
+            else:
+                seen_images.add(image_name)
+
+        return {
+            "has_project": True,
+            "status_dir": str(status_dir),
+            "total_files": total_files,
+            "valid_files": valid_files,
+            "malformed_files": malformed_files,
+            "duplicate_images": duplicate_images,
+        }
+
     def _migrate_local_completion_to_shared(self, project_folder: Path) -> None:
         """Move local/legacy completion statuses into shared per-image files."""
         if not self._current_project:
