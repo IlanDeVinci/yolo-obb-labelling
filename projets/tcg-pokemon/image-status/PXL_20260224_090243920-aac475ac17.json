@@ -1,7 +1,8 @@
 {
   "image_name": "PXL_20260224_090243920.jpg",
-  "status": "in_progress",
-  "status_updated_at": "2026-02-26T10:30:44+01:00",
-  "status_updated_by": "augus",
-  "image_last_modified": "2026-02-25T13:17:31+01:00"
+  "status": "completed",
+  "status_updated_at": "2026-02-26T17:09:41+01:00",
+  "status_updated_by": "alexm",
+  "image_last_modified": "2026-02-25T13:34:03+01:00",
+  "sig": "c0dacb96be0dfe349f83f87150a126e74875d3dc56e9064301762da06be7e244"
 }
