@@ -4,8 +4,15 @@
   "modified_at": "2026-02-25T14:46:20.699533",
   "dataset_folder": "images",
   "yaml_path": "",
-  "class_names": ["card"],
-  "team_members": ["Ilan", "Samuel", "August", "Alexandre"],
+  "class_names": [
+    "card"
+  ],
+  "team_members": [
+    "Ilan",
+    "Samuel",
+    "August",
+    "Alexandre"
+  ],
   "team_percentages": {
     "Ilan": 16.0,
     "Samuel": 16.0,
