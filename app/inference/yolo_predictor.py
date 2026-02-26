@@ -35,12 +35,14 @@ class _InferenceWorker(QObject):
         model_path: str,
         image_path: Path,
         conf: float,
+        class_filter: list[int] | None = None,
         use_obb: bool = True,
     ) -> None:
         super().__init__()
         self._model_path = model_path
         self._image_path = image_path
         self._conf = conf
+        self._class_filter = class_filter
         self._use_obb = use_obb
 
     def run(self) -> None:
@@ -50,6 +52,7 @@ class _InferenceWorker(QObject):
             results = model.predict(
                 source=str(self._image_path),
                 conf=self._conf,
+                classes=self._class_filter,
                 save=False,
                 verbose=False,
             )
@@ -147,6 +150,7 @@ class YoloPredictor:
         model_path: str,
         image_path: Path,
         conf: float,
+        class_filter: list[int] | None,
         on_done: Callable[[list[Label]], None],
         on_error: Callable[[str], None],
         use_obb: bool = True,
@@ -157,6 +161,7 @@ class YoloPredictor:
             model_path: Path to the YOLO model (.pt file)
             image_path: Path to the image to run inference on
             conf: Confidence threshold
+            class_filter: Optional class-id filter passed to Ultralytics
             on_done: Callback with list of labels when inference completes
             on_error: Callback with error message if inference fails
             use_obb: If True, output OBB labels; if False, output BBox labels
@@ -165,7 +170,7 @@ class YoloPredictor:
             return  # Already running
 
         self._thread = QThread()
-        self._worker = _InferenceWorker(model_path, image_path, conf, use_obb)
+        self._worker = _InferenceWorker(model_path, image_path, conf, class_filter, use_obb)
         self._worker.moveToThread(self._thread)
 
         self._thread.started.connect(self._worker.run)

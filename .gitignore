@@ -3,3 +3,4 @@
 /diagnostics
 projets/**/.local/
 /__pycache__/
+/detection_models

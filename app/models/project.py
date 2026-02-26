@@ -27,6 +27,7 @@ _PERSONAL_STATE_KEYS = {
     "use_obb",
     "model_path",
     "model_confidence",
+    "model_class_filter",
 }
 
 
@@ -64,6 +65,7 @@ class Project:
     # Model settings
     model_path: str = ""
     model_confidence: float = 0.7
+    model_class_filter: list[int] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.created_at:
@@ -255,6 +257,7 @@ class Project:
                 use_obb=data.get("use_obb", True),
                 model_path=data.get("model_path", ""),
                 model_confidence=float(data.get("model_confidence", 0.7)),
+                model_class_filter=[int(v) for v in data.get("model_class_filter", [])],
             )
         except Exception:
             return None
@@ -347,6 +350,7 @@ class ProjectManager:
             "use_obb": self._current_project.use_obb,
             "model_path": self._current_project.model_path,
             "model_confidence": self._current_project.model_confidence,
+            "model_class_filter": list(self._current_project.model_class_filter),
         }
         self.save_user_state()
 
@@ -376,6 +380,7 @@ class ProjectManager:
                     "use_obb": project.use_obb,
                     "model_path": project.model_path,
                     "model_confidence": project.model_confidence,
+                    "model_class_filter": list(project.model_class_filter),
                 }
             self._current_user_state = state
             self._apply_user_state_to_project(project, state)
@@ -440,6 +445,7 @@ class ProjectManager:
             "use_obb": bool(self._current_project.use_obb),
             "model_path": str(self._current_project.model_path or ""),
             "model_confidence": float(self._current_project.model_confidence),
+            "model_class_filter": [int(v) for v in self._current_project.model_class_filter],
         }
         self._current_user_state = payload
         try:
@@ -756,6 +762,17 @@ class ProjectManager:
         project.use_obb = bool(state.get("use_obb", project.use_obb))
         project.model_path = str(state.get("model_path", project.model_path or ""))
         project.model_confidence = float(state.get("model_confidence", project.model_confidence))
+        class_filter = state.get("model_class_filter", project.model_class_filter)
+        if isinstance(class_filter, list):
+            parsed: list[int] = []
+            for value in class_filter:
+                try:
+                    int_value = int(value)
+                except Exception:
+                    continue
+                if int_value >= 0:
+                    parsed.append(int_value)
+            project.model_class_filter = sorted(set(parsed))
 
     def _load_user_state(self, project_folder: Path) -> dict[str, object]:
         state_path = self._user_state_path(project_folder)
