@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QApplication,
     QSpinBox,
+    QComboBox,
 )
 
 from app.models.label_manager import LabelManager
@@ -210,10 +211,31 @@ class DatasetBuilderDialog(QDialog):
         aug_grid.addWidget(self._aug_effect_strength, row, 2)
 
         row += 1
-        aug_grid.addWidget(QLabel("Extra random-object/background folder:"), row, 0)
+        aug_grid.addWidget(QLabel("Background source mode:"), row, 0, 1, 2)
+        self._aug_bg_mode_combo = QComboBox()
+        self._aug_bg_mode_combo.addItem("Generated only", "generated")
+        self._aug_bg_mode_combo.addItem("Mix folder + generated", "mix")
+        self._aug_bg_mode_combo.addItem("Folder only", "folder")
+        self._aug_bg_mode_combo.setCurrentIndex(1)
+        aug_grid.addWidget(self._aug_bg_mode_combo, row, 2)
+
+        row += 1
+        aug_grid.addWidget(QLabel("Background images folder:"), row, 0)
+        bg_img_row = QHBoxLayout()
+        self._aug_backgrounds_folder_edit = QLineEdit()
+        self._aug_backgrounds_folder_edit.setPlaceholderText("Optional: folder of background images/textures")
+        bg_img_row.addWidget(self._aug_backgrounds_folder_edit)
+        bg_img_browse = QPushButton("Browse…")
+        bg_img_browse.clicked.connect(self._browse_aug_backgrounds)
+        bg_img_browse.setMaximumWidth(80)
+        bg_img_row.addWidget(bg_img_browse)
+        aug_grid.addLayout(bg_img_row, row, 1, 1, 2)
+
+        row += 1
+        aug_grid.addWidget(QLabel("Extra random-object folder:"), row, 0)
         bg_row = QHBoxLayout()
         self._aug_objects_folder_edit = QLineEdit()
-        self._aug_objects_folder_edit.setPlaceholderText("Optional: folder with phones/computers/textures/objects")
+        self._aug_objects_folder_edit.setPlaceholderText("Optional: folder with phones/computers/napkins/headphones/etc")
         bg_row.addWidget(self._aug_objects_folder_edit)
         bg_browse = QPushButton("Browse…")
         bg_browse.clicked.connect(self._browse_aug_objects)
@@ -292,6 +314,12 @@ class DatasetBuilderDialog(QDialog):
             self._aug_objects_folder_edit.setText(folder)
             self._refresh_estimate()
 
+    def _browse_aug_backgrounds(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Select background images folder")
+        if folder:
+            self._aug_backgrounds_folder_edit.setText(folder)
+            self._refresh_estimate()
+
     # ------------------------------------------------------------------
     # Slider
     # ------------------------------------------------------------------
@@ -319,6 +347,8 @@ class DatasetBuilderDialog(QDialog):
         ):
             widget.valueChanged.connect(self._refresh_estimate)
 
+        self._aug_bg_mode_combo.currentIndexChanged.connect(self._refresh_estimate)
+        self._aug_backgrounds_folder_edit.textChanged.connect(self._refresh_estimate)
         self._aug_objects_folder_edit.textChanged.connect(self._refresh_estimate)
 
     def _apply_aug_preset(self, name: str) -> None:
@@ -472,6 +502,17 @@ class DatasetBuilderDialog(QDialog):
             QMessageBox.warning(self, "No dataset name", "Please enter a dataset name.")
             return
 
+        if self._aug_cutout_check.isChecked():
+            bg_mode = str(self._aug_bg_mode_combo.currentData() or "mix")
+            bg_folder = self._aug_backgrounds_folder_edit.text().strip()
+            if bg_mode == "folder" and (not bg_folder or not Path(bg_folder).is_dir()):
+                QMessageBox.warning(
+                    self,
+                    "Background folder required",
+                    "Background mode is set to 'Folder only', but no valid background folder is selected.",
+                )
+                return
+
         out_path = Path(out_folder_str) / name
         if out_path.exists():
             reply = QMessageBox.question(
@@ -588,5 +629,7 @@ class DatasetBuilderDialog(QDialog):
             cutout_min_objects=min_objects,
             cutout_max_objects=max_objects,
             cutout_effect_strength=self._aug_effect_strength.value() / 100.0,
+            background_images_dir=self._aug_backgrounds_folder_edit.text().strip(),
+            background_source_mode=str(self._aug_bg_mode_combo.currentData() or "mix"),
             background_objects_dir=self._aug_objects_folder_edit.text().strip(),
         )

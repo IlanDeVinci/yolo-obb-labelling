@@ -31,6 +31,8 @@ class AugmentationOptions:
     cutout_min_objects: int = 1
     cutout_max_objects: int = 6
     cutout_effect_strength: float = 0.35
+    background_images_dir: str = ""
+    background_source_mode: str = "mix"
     background_objects_dir: str = ""
 
 
@@ -45,8 +47,8 @@ def generate_split_augmentations(
 
     created = 0
     source_image_pool = [img for img, _ in pairs]
+    background_external_pool = _collect_external_images(options.background_images_dir)
     external_pool = _collect_external_images(options.background_objects_dir)
-    background_pool = source_image_pool + external_pool
 
     for image_path, label_path in pairs:
         try:
@@ -88,7 +90,9 @@ def generate_split_augmentations(
                 comp_result = _cutout_composite(
                     source_image=image,
                     source_labels=labels,
-                    all_image_paths=background_pool,
+                    source_image_paths=source_image_pool,
+                    folder_background_paths=background_external_pool,
+                    background_source_mode=options.background_source_mode,
                     external_object_paths=external_pool,
                     min_objects=options.cutout_min_objects,
                     max_objects=options.cutout_max_objects,
@@ -284,7 +288,9 @@ def _safe_crop(
 def _cutout_composite(
     source_image: Image.Image,
     source_labels: list[ParsedLabel],
-    all_image_paths: list[Path],
+    source_image_paths: list[Path],
+    folder_background_paths: list[Path],
+    background_source_mode: str,
     external_object_paths: list[Path],
     min_objects: int,
     max_objects: int,
@@ -294,7 +300,13 @@ def _cutout_composite(
         return None
 
     width, height = source_image.size
-    bg = _random_background(width, height, all_image_paths)
+    bg = _random_background(
+        width=width,
+        height=height,
+        source_image_paths=source_image_paths,
+        folder_background_paths=folder_background_paths,
+        background_source_mode=background_source_mode,
+    )
     _paste_random_distractors(bg, external_object_paths, effect_strength)
     composed_labels: list[ParsedLabel] = []
 
@@ -428,8 +440,30 @@ def _extract_label_patch(
     return patch, mask, rel_points
 
 
-def _random_background(width: int, height: int, all_image_paths: list[Path]) -> Image.Image:
-    bg_mode = random.choice(["solid", "noise", "texture"])
+def _random_background(
+    width: int,
+    height: int,
+    source_image_paths: list[Path],
+    folder_background_paths: list[Path],
+    background_source_mode: str,
+) -> Image.Image:
+    mode = (background_source_mode or "mix").strip().lower()
+    if mode not in {"generated", "mix", "folder"}:
+        mode = "mix"
+
+    folder_paths = list(folder_background_paths)
+    source_paths = list(source_image_paths)
+
+    if mode == "generated":
+        candidates = ["solid", "noise", "source_texture"]
+    elif mode == "folder":
+        candidates = ["folder_texture"] if folder_paths else ["solid", "noise", "source_texture"]
+    else:
+        candidates = ["solid", "noise", "source_texture"]
+        if folder_paths:
+            candidates.append("folder_texture")
+
+    bg_mode = random.choice(candidates)
     if bg_mode == "solid":
         color = tuple(int(random.randint(20, 230)) for _ in range(3))
         return Image.new("RGB", (width, height), color=color)
@@ -439,8 +473,25 @@ def _random_background(width: int, height: int, all_image_paths: list[Path]) -> 
         img = Image.fromarray(arr, mode="RGB")
         return img.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.8, 2.2)))
 
-    if all_image_paths:
-        random_path = random.choice(all_image_paths)
+    if bg_mode == "folder_texture" and folder_paths:
+        random_path = random.choice(folder_paths)
+        try:
+            texture = Image.open(random_path).convert("RGB")
+            if texture.width < width or texture.height < height:
+                scale = max(width / texture.width, height / texture.height)
+                texture = texture.resize(
+                    (int(texture.width * scale) + 1, int(texture.height * scale) + 1),
+                    Image.Resampling.BICUBIC,
+                )
+            left = random.randint(0, max(0, texture.width - width))
+            top = random.randint(0, max(0, texture.height - height))
+            crop = texture.crop((left, top, left + width, top + height))
+            return crop.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.4, 1.8)))
+        except Exception:
+            pass
+
+    if source_paths:
+        random_path = random.choice(source_paths)
         try:
             texture = Image.open(random_path).convert("RGB")
             if texture.width < width or texture.height < height:
