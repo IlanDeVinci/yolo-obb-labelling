@@ -1816,26 +1816,28 @@ class MainWindow(QMainWindow):
         if not project or not project.team_members:
             return
 
-        options = list(project.team_members)
-        current = project.active_team_member if project.active_team_member in options else ""
+        all_option = "(Tous) Voir toutes les images"
+        options = [all_option, *list(project.team_members)]
+        current = project.active_team_member if project.active_team_member in project.team_members else ""
         current_index = options.index(current) if current else 0
 
         choice, ok = QInputDialog.getItem(
             self,
             "Qui etes-vous ?",
-            "Selectionnez votre membre d'equipe:",
+            "Selectionnez votre membre d'equipe (ou voir toutes les images):",
             options,
             current_index,
             False,
         )
         if not ok:
+            # Keep current selection; default to "all images" when none set.
             if not current:
-                project.active_team_member = options[0]
+                project.active_team_member = ""
                 self._project_mgr.save_user_state()
                 self._apply_team_filter()
             return
 
-        project.active_team_member = choice
+        project.active_team_member = "" if choice == all_option else choice
         self._project_mgr.save_user_state()
         self._apply_team_filter()
 

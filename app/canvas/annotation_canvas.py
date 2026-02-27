@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 from app.models.obb_label import OBBLabel, BBoxLabel, Label
 from app.canvas.obb_graphics_item import OBBGraphicsItem
 from app.canvas.drawing_controller import DrawingController
-from app.utils.image_io import load_qpixmap
+from app.utils.image_io import load_qpixmap, decode_failure_hint
 
 _ZOOM_FACTOR = 1.15
 
@@ -98,6 +98,7 @@ class AnnotationCanvas(QGraphicsView):
 
         pixmap = load_qpixmap(image_path)
         if pixmap.isNull():
+            self.status_message.emit(decode_failure_hint(image_path))
             return
 
         self._img_w = float(pixmap.width())
