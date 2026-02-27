@@ -1,8 +1,8 @@
 {
   "image_name": "PXL_20260224_090811571.MP.jpg",
-  "status": "to_rotate",
-  "status_updated_at": "2026-02-27T11:43:10+01:00",
+  "status": "completed",
+  "status_updated_at": "2026-02-27T11:54:19+01:00",
   "status_updated_by": "Ilan",
   "image_last_modified": "2026-02-24T13:56:00+01:00",
-  "sig": "f3fe2c47f60f97a1d78e58ddf8f220abf7a5936e07c992e34bc0bfb48c6db2e5"
+  "sig": "f86c2e23bf430f1d423b9893b9381c92efa21838e3525a860bdb06e29efadc22"
 }
