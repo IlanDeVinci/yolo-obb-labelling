@@ -459,9 +459,11 @@ class MainWindow(QMainWindow):
         )
         status_menu.addAction(self._act_set_yolo)
 
-        self._act_set_all_to_rotate = QAction("Set &All as To Rotate", self)
-        self._act_set_all_to_rotate.triggered.connect(self._set_all_images_to_rotate)
-        status_menu.addAction(self._act_set_all_to_rotate)
+        self._act_set_to_rotate = QAction("Set Selected as To &Rotate", self)
+        self._act_set_to_rotate.triggered.connect(
+            lambda: self._set_selected_images_completion("to_rotate")
+        )
+        status_menu.addAction(self._act_set_to_rotate)
 
     def _build_status_bar(self) -> None:
         sb = QStatusBar()
@@ -1155,25 +1157,6 @@ class MainWindow(QMainWindow):
             self._lbl_hint.setText(f"{selected[0].name}: {label}")
         else:
             self._lbl_hint.setText(f"{n} images set as {label}")
-
-    def _set_all_images_to_rotate(self) -> None:
-        project = self._project_mgr.current_project
-        if not project:
-            return
-
-        targets = list(self._all_images) if self._all_images else list(self._image_mgr.images)
-        if not targets:
-            self._lbl_hint.setText("No images to update.")
-            return
-
-        for img_path in targets:
-            project.set_image_completion(img_path.name, "to_rotate")
-            self._project_mgr.persist_image_completion(img_path.name, "to_rotate", img_path)
-
-        self._project_mgr.save_user_state()
-        self._browser.set_images(self._image_mgr.images)
-        self._update_completion_action()
-        self._lbl_hint.setText(f"{len(targets)} image(s) set as To Rotate")
 
     def _toggle_current_image_completion(self) -> None:
         img = self._image_mgr.current_image
@@ -2489,7 +2472,7 @@ Ctrl+Shift+M — Reassign selected image(s) to a member<br>
 Ctrl+Shift+K — Set current image as completed<br>
 Ctrl+Shift+J — Set current image as in progress<br>
 Ctrl+Shift+G — Set current image as YOLO<br>
-Status menu — Set all images as To Rotate<br>
+Status menu — Set selected images as To Rotate<br>
         """.strip()
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
 
