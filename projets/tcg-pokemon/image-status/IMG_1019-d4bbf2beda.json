@@ -1,8 +1,8 @@
 {
   "image_name": "IMG_1019.JPG",
-  "status": "yolo",
-  "status_updated_at": "2026-02-27T10:58:50+01:00",
-  "status_updated_by": "Ilan",
-  "image_last_modified": "2026-02-27T10:42:52+01:00",
-  "sig": "5a6ec8ab732d0befd0efef1746103e65454b091772f7f31e2d4834e624bb5b9a"
+  "status": "completed",
+  "status_updated_at": "2026-02-27T11:45:01+01:00",
+  "status_updated_by": "mairi",
+  "image_last_modified": "2026-02-27T11:25:22+01:00",
+  "sig": "fd4dfc514f96bcaec8774315b880f251352575126667728ada0115ee87aa7042"
 }
