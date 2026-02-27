@@ -49,10 +49,12 @@ from app.ui.dialogs.project_dialog import (
 )
 from app.inference.yolo_predictor import (
     YoloPredictor,
+    labels_from_result,
     get_inference_diag_log_path,
     get_yolo_class,
     is_inference_available,
 )
+from app.utils.image_io import prepare_inference_source, cleanup_inference_source
 
 
 class MainWindow(QMainWindow):
@@ -299,6 +301,16 @@ class MainWindow(QMainWindow):
         self._act_flip_orientation.triggered.connect(self._flip_selected_orientation)
         ann_menu.addAction(self._act_flip_orientation)
 
+        self._act_cycle_corners_cw = QAction("Cycle Selected OBB Corners (CW)", self)
+        self._act_cycle_corners_cw.setShortcut(QKeySequence("R"))
+        self._act_cycle_corners_cw.triggered.connect(self._cycle_selected_corners_cw)
+        ann_menu.addAction(self._act_cycle_corners_cw)
+
+        self._act_cycle_corners_ccw = QAction("Cycle Selected OBB Corners (CCW)", self)
+        self._act_cycle_corners_ccw.setShortcut(QKeySequence("Shift+R"))
+        self._act_cycle_corners_ccw.triggered.connect(self._cycle_selected_corners_ccw)
+        ann_menu.addAction(self._act_cycle_corners_ccw)
+
         self._act_rotate_sel_ccw = QAction("Rotate Selected -15°", self)
         self._act_rotate_sel_ccw.setShortcut(QKeySequence("Ctrl+Alt+Q"))
         self._act_rotate_sel_ccw.triggered.connect(lambda: self._rotate_selected_labels(-15.0))
@@ -439,6 +451,17 @@ class MainWindow(QMainWindow):
             lambda: self._set_selected_images_completion("in_progress")
         )
         status_menu.addAction(self._act_set_in_progress)
+
+        self._act_set_yolo = QAction("Set as &YOLO", self)
+        self._act_set_yolo.setShortcut(QKeySequence("Ctrl+Shift+G"))
+        self._act_set_yolo.triggered.connect(
+            lambda: self._set_selected_images_completion("yolo")
+        )
+        status_menu.addAction(self._act_set_yolo)
+
+        self._act_set_all_to_rotate = QAction("Set &All as To Rotate", self)
+        self._act_set_all_to_rotate.triggered.connect(self._set_all_images_to_rotate)
+        status_menu.addAction(self._act_set_all_to_rotate)
 
     def _build_status_bar(self) -> None:
         sb = QStatusBar()
@@ -767,7 +790,7 @@ class MainWindow(QMainWindow):
             if image_name not in known_names:
                 continue
             normalized_status = str(status).strip().lower()
-            if normalized_status in {"in_progress", "completed"}:
+            if normalized_status in {"in_progress", "completed", "yolo", "to_rotate"}:
                 normalized[image_name] = normalized_status
 
         if normalized != project.image_completion:
@@ -1087,7 +1110,13 @@ class MainWindow(QMainWindow):
         self._project_mgr.save_user_state()
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()
-        label = "In Progress" if status == "in_progress" else "Completed"
+        status_labels = {
+            "in_progress": "In Progress",
+            "completed": "Completed",
+            "yolo": "YOLO",
+            "to_rotate": "To Rotate",
+        }
+        label = status_labels.get(status, status)
         self._lbl_hint.setText(f"{img.name}: {label}")
 
     def _set_selected_images_completion(self, status: str) -> None:
@@ -1114,12 +1143,37 @@ class MainWindow(QMainWindow):
                 self._browser.refresh_item(idx)
 
         self._update_completion_action()
-        label = "In Progress" if status == "in_progress" else "Completed"
+        status_labels = {
+            "in_progress": "In Progress",
+            "completed": "Completed",
+            "yolo": "YOLO",
+            "to_rotate": "To Rotate",
+        }
+        label = status_labels.get(status, status)
         n = len(selected)
         if n == 1:
             self._lbl_hint.setText(f"{selected[0].name}: {label}")
         else:
             self._lbl_hint.setText(f"{n} images set as {label}")
+
+    def _set_all_images_to_rotate(self) -> None:
+        project = self._project_mgr.current_project
+        if not project:
+            return
+
+        targets = list(self._all_images) if self._all_images else list(self._image_mgr.images)
+        if not targets:
+            self._lbl_hint.setText("No images to update.")
+            return
+
+        for img_path in targets:
+            project.set_image_completion(img_path.name, "to_rotate")
+            self._project_mgr.persist_image_completion(img_path.name, "to_rotate", img_path)
+
+        self._project_mgr.save_user_state()
+        self._browser.set_images(self._image_mgr.images)
+        self._update_completion_action()
+        self._lbl_hint.setText(f"{len(targets)} image(s) set as To Rotate")
 
     def _toggle_current_image_completion(self) -> None:
         img = self._image_mgr.current_image
@@ -1132,8 +1186,9 @@ class MainWindow(QMainWindow):
     def _update_completion_action(self) -> None:
         has_completed_action = hasattr(self, "_act_set_completed")
         has_in_progress_action = hasattr(self, "_act_set_in_progress")
+        has_yolo_action = hasattr(self, "_act_set_yolo")
         has_toggle_action = hasattr(self, "_act_toggle_completion")
-        if not (has_completed_action or has_in_progress_action or has_toggle_action):
+        if not (has_completed_action or has_in_progress_action or has_yolo_action or has_toggle_action):
             return
 
         img = self._image_mgr.current_image
@@ -1142,6 +1197,8 @@ class MainWindow(QMainWindow):
                 self._act_set_completed.setEnabled(False)
             if has_in_progress_action:
                 self._act_set_in_progress.setEnabled(False)
+            if has_yolo_action:
+                self._act_set_yolo.setEnabled(False)
             if has_toggle_action:
                 self._act_toggle_completion.setEnabled(False)
                 self._act_toggle_completion.setText("Mark Current Image &Completed")
@@ -1153,6 +1210,8 @@ class MainWindow(QMainWindow):
             self._act_set_completed.setEnabled(current != "completed")
         if has_in_progress_action:
             self._act_set_in_progress.setEnabled(current != "in_progress")
+        if has_yolo_action:
+            self._act_set_yolo.setEnabled(current != "yolo")
 
         if has_toggle_action:
             self._act_toggle_completion.setEnabled(True)
@@ -1414,8 +1473,31 @@ class MainWindow(QMainWindow):
         if not self._model_path:
             QMessageBox.warning(self, "No model", "Load a model first via Model > Load Model…")
             return
-        images = self._image_mgr.images
+        all_images = self._image_mgr.images
+        if not all_images:
+            return
+
+        project = self._project_mgr.current_project
+        images = list(all_images)
+        skipped_completed = 0
+        skipped_yolo = 0
+        if project:
+            filtered: list[Path] = []
+            for img in all_images:
+                status = str(project.get_image_completion(img.name) or "").strip().lower()
+                if status == "completed":
+                    skipped_completed += 1
+                    continue
+                if status == "yolo":
+                    skipped_yolo += 1
+                    continue
+                filtered.append(img)
+            images = filtered
+
         if not images:
+            self._lbl_hint.setText(
+                f"No images to process (completed skipped: {skipped_completed}, yolo skipped: {skipped_yolo})."
+            )
             return
 
         if not self._maybe_save_before_leaving():
@@ -1431,7 +1513,6 @@ class MainWindow(QMainWindow):
             self._show_inference_missing_message(str(exc))
             return
 
-        from app.models.obb_label import OBBLabel as _OBBLabel, BBoxLabel as _BBoxLabel
         from app.models.label_manager import LabelManager as _LabelManager
 
         use_obb = self._use_obb
@@ -1443,80 +1524,39 @@ class MainWindow(QMainWindow):
             progress.setLabelText(f"Processing {img_path.name} ({i+1}/{len(images)})")
             QApplication.processEvents()
 
+            temp_source: str | None = None
             try:
                 model = yolo_class(self._model_path)
+                source, temp_source = prepare_inference_source(img_path)
                 results = model.predict(
-                    source=str(img_path),
+                    source=source,
                     conf=self._model_conf,
                     classes=(self._model_class_filter or None),
                     save=False,
                     verbose=False,
                 )
-                labels = []
-
-                if results:
-                    result = results[0]
-
-                    # Try OBB format first (for OBB models)
-                    if hasattr(result, 'obb') and result.obb is not None and len(result.obb.cls) > 0:
-                        obb = result.obb
-                        coords = obb.xyxyxyxyn.cpu().numpy()
-                        for j in range(len(obb.cls)):
-                            pts = coords[j].reshape(8).tolist()
-                            if use_obb:
-                                labels.append(_OBBLabel(
-                                    class_idx=int(obb.cls[j].item()),
-                                    points=pts,
-                                    conf=float(obb.conf[j].item()),
-                                ))
-                            else:
-                                labels.append(_BBoxLabel.from_corners(
-                                    class_idx=int(obb.cls[j].item()),
-                                    corners=pts,
-                                    conf=float(obb.conf[j].item()),
-                                ))
-
-                    # Try standard detection format (for regular detection models)
-                    elif hasattr(result, 'boxes') and result.boxes is not None and len(result.boxes.cls) > 0:
-                        boxes = result.boxes
-                        coords = boxes.xywhn.cpu().numpy()
-                        for j in range(len(boxes.cls)):
-                            x_center, y_center, width, height = coords[j].tolist()
-                            if use_obb:
-                                half_w = width / 2
-                                half_h = height / 2
-                                pts = [
-                                    x_center - half_w, y_center - half_h,
-                                    x_center + half_w, y_center - half_h,
-                                    x_center + half_w, y_center + half_h,
-                                    x_center - half_w, y_center + half_h,
-                                ]
-                                labels.append(_OBBLabel(
-                                    class_idx=int(boxes.cls[j].item()),
-                                    points=pts,
-                                    conf=float(boxes.conf[j].item()),
-                                ))
-                            else:
-                                labels.append(_BBoxLabel(
-                                    class_idx=int(boxes.cls[j].item()),
-                                    x_center=x_center,
-                                    y_center=y_center,
-                                    width=width,
-                                    height=height,
-                                    conf=float(boxes.conf[j].item()),
-                                ))
+                labels = labels_from_result(results[0], use_obb=use_obb) if results else []
 
                 lm = _LabelManager()
                 lm.load_for_image(img_path)
                 for lbl in labels:
                     lm.add_label(lbl)
                 lm.save()
+
+                if project:
+                    project.set_image_completion(img_path.name, "yolo")
+                    self._project_mgr.persist_image_completion(img_path.name, "yolo", img_path)
             except Exception as exc:
                 QMessageBox.warning(self, "Error", f"Error on {img_path.name}:\n{exc}")
+            finally:
+                cleanup_inference_source(temp_source)
 
         progress.setValue(len(images))
-        self._browser.set_images(images)  # refresh indicators
-        self._lbl_hint.setText("Batch inference complete.")
+        self._browser.set_images(self._image_mgr.images)  # refresh indicators
+        self._project_mgr.save_user_state()
+        self._lbl_hint.setText(
+            f"Batch inference complete ({len(images)} processed, {skipped_completed} completed skipped, {skipped_yolo} yolo skipped)."
+        )
 
     # ------------------------------------------------------------------
     # Copy / Paste
@@ -1853,26 +1893,28 @@ class MainWindow(QMainWindow):
         if not project or not project.team_members:
             return
 
-        options = list(project.team_members)
-        current = project.active_team_member if project.active_team_member in options else ""
+        all_option = "(Tous) Voir toutes les images"
+        options = [all_option, *list(project.team_members)]
+        current = project.active_team_member if project.active_team_member in project.team_members else ""
         current_index = options.index(current) if current else 0
 
         choice, ok = QInputDialog.getItem(
             self,
             "Qui etes-vous ?",
-            "Selectionnez votre membre d'equipe:",
+            "Selectionnez votre membre d'equipe (ou voir toutes les images):",
             options,
             current_index,
             False,
         )
         if not ok:
+            # Keep current selection; default to "all images" when none set.
             if not current:
-                project.active_team_member = options[0]
+                project.active_team_member = ""
                 self._project_mgr.save_user_state()
                 self._apply_team_filter()
             return
 
-        project.active_team_member = choice
+        project.active_team_member = "" if choice == all_option else choice
         self._project_mgr.save_user_state()
         self._apply_team_filter()
 
@@ -2051,6 +2093,110 @@ class MainWindow(QMainWindow):
         self._update_dirty_indicator()
         self._autosave_timer.start()
         self._lbl_hint.setText(f"Flipped orientation for {len(selected_items)} selected OBB label(s).")
+
+    def _cycle_selected_corners_cw(self) -> None:
+        """Cycle selected OBB corner order clockwise by one step.
+
+        Mapping for corners [TL, TR, BR, BL] is:
+        [TL, TR, BR, BL] -> [BL, TL, TR, BR]
+        Geometry stays identical on-screen; only corner indexing changes.
+        """
+        selected_items = [
+            item for item in self._canvas._label_items
+            if item.isSelected() and isinstance(item.label, OBBLabel)
+        ]
+
+        if not selected_items:
+            self._lbl_hint.setText("No selected OBB labels to cycle corners.")
+            return
+
+        self._undo_stack.beginMacro("Cycle selected OBB corners clockwise")
+        changed_count = 0
+        try:
+            for item in selected_items:
+                label = item.label
+                if not isinstance(label, OBBLabel):
+                    continue
+
+                old_points = list(label.points)
+                if len(old_points) != 8:
+                    continue
+
+                p1 = old_points[0:2]
+                p2 = old_points[2:4]
+                p3 = old_points[4:6]
+                p4 = old_points[6:8]
+                new_points = p4 + p1 + p2 + p3
+                if new_points == old_points:
+                    continue
+
+                label.points = list(new_points)
+                label.mark_manual()
+                item.refresh_from_label()
+
+                cmd = ModifyLabelCommand(label, old_points, new_points, self._canvas)
+                self._undo_stack.push(cmd)
+                changed_count += 1
+        finally:
+            self._undo_stack.endMacro()
+
+        self._canvas.labels_changed.emit()
+        self._refresh_label_list()
+        self._update_dirty_indicator()
+        self._autosave_timer.start()
+        self._lbl_hint.setText(f"Cycled corners clockwise for {changed_count} selected OBB label(s).")
+
+    def _cycle_selected_corners_ccw(self) -> None:
+        """Cycle selected OBB corner order counter-clockwise by one step.
+
+        Mapping for corners [TL, TR, BR, BL] is:
+        [TL, TR, BR, BL] -> [TR, BR, BL, TL]
+        Geometry stays identical on-screen; only corner indexing changes.
+        """
+        selected_items = [
+            item for item in self._canvas._label_items
+            if item.isSelected() and isinstance(item.label, OBBLabel)
+        ]
+
+        if not selected_items:
+            self._lbl_hint.setText("No selected OBB labels to cycle corners.")
+            return
+
+        self._undo_stack.beginMacro("Cycle selected OBB corners counter-clockwise")
+        changed_count = 0
+        try:
+            for item in selected_items:
+                label = item.label
+                if not isinstance(label, OBBLabel):
+                    continue
+
+                old_points = list(label.points)
+                if len(old_points) != 8:
+                    continue
+
+                p1 = old_points[0:2]
+                p2 = old_points[2:4]
+                p3 = old_points[4:6]
+                p4 = old_points[6:8]
+                new_points = p2 + p3 + p4 + p1
+                if new_points == old_points:
+                    continue
+
+                label.points = list(new_points)
+                label.mark_manual()
+                item.refresh_from_label()
+
+                cmd = ModifyLabelCommand(label, old_points, new_points, self._canvas)
+                self._undo_stack.push(cmd)
+                changed_count += 1
+        finally:
+            self._undo_stack.endMacro()
+
+        self._canvas.labels_changed.emit()
+        self._refresh_label_list()
+        self._update_dirty_indicator()
+        self._autosave_timer.start()
+        self._lbl_hint.setText(f"Cycled corners counter-clockwise for {changed_count} selected OBB label(s).")
 
     def _rotate_selected_labels(self, angle_deg: float) -> None:
         self._transform_selected_labels(scale_factor=None, rotate_degrees=angle_deg)
@@ -2306,6 +2452,8 @@ Drag corner handle — Resize label<br>
 Alt/Ctrl + Drag corner/edge — Scale box up/down<br>
 Shift + Drag box (OBB) — Rotate quickly<br>
 Ctrl+Shift+L — Flip selected OBB orientation 180°<br>
+R — Cycle selected OBB corners clockwise (TL→TR→BR→BL)<br>
+Shift+R — Cycle selected OBB corners counter-clockwise<br>
 Ctrl+Alt+Q / Ctrl+Alt+E — Rotate selected labels -15° / +15°<br>
 Ctrl+Alt+S / Ctrl+Alt+W — Scale selected labels -10% / +10%<br>
 Ctrl+Shift+H — Show/hide class names on boxes<br>
@@ -2340,6 +2488,8 @@ Ctrl+Shift+M — Reassign selected image(s) to a member<br>
 <b>Status</b><br>
 Ctrl+Shift+K — Set current image as completed<br>
 Ctrl+Shift+J — Set current image as in progress<br>
+Ctrl+Shift+G — Set current image as YOLO<br>
+Status menu — Set all images as To Rotate<br>
         """.strip()
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
 

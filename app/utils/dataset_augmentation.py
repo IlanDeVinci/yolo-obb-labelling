@@ -4,6 +4,7 @@ import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
@@ -26,6 +27,10 @@ class AugmentationOptions:
     safe_crop_enabled: bool = False
     safe_crop_count: int = 1
     safe_crop_max_ratio: float = 0.2
+    zoom_enabled: bool = False
+    zoom_count: int = 1
+    zoom_min_scale: float = 0.85
+    zoom_max_scale: float = 1.25
     cutout_enabled: bool = False
     cutout_count: int = 1
     cutout_min_objects: int = 1
@@ -40,6 +45,7 @@ def generate_split_augmentations(
     images_dir: Path,
     labels_dir: Path,
     options: AugmentationOptions,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> int:
     pairs = _collect_pairs(images_dir, labels_dir)
     if not pairs:
@@ -51,6 +57,8 @@ def generate_split_augmentations(
     external_pool = _collect_external_images(options.background_objects_dir)
 
     for image_path, label_path in pairs:
+        if progress_callback is not None:
+            progress_callback(f"Augmenting {image_path.name}")
         try:
             image = Image.open(image_path).convert("RGB")
             labels = _parse_labels(label_path)
@@ -83,6 +91,24 @@ def generate_split_augmentations(
                     image_path,
                     labels_dir,
                     tag=f"crop{idx + 1}",
+                )
+
+        if options.zoom_enabled and options.zoom_count > 0:
+            z_min = min(options.zoom_min_scale, options.zoom_max_scale)
+            z_max = max(options.zoom_min_scale, options.zoom_max_scale)
+            for idx in range(options.zoom_count):
+                factor = random.uniform(z_min, z_max)
+                zoom_result = _zoom_transform(image, labels, factor)
+                if zoom_result is None:
+                    continue
+                zoom_img, zoom_labels = zoom_result
+                zoom_img = _apply_global_effects(zoom_img, options.cutout_effect_strength * 0.18)
+                created += _save_variant(
+                    zoom_img,
+                    zoom_labels,
+                    image_path,
+                    labels_dir,
+                    tag=f"zoom{idx + 1}",
                 )
 
         if options.cutout_enabled and options.cutout_count > 0 and labels:
@@ -285,6 +311,56 @@ def _safe_crop(
     return cropped, out_labels
 
 
+def _zoom_transform(
+    image: Image.Image,
+    labels: list[ParsedLabel],
+    factor: float,
+) -> tuple[Image.Image, list[ParsedLabel]] | None:
+    width, height = image.size
+    factor = max(0.55, min(1.8, float(factor)))
+
+    if factor >= 1.0:
+        crop_w = max(8, int(round(width / factor)))
+        crop_h = max(8, int(round(height / factor)))
+        left = max(0, (width - crop_w) // 2)
+        top = max(0, (height - crop_h) // 2)
+        crop = image.crop((left, top, left + crop_w, top + crop_h))
+        out_img = crop.resize((width, height), Image.Resampling.BICUBIC)
+    else:
+        out_img = image.filter(ImageFilter.GaussianBlur(radius=1.4))
+        new_w = max(8, int(round(width * factor)))
+        new_h = max(8, int(round(height * factor)))
+        resized = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
+        left = max(0, (width - new_w) // 2)
+        top = max(0, (height - new_h) // 2)
+        out_img.paste(resized, (left, top))
+
+    out_labels: list[ParsedLabel] = []
+    for lbl in labels:
+        raw_points: list[float] = []
+        for i in range(0, 8, 2):
+            x = (lbl.points[i] - 0.5) * factor + 0.5
+            y = (lbl.points[i + 1] - 0.5) * factor + 0.5
+            raw_points.extend([x, y])
+
+        xs_raw = [raw_points[i] for i in range(0, 8, 2)]
+        ys_raw = [raw_points[i] for i in range(1, 8, 2)]
+        if max(xs_raw) < 0.0 or min(xs_raw) > 1.0 or max(ys_raw) < 0.0 or min(ys_raw) > 1.0:
+            continue
+
+        clamped = [_clamp01(v) for v in raw_points]
+        xs = [clamped[i] for i in range(0, 8, 2)]
+        ys = [clamped[i] for i in range(1, 8, 2)]
+        if (max(xs) - min(xs)) * (max(ys) - min(ys)) < 1e-5:
+            continue
+
+        out_labels.append(ParsedLabel(class_idx=lbl.class_idx, points=clamped, fmt=lbl.fmt))
+
+    if not out_labels:
+        return None
+    return out_img, out_labels
+
+
 def _cutout_composite(
     source_image: Image.Image,
     source_labels: list[ParsedLabel],
@@ -307,7 +383,6 @@ def _cutout_composite(
         folder_background_paths=folder_background_paths,
         background_source_mode=background_source_mode,
     )
-    _paste_random_distractors(bg, external_object_paths, effect_strength)
     composed_labels: list[ParsedLabel] = []
 
     k_min = max(1, min(min_objects, len(source_labels)))
@@ -365,6 +440,14 @@ def _cutout_composite(
     if not composed_labels:
         return None
 
+    # Add optional distractors only in free space so cards remain unobstructed.
+    _paste_random_distractors(
+        background=bg,
+        object_paths=external_object_paths,
+        effect_strength=effect_strength,
+        blocked_boxes=occupied,
+    )
+
     bg = _apply_global_effects(bg, effect_strength)
     return bg, composed_labels
 
@@ -373,40 +456,60 @@ def _paste_random_distractors(
     background: Image.Image,
     object_paths: list[Path],
     effect_strength: float,
+    blocked_boxes: list[tuple[float, float, float, float]] | None = None,
 ) -> None:
     if not object_paths:
         return
 
     width, height = background.size
+    blocked = list(blocked_boxes or [])
+    placed_boxes: list[tuple[float, float, float, float]] = []
     distractor_count = random.randint(0, 3)
     for _ in range(distractor_count):
         src_path = random.choice(object_paths)
         try:
-            obj = Image.open(src_path).convert("RGB")
+            obj_rgba = Image.open(src_path).convert("RGBA")
         except Exception:
             continue
 
-        src_w, src_h = obj.size
+        src_w, src_h = obj_rgba.size
         if src_w < 12 or src_h < 12:
             continue
 
-        scale = random.uniform(0.12, 0.42)
+        # Keep random objects very tiny relative to the background image.
+        scale = random.uniform(0.01, 0.04)
         target_w = max(8, int(width * scale))
         target_h = max(8, int(src_h * (target_w / src_w)))
         if target_w >= width or target_h >= height:
             continue
 
-        obj = obj.resize((target_w, target_h), Image.Resampling.BICUBIC)
-        obj = _apply_patch_effects(obj, max(0.12, min(0.85, effect_strength)))
+        obj_rgba = obj_rgba.resize((target_w, target_h), Image.Resampling.BICUBIC)
+        alpha_src = obj_rgba.getchannel("A")
+        obj_rgb = obj_rgba.convert("RGB")
+        obj_rgb = _apply_patch_effects(obj_rgb, max(0.12, min(0.85, effect_strength)))
 
-        x0 = random.randint(0, width - target_w)
-        y0 = random.randint(0, height - target_h)
-        alpha = int(random.uniform(120, 230))
+        placed = False
+        for _attempt in range(40):
+            x0 = random.randint(0, width - target_w)
+            y0 = random.randint(0, height - target_h)
+            x1 = x0 + target_w
+            y1 = y0 + target_h
+            candidate = (x0, y0, x1, y1)
+            if _has_any_overlap(candidate, blocked) or _has_any_overlap(candidate, placed_boxes):
+                continue
 
-        mask = Image.new("L", (target_w, target_h), color=alpha)
-        if random.random() < 0.45:
-            mask = mask.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.6, 2.0)))
-        background.paste(obj, (x0, y0), mask)
+            opacity = int(random.uniform(120, 230))
+            mask = alpha_src.point(lambda a, o=opacity: int((a * o) / 255))
+            if random.random() < 0.45:
+                mask = mask.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.6, 2.0)))
+
+            background.paste(obj_rgb, (x0, y0), mask)
+            placed_boxes.append(candidate)
+            placed = True
+            break
+
+        if not placed:
+            continue
 
 
 def _extract_label_patch(
@@ -526,6 +629,21 @@ def _has_heavy_overlap(
             continue
         inter = (ix1 - ix0) * (iy1 - iy0)
         if inter / a_area > 0.35:
+            return True
+    return False
+
+
+def _has_any_overlap(
+    a: tuple[float, float, float, float],
+    boxes: list[tuple[float, float, float, float]],
+) -> bool:
+    ax0, ay0, ax1, ay1 = a
+    for bx0, by0, bx1, by1 in boxes:
+        ix0 = max(ax0, bx0)
+        iy0 = max(ay0, by0)
+        ix1 = min(ax1, bx1)
+        iy1 = min(ay1, by1)
+        if ix1 > ix0 and iy1 > iy0:
             return True
     return False
 

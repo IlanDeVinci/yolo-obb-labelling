@@ -4,7 +4,8 @@ import random
 import shutil
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -24,6 +25,9 @@ from PyQt6.QtWidgets import (
     QApplication,
     QSpinBox,
     QComboBox,
+    QScrollArea,
+    QWidget,
+    QProgressDialog,
 )
 
 from app.models.label_manager import LabelManager
@@ -44,17 +48,31 @@ class DatasetBuilderDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Build Dataset from Labeled Images")
-        self.setMinimumWidth(540)
+        self.setMinimumSize(980, 860)
+        self.resize(1080, 920)
 
         # State
         self._labeled_pairs: list[tuple[Path, Path]] = []  # (img_path, label_path)
+        self._preview_index: int = 0
+        self._preview_zoom: float = 1.0
+        self._preview_original_pixmap: QPixmap | None = None
+        self._settings = QSettings("YoloLabeller", "App")
 
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setSpacing(8)
+
+        body_scroll = QScrollArea(self)
+        body_scroll.setWidgetResizable(True)
+        body_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
         layout.setSpacing(8)
 
         # ---- Source ----
         src_group = QGroupBox("Source")
         src_grid = QGridLayout(src_group)
+        src_grid.setColumnStretch(1, 1)
         src_grid.addWidget(QLabel("Image folder:"), 0, 0)
         self._folder_edit = QLineEdit(default_folder)
         self._folder_edit.setPlaceholderText("/path/to/images")
@@ -76,6 +94,56 @@ class DatasetBuilderDialog(QDialog):
         self._scan_hint_label = QLabel("")
         self._scan_hint_label.setStyleSheet("color: #aaa; font-style: italic;")
         src_grid.addWidget(self._scan_hint_label, 2, 0, 1, 3)
+
+        preview_group = QGroupBox("Preview")
+        preview_layout = QVBoxLayout(preview_group)
+
+        preview_controls = QHBoxLayout()
+        self._preview_prev_btn = QPushButton("◀")
+        self._preview_prev_btn.setMaximumWidth(38)
+        self._preview_prev_btn.clicked.connect(lambda: self._step_preview(-1))
+        preview_controls.addWidget(self._preview_prev_btn)
+
+        self._preview_next_btn = QPushButton("▶")
+        self._preview_next_btn.setMaximumWidth(38)
+        self._preview_next_btn.clicked.connect(lambda: self._step_preview(1))
+        preview_controls.addWidget(self._preview_next_btn)
+
+        self._preview_info = QLabel("No image")
+        self._preview_info.setStyleSheet("color: #bbb;")
+        preview_controls.addWidget(self._preview_info, 1)
+
+        self._preview_zoom_out_btn = QPushButton("-")
+        self._preview_zoom_out_btn.setMaximumWidth(30)
+        self._preview_zoom_out_btn.clicked.connect(lambda: self._set_zoom_percent(self._zoom_percent() - 10))
+        preview_controls.addWidget(self._preview_zoom_out_btn)
+
+        self._preview_zoom_label = QLabel("100%")
+        self._preview_zoom_label.setMinimumWidth(48)
+        self._preview_zoom_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        preview_controls.addWidget(self._preview_zoom_label)
+
+        self._preview_zoom_in_btn = QPushButton("+")
+        self._preview_zoom_in_btn.setMaximumWidth(30)
+        self._preview_zoom_in_btn.clicked.connect(lambda: self._set_zoom_percent(self._zoom_percent() + 10))
+        preview_controls.addWidget(self._preview_zoom_in_btn)
+
+        self._preview_zoom_reset_btn = QPushButton("100%")
+        self._preview_zoom_reset_btn.setMaximumWidth(60)
+        self._preview_zoom_reset_btn.clicked.connect(lambda: self._set_zoom_percent(100))
+        preview_controls.addWidget(self._preview_zoom_reset_btn)
+
+        preview_layout.addLayout(preview_controls)
+
+        self._preview_scroll = QScrollArea()
+        self._preview_scroll.setWidgetResizable(True)
+        self._preview_image_label = QLabel("Scan a folder to preview labeled images")
+        self._preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_image_label.setMinimumHeight(220)
+        self._preview_scroll.setWidget(self._preview_image_label)
+        preview_layout.addWidget(self._preview_scroll)
+
+        src_grid.addWidget(preview_group, 3, 0, 1, 3)
         layout.addWidget(src_group)
 
         # ---- Class Names ----
@@ -152,6 +220,7 @@ class DatasetBuilderDialog(QDialog):
         # ---- Augmentations ----
         aug_group = QGroupBox("Extra Augmentations")
         aug_grid = QGridLayout(aug_group)
+        aug_grid.setColumnStretch(1, 1)
 
         row = 0
         self._aug_brightness_check = QCheckBox("Duplicate with darkness/light filters")
@@ -178,6 +247,32 @@ class DatasetBuilderDialog(QDialog):
         self._aug_crop_margin.setValue(20)
         self._aug_crop_margin.setSuffix(" %")
         aug_grid.addWidget(self._aug_crop_margin, row, 2)
+
+        row += 1
+        self._aug_zoom_check = QCheckBox("Duplicate with random zoom in/out")
+        self._aug_zoom_check.setChecked(True)
+        aug_grid.addWidget(self._aug_zoom_check, row, 0, 1, 2)
+        self._aug_zoom_count = QSpinBox()
+        self._aug_zoom_count.setRange(1, 8)
+        self._aug_zoom_count.setValue(1)
+        self._aug_zoom_count.setSuffix(" / image")
+        aug_grid.addWidget(self._aug_zoom_count, row, 2)
+
+        row += 1
+        aug_grid.addWidget(QLabel("Zoom scale range (%):"), row, 0, 1, 2)
+        zoom_row = QHBoxLayout()
+        self._aug_zoom_min = QSpinBox()
+        self._aug_zoom_min.setRange(55, 100)
+        self._aug_zoom_min.setValue(85)
+        self._aug_zoom_min.setSuffix(" %")
+        self._aug_zoom_max = QSpinBox()
+        self._aug_zoom_max.setRange(100, 180)
+        self._aug_zoom_max.setValue(125)
+        self._aug_zoom_max.setSuffix(" %")
+        zoom_row.addWidget(self._aug_zoom_min)
+        zoom_row.addWidget(QLabel("to"))
+        zoom_row.addWidget(self._aug_zoom_max)
+        aug_grid.addLayout(zoom_row, row, 2)
 
         row += 1
         self._aug_cutout_check = QCheckBox("Extract random boxes and compose on random backgrounds")
@@ -276,6 +371,10 @@ class DatasetBuilderDialog(QDialog):
         aug_grid.addWidget(self._estimate_label, row, 0, 1, 3)
 
         layout.addWidget(aug_group)
+        layout.addStretch(1)
+
+        body_scroll.setWidget(body)
+        outer_layout.addWidget(body_scroll, 1)
 
         # ---- Buttons ----
         btns = QDialogButtonBox(
@@ -285,13 +384,94 @@ class DatasetBuilderDialog(QDialog):
         ok_btn.setText("Build Dataset")
         btns.accepted.connect(self._accept)
         btns.rejected.connect(self.reject)
-        layout.addWidget(btns)
+        outer_layout.addWidget(btns)
 
         # Auto-scan if a folder was provided
         self._wire_estimate_signals()
+        self._restore_last_settings(default_folder, default_class_names)
+        self._update_preview_controls()
         self._refresh_estimate()
-        if default_folder:
+        if self._folder_edit.text().strip():
             self._scan_folder()
+
+    def _settings_key(self, suffix: str) -> str:
+        return f"dataset_builder/{suffix}"
+
+    def _restore_last_settings(self, default_folder: str, default_class_names: list[str] | None) -> None:
+        source_folder = self._settings.value(self._settings_key("source_folder"), "", type=str)
+        output_folder = self._settings.value(self._settings_key("output_folder"), "", type=str)
+        dataset_name = self._settings.value(self._settings_key("dataset_name"), "", type=str)
+        class_text = self._settings.value(self._settings_key("class_text"), "", type=str)
+
+        if source_folder.strip():
+            self._folder_edit.setText(source_folder)
+        elif default_folder:
+            self._folder_edit.setText(default_folder)
+
+        if output_folder.strip():
+            self._out_folder_edit.setText(output_folder)
+
+        if dataset_name.strip():
+            self._name_edit.setText(dataset_name)
+
+        if class_text.strip():
+            self._class_edit.setPlainText(class_text)
+        elif default_class_names and not self._class_edit.toPlainText().strip():
+            self._class_edit.setPlainText("\n".join(default_class_names))
+
+        self._slider.setValue(self._settings.value(self._settings_key("split_train"), 80, type=int))
+        self._shuffle_check.setChecked(self._settings.value(self._settings_key("shuffle"), True, type=bool))
+        self._copy_radio.setChecked(self._settings.value(self._settings_key("copy_mode"), True, type=bool))
+        self._move_radio.setChecked(not self._copy_radio.isChecked())
+
+        self._aug_brightness_check.setChecked(self._settings.value(self._settings_key("aug_brightness_enabled"), False, type=bool))
+        self._aug_brightness_count.setValue(self._settings.value(self._settings_key("aug_brightness_count"), 2, type=int))
+        self._aug_crop_check.setChecked(self._settings.value(self._settings_key("aug_crop_enabled"), False, type=bool))
+        self._aug_crop_count.setValue(self._settings.value(self._settings_key("aug_crop_count"), 1, type=int))
+        self._aug_crop_margin.setValue(self._settings.value(self._settings_key("aug_crop_margin"), 20, type=int))
+        self._aug_zoom_check.setChecked(self._settings.value(self._settings_key("aug_zoom_enabled"), True, type=bool))
+        self._aug_zoom_count.setValue(self._settings.value(self._settings_key("aug_zoom_count"), 1, type=int))
+        self._aug_zoom_min.setValue(self._settings.value(self._settings_key("aug_zoom_min"), 85, type=int))
+        self._aug_zoom_max.setValue(self._settings.value(self._settings_key("aug_zoom_max"), 125, type=int))
+        self._aug_cutout_check.setChecked(self._settings.value(self._settings_key("aug_cutout_enabled"), False, type=bool))
+        self._aug_cutout_count.setValue(self._settings.value(self._settings_key("aug_cutout_count"), 1, type=int))
+        self._aug_cutout_min.setValue(self._settings.value(self._settings_key("aug_cutout_min"), 2, type=int))
+        self._aug_cutout_max.setValue(self._settings.value(self._settings_key("aug_cutout_max"), 8, type=int))
+        self._aug_effect_strength.setValue(self._settings.value(self._settings_key("aug_effect_strength"), 35, type=int))
+        self._aug_bg_mode_combo.setCurrentIndex(
+            max(0, min(2, self._settings.value(self._settings_key("aug_bg_mode_index"), 1, type=int)))
+        )
+        self._aug_backgrounds_folder_edit.setText(self._settings.value(self._settings_key("aug_bg_folder"), "", type=str))
+        self._aug_objects_folder_edit.setText(self._settings.value(self._settings_key("aug_objects_folder"), "", type=str))
+        self._target_total_spin.setValue(self._settings.value(self._settings_key("target_total"), 1500, type=int))
+
+    def _save_last_settings(self) -> None:
+        self._settings.setValue(self._settings_key("source_folder"), self._folder_edit.text().strip())
+        self._settings.setValue(self._settings_key("output_folder"), self._out_folder_edit.text().strip())
+        self._settings.setValue(self._settings_key("dataset_name"), self._name_edit.text().strip())
+        self._settings.setValue(self._settings_key("class_text"), self._class_edit.toPlainText())
+        self._settings.setValue(self._settings_key("split_train"), self._slider.value())
+        self._settings.setValue(self._settings_key("shuffle"), self._shuffle_check.isChecked())
+        self._settings.setValue(self._settings_key("copy_mode"), self._copy_radio.isChecked())
+
+        self._settings.setValue(self._settings_key("aug_brightness_enabled"), self._aug_brightness_check.isChecked())
+        self._settings.setValue(self._settings_key("aug_brightness_count"), self._aug_brightness_count.value())
+        self._settings.setValue(self._settings_key("aug_crop_enabled"), self._aug_crop_check.isChecked())
+        self._settings.setValue(self._settings_key("aug_crop_count"), self._aug_crop_count.value())
+        self._settings.setValue(self._settings_key("aug_crop_margin"), self._aug_crop_margin.value())
+        self._settings.setValue(self._settings_key("aug_zoom_enabled"), self._aug_zoom_check.isChecked())
+        self._settings.setValue(self._settings_key("aug_zoom_count"), self._aug_zoom_count.value())
+        self._settings.setValue(self._settings_key("aug_zoom_min"), self._aug_zoom_min.value())
+        self._settings.setValue(self._settings_key("aug_zoom_max"), self._aug_zoom_max.value())
+        self._settings.setValue(self._settings_key("aug_cutout_enabled"), self._aug_cutout_check.isChecked())
+        self._settings.setValue(self._settings_key("aug_cutout_count"), self._aug_cutout_count.value())
+        self._settings.setValue(self._settings_key("aug_cutout_min"), self._aug_cutout_min.value())
+        self._settings.setValue(self._settings_key("aug_cutout_max"), self._aug_cutout_max.value())
+        self._settings.setValue(self._settings_key("aug_effect_strength"), self._aug_effect_strength.value())
+        self._settings.setValue(self._settings_key("aug_bg_mode_index"), self._aug_bg_mode_combo.currentIndex())
+        self._settings.setValue(self._settings_key("aug_bg_folder"), self._aug_backgrounds_folder_edit.text().strip())
+        self._settings.setValue(self._settings_key("aug_objects_folder"), self._aug_objects_folder_edit.text().strip())
+        self._settings.setValue(self._settings_key("target_total"), self._target_total_spin.value())
 
     # ------------------------------------------------------------------
     # Browse helpers
@@ -331,6 +511,7 @@ class DatasetBuilderDialog(QDialog):
         for widget in (
             self._aug_brightness_check,
             self._aug_crop_check,
+            self._aug_zoom_check,
             self._aug_cutout_check,
         ):
             widget.stateChanged.connect(self._refresh_estimate)
@@ -339,6 +520,9 @@ class DatasetBuilderDialog(QDialog):
             self._aug_brightness_count,
             self._aug_crop_count,
             self._aug_crop_margin,
+            self._aug_zoom_count,
+            self._aug_zoom_min,
+            self._aug_zoom_max,
             self._aug_cutout_count,
             self._aug_cutout_min,
             self._aug_cutout_max,
@@ -357,6 +541,10 @@ class DatasetBuilderDialog(QDialog):
             self._aug_brightness_count.setValue(1)
             self._aug_crop_check.setChecked(False)
             self._aug_crop_count.setValue(1)
+            self._aug_zoom_check.setChecked(True)
+            self._aug_zoom_count.setValue(1)
+            self._aug_zoom_min.setValue(90)
+            self._aug_zoom_max.setValue(115)
             self._aug_cutout_check.setChecked(True)
             self._aug_cutout_count.setValue(1)
             self._aug_cutout_min.setValue(1)
@@ -368,6 +556,10 @@ class DatasetBuilderDialog(QDialog):
             self._aug_brightness_count.setValue(2)
             self._aug_crop_check.setChecked(True)
             self._aug_crop_count.setValue(1)
+            self._aug_zoom_check.setChecked(True)
+            self._aug_zoom_count.setValue(1)
+            self._aug_zoom_min.setValue(85)
+            self._aug_zoom_max.setValue(125)
             self._aug_cutout_check.setChecked(True)
             self._aug_cutout_count.setValue(2)
             self._aug_cutout_min.setValue(2)
@@ -379,6 +571,10 @@ class DatasetBuilderDialog(QDialog):
             self._aug_brightness_count.setValue(3)
             self._aug_crop_check.setChecked(True)
             self._aug_crop_count.setValue(2)
+            self._aug_zoom_check.setChecked(True)
+            self._aug_zoom_count.setValue(2)
+            self._aug_zoom_min.setValue(75)
+            self._aug_zoom_max.setValue(145)
             self._aug_cutout_check.setChecked(True)
             self._aug_cutout_count.setValue(4)
             self._aug_cutout_min.setValue(3)
@@ -394,6 +590,8 @@ class DatasetBuilderDialog(QDialog):
             extra_per_image += self._aug_brightness_count.value()
         if self._aug_crop_check.isChecked():
             extra_per_image += self._aug_crop_count.value()
+        if self._aug_zoom_check.isChecked():
+            extra_per_image += self._aug_zoom_count.value()
         if self._aug_cutout_check.isChecked():
             extra_per_image += self._aug_cutout_count.value()
 
@@ -431,6 +629,9 @@ class DatasetBuilderDialog(QDialog):
             self._scan_label.setText("⚠ Folder not found.")
             self._scan_hint_label.setText("")
             self._labeled_pairs = []
+            self._preview_original_pixmap = None
+            self._preview_index = 0
+            self._update_preview()
             self._refresh_estimate()
             return
 
@@ -461,6 +662,8 @@ class DatasetBuilderDialog(QDialog):
                             pass
 
             self._labeled_pairs = labeled
+            self._preview_index = 0
+            self._preview_original_pixmap = None
             n_total = len(all_images)
             n_labeled = len(labeled)
             self._scan_label.setText(
@@ -474,15 +677,82 @@ class DatasetBuilderDialog(QDialog):
                 self._scan_hint_label.setText(f"Scanning images from: {scan_root}")
             else:
                 self._scan_hint_label.setText("")
+            self._update_preview()
             self._refresh_estimate()
         finally:
             QApplication.restoreOverrideCursor()
+
+    def _zoom_percent(self) -> int:
+        return int(round(self._preview_zoom * 100.0))
+
+    def _set_zoom_percent(self, value: int) -> None:
+        value = max(10, min(500, int(value)))
+        self._preview_zoom = value / 100.0
+        self._update_preview_image()
+
+    def _step_preview(self, delta: int) -> None:
+        if not self._labeled_pairs:
+            return
+        n = len(self._labeled_pairs)
+        self._preview_index = (self._preview_index + delta) % n
+        self._preview_original_pixmap = None
+        self._update_preview()
+
+    def _update_preview_controls(self) -> None:
+        has_images = bool(self._labeled_pairs)
+        for btn in (
+            self._preview_prev_btn,
+            self._preview_next_btn,
+            self._preview_zoom_out_btn,
+            self._preview_zoom_in_btn,
+            self._preview_zoom_reset_btn,
+        ):
+            btn.setEnabled(has_images)
+        self._preview_zoom_label.setText(f"{self._zoom_percent()}%")
+
+    def _update_preview_image(self) -> None:
+        if self._preview_original_pixmap is None or self._preview_original_pixmap.isNull():
+            return
+        src = self._preview_original_pixmap
+        w = max(1, int(src.width() * self._preview_zoom))
+        h = max(1, int(src.height() * self._preview_zoom))
+        scaled = src.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self._preview_image_label.setPixmap(scaled)
+        self._preview_image_label.resize(scaled.size())
+        self._preview_zoom_label.setText(f"{self._zoom_percent()}%")
+
+    def _update_preview(self) -> None:
+        self._update_preview_controls()
+        if not self._labeled_pairs:
+            self._preview_info.setText("No image")
+            self._preview_image_label.setPixmap(QPixmap())
+            self._preview_image_label.setText("Scan a folder to preview labeled images")
+            self._preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            return
+
+        self._preview_index = max(0, min(self._preview_index, len(self._labeled_pairs) - 1))
+        img_path, _ = self._labeled_pairs[self._preview_index]
+        self._preview_info.setText(f"{self._preview_index + 1}/{len(self._labeled_pairs)}  {img_path.name}")
+
+        pm = QPixmap(str(img_path))
+        if pm.isNull():
+            self._preview_original_pixmap = None
+            self._preview_image_label.setPixmap(QPixmap())
+            self._preview_image_label.setText("Preview unavailable")
+            self._preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            return
+
+        self._preview_original_pixmap = pm
+        self._preview_image_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self._update_preview_image()
 
     # ------------------------------------------------------------------
     # Accept / Build
     # ------------------------------------------------------------------
 
     def _accept(self) -> None:
+        self._save_last_settings()
+
         # Validation
         if not self._labeled_pairs:
             QMessageBox.warning(
@@ -553,6 +823,20 @@ class DatasetBuilderDialog(QDialog):
         train_pairs = pairs[:n_train]
         val_pairs = pairs[n_train:]
 
+        progress = QProgressDialog("Building dataset…", "Cancel", 0, max(1, len(pairs) * 3), self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress_step = 0
+
+        def _tick(msg: str) -> None:
+            nonlocal progress_step
+            progress_step += 1
+            progress.setValue(min(progress_step, progress.maximum()))
+            progress.setLabelText(msg)
+            QApplication.processEvents()
+            if progress.wasCanceled():
+                raise RuntimeError("Build cancelled by user")
+
         # Create directory structure
         for split in ("train", "val"):
             (out_path / "images" / split).mkdir(parents=True, exist_ok=True)
@@ -571,6 +855,7 @@ class DatasetBuilderDialog(QDialog):
             _transfer(img_path, out_img)
             _transfer(lp, out_lbl)
             train_out_pairs.append((out_img, out_lbl))
+            _tick(f"Copying train: {img_path.name}")
 
         val_out_pairs: list[tuple[Path, Path]] = []
         for img_path, lp in val_pairs:
@@ -579,6 +864,7 @@ class DatasetBuilderDialog(QDialog):
             _transfer(img_path, out_img)
             _transfer(lp, out_lbl)
             val_out_pairs.append((out_img, out_lbl))
+            _tick(f"Copying val: {img_path.name}")
 
         options = self._build_augmentation_options()
         n_augmented = 0
@@ -587,11 +873,13 @@ class DatasetBuilderDialog(QDialog):
                 out_path / "images" / "train",
                 out_path / "labels" / "train",
                 options,
+                progress_callback=_tick,
             )
             n_augmented += generate_split_augmentations(
                 out_path / "images" / "val",
                 out_path / "labels" / "val",
                 options,
+                progress_callback=_tick,
             )
 
         # Parse class names from text area
@@ -602,14 +890,16 @@ class DatasetBuilderDialog(QDialog):
         data = build_dataset_dict(out_path, class_names)
         yaml_path = out_path / f"{out_path.name}.yaml"
         save_dataset_yaml(data, yaml_path)
+        progress.setValue(progress.maximum())
 
         return len(train_out_pairs), len(val_out_pairs), n_augmented
 
     def _build_augmentation_options(self) -> AugmentationOptions | None:
         brightness = self._aug_brightness_check.isChecked()
         crop = self._aug_crop_check.isChecked()
+        zoom = self._aug_zoom_check.isChecked()
         cutout = self._aug_cutout_check.isChecked()
-        if not (brightness or crop or cutout):
+        if not (brightness or crop or zoom or cutout):
             return None
 
         min_objects = self._aug_cutout_min.value()
@@ -624,6 +914,10 @@ class DatasetBuilderDialog(QDialog):
             safe_crop_enabled=crop,
             safe_crop_count=self._aug_crop_count.value(),
             safe_crop_max_ratio=self._aug_crop_margin.value() / 100.0,
+            zoom_enabled=zoom,
+            zoom_count=self._aug_zoom_count.value(),
+            zoom_min_scale=self._aug_zoom_min.value() / 100.0,
+            zoom_max_scale=self._aug_zoom_max.value() / 100.0,
             cutout_enabled=cutout,
             cutout_count=self._aug_cutout_count.value(),
             cutout_min_objects=min_objects,

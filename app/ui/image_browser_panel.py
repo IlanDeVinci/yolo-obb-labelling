@@ -101,7 +101,13 @@ class ImageBrowserPanel(QWidget):
             if self._label_manager else False
         )
         completion = self._completion_provider(img) if self._completion_provider else ""
-        if completion == "in_progress":
+        if completion == "yolo":
+            item.setForeground(QColor("#f4a261"))
+            status_suffix = " [YOLO]"
+        elif completion == "to_rotate":
+            item.setForeground(QColor("#2f6b3a"))
+            status_suffix = " [TO ROTATE]"
+        elif completion == "in_progress":
             item.setForeground(QColor("#f6d86b"))
             status_suffix = ""
         elif completion == "completed" or has_labels:
