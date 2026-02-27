@@ -1,8 +1,8 @@
 {
   "image_name": "IMG_1005.JPG",
-  "status": "in_progress",
-  "status_updated_at": "2026-02-27T10:54:20+01:00",
+  "status": "yolo",
+  "status_updated_at": "2026-02-27T10:58:29+01:00",
   "status_updated_by": "Ilan",
   "image_last_modified": "2026-02-27T10:42:52+01:00",
-  "sig": "e8d800b95df151d37486574394a61b18c019cb5e74e884607c2a232555400353"
+  "sig": "d592a2d2120eac5a88ff64be328a3f02d4ebf827b973f0d3545049fead32f627"
 }

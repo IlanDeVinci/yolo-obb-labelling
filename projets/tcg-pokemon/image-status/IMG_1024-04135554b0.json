@@ -1,8 +1,8 @@
 {
   "image_name": "IMG_1024.JPG",
-  "status": "in_progress",
-  "status_updated_at": "2026-02-27T10:54:20+01:00",
+  "status": "yolo",
+  "status_updated_at": "2026-02-27T10:58:57+01:00",
   "status_updated_by": "Ilan",
   "image_last_modified": "2026-02-27T10:42:52+01:00",
-  "sig": "29724ba40e00379d8778b62f58824fea7cf8a867ae60fab039445343379fd9d7"
+  "sig": "d4b03fe2ac54a60410d18d8d7807b3605bf1057865a7229fb7bb1285f88a8686"
 }
