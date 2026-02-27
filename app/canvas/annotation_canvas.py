@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 from app.models.obb_label import OBBLabel, BBoxLabel, Label
 from app.canvas.obb_graphics_item import OBBGraphicsItem
 from app.canvas.drawing_controller import DrawingController
+from app.utils.image_io import load_qpixmap
 
 _ZOOM_FACTOR = 1.15
 
@@ -95,7 +96,7 @@ class AnnotationCanvas(QGraphicsView):
             self._scene.removeItem(self._image_item)
             self._image_item = None
 
-        pixmap = QPixmap(str(image_path))
+        pixmap = load_qpixmap(image_path)
         if pixmap.isNull():
             return
 

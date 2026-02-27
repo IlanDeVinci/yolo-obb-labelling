@@ -49,10 +49,12 @@ from app.ui.dialogs.project_dialog import (
 )
 from app.inference.yolo_predictor import (
     YoloPredictor,
+    labels_from_result,
     get_inference_diag_log_path,
     get_yolo_class,
     is_inference_available,
 )
+from app.utils.image_io import prepare_inference_source, cleanup_inference_source
 
 
 class MainWindow(QMainWindow):
@@ -1441,7 +1443,6 @@ class MainWindow(QMainWindow):
             self._show_inference_missing_message(str(exc))
             return
 
-        from app.models.obb_label import OBBLabel as _OBBLabel, BBoxLabel as _BBoxLabel
         from app.models.label_manager import LabelManager as _LabelManager
 
         use_obb = self._use_obb
@@ -1453,68 +1454,18 @@ class MainWindow(QMainWindow):
             progress.setLabelText(f"Processing {img_path.name} ({i+1}/{len(images)})")
             QApplication.processEvents()
 
+            temp_source: str | None = None
             try:
                 model = yolo_class(self._model_path)
+                source, temp_source = prepare_inference_source(img_path)
                 results = model.predict(
-                    source=str(img_path),
+                    source=source,
                     conf=self._model_conf,
                     classes=(self._model_class_filter or None),
                     save=False,
                     verbose=False,
                 )
-                labels = []
-
-                if results:
-                    result = results[0]
-
-                    # Try OBB format first (for OBB models)
-                    if hasattr(result, 'obb') and result.obb is not None and len(result.obb.cls) > 0:
-                        obb = result.obb
-                        coords = obb.xyxyxyxyn.cpu().numpy()
-                        for j in range(len(obb.cls)):
-                            pts = coords[j].reshape(8).tolist()
-                            if use_obb:
-                                labels.append(_OBBLabel(
-                                    class_idx=int(obb.cls[j].item()),
-                                    points=pts,
-                                    conf=float(obb.conf[j].item()),
-                                ))
-                            else:
-                                labels.append(_BBoxLabel.from_corners(
-                                    class_idx=int(obb.cls[j].item()),
-                                    corners=pts,
-                                    conf=float(obb.conf[j].item()),
-                                ))
-
-                    # Try standard detection format (for regular detection models)
-                    elif hasattr(result, 'boxes') and result.boxes is not None and len(result.boxes.cls) > 0:
-                        boxes = result.boxes
-                        coords = boxes.xywhn.cpu().numpy()
-                        for j in range(len(boxes.cls)):
-                            x_center, y_center, width, height = coords[j].tolist()
-                            if use_obb:
-                                half_w = width / 2
-                                half_h = height / 2
-                                pts = [
-                                    x_center - half_w, y_center - half_h,
-                                    x_center + half_w, y_center - half_h,
-                                    x_center + half_w, y_center + half_h,
-                                    x_center - half_w, y_center + half_h,
-                                ]
-                                labels.append(_OBBLabel(
-                                    class_idx=int(boxes.cls[j].item()),
-                                    points=pts,
-                                    conf=float(boxes.conf[j].item()),
-                                ))
-                            else:
-                                labels.append(_BBoxLabel(
-                                    class_idx=int(boxes.cls[j].item()),
-                                    x_center=x_center,
-                                    y_center=y_center,
-                                    width=width,
-                                    height=height,
-                                    conf=float(boxes.conf[j].item()),
-                                ))
+                labels = labels_from_result(results[0], use_obb=use_obb) if results else []
 
                 lm = _LabelManager()
                 lm.load_for_image(img_path)
@@ -1523,6 +1474,8 @@ class MainWindow(QMainWindow):
                 lm.save()
             except Exception as exc:
                 QMessageBox.warning(self, "Error", f"Error on {img_path.name}:\n{exc}")
+            finally:
+                cleanup_inference_source(temp_source)
 
         progress.setValue(len(images))
         self._browser.set_images(images)  # refresh indicators
