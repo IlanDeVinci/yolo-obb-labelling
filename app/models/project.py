@@ -57,7 +57,7 @@ class Project:
     current_index: int = 0
     current_split: str = "train"
     active_team_member: str = ""
-    image_completion: dict[str, str] = field(default_factory=dict)  # image name -> "in_progress"|"completed"
+    image_completion: dict[str, str] = field(default_factory=dict)  # image name -> "in_progress"|"completed"|"yolo"|"to_rotate"
 
     # Label mode
     use_obb: bool = True  # True = OBB, False = BBox
@@ -207,14 +207,14 @@ class Project:
 
     def set_image_completion(self, image_name: str, status: str) -> None:
         status = status.strip().lower()
-        if status in {"in_progress", "completed"}:
+        if status in {"in_progress", "completed", "yolo", "to_rotate"}:
             self.image_completion[image_name] = status
         else:
             self.image_completion.pop(image_name, None)
 
     def get_image_completion(self, image_name: str) -> str:
         status = self.image_completion.get(image_name, "")
-        if status in {"in_progress", "completed"}:
+        if status in {"in_progress", "completed", "yolo", "to_rotate"}:
             return status
         return ""
 
@@ -506,7 +506,7 @@ class ProjectManager:
 
         image_name = str(image_name or "").strip()
         normalized_status = str(status or "").strip().lower()
-        if not image_name or normalized_status not in {"in_progress", "completed"}:
+        if not image_name or normalized_status not in {"in_progress", "completed", "yolo", "to_rotate"}:
             return False
 
         self._current_project.set_image_completion(image_name, normalized_status)
@@ -616,7 +616,7 @@ class ProjectManager:
             image_name = str(data.get("image_name", "")).strip()
             status = str(data.get("status", "")).strip().lower()
             updated_at = str(data.get("status_updated_at", "")).strip()
-            if not image_name or status not in {"in_progress", "completed"} or not updated_at:
+            if not image_name or status not in {"in_progress", "completed", "yolo", "to_rotate"} or not updated_at:
                 malformed_files += 1
                 continue
 
@@ -697,7 +697,7 @@ class ProjectManager:
             image_name = str(data.get("image_name", "")).strip()
             status = str(data.get("status", "")).strip().lower()
             updated_at = str(data.get("status_updated_at", "")).strip()
-            if not image_name or status not in {"in_progress", "completed"}:
+            if not image_name or status not in {"in_progress", "completed", "yolo", "to_rotate"}:
                 continue
 
             current = completion.get(image_name)
@@ -757,7 +757,7 @@ class ProjectManager:
             project.image_completion = {
                 str(k): str(v)
                 for k, v in completion.items()
-                if str(v).strip().lower() in {"in_progress", "completed"}
+                if str(v).strip().lower() in {"in_progress", "completed", "yolo", "to_rotate"}
             }
         project.use_obb = bool(state.get("use_obb", project.use_obb))
         project.model_path = str(state.get("model_path", project.model_path or ""))

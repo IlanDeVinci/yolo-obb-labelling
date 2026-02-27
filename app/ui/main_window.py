@@ -452,6 +452,17 @@ class MainWindow(QMainWindow):
         )
         status_menu.addAction(self._act_set_in_progress)
 
+        self._act_set_yolo = QAction("Set as &YOLO", self)
+        self._act_set_yolo.setShortcut(QKeySequence("Ctrl+Shift+G"))
+        self._act_set_yolo.triggered.connect(
+            lambda: self._set_selected_images_completion("yolo")
+        )
+        status_menu.addAction(self._act_set_yolo)
+
+        self._act_set_all_to_rotate = QAction("Set &All as To Rotate", self)
+        self._act_set_all_to_rotate.triggered.connect(self._set_all_images_to_rotate)
+        status_menu.addAction(self._act_set_all_to_rotate)
+
     def _build_status_bar(self) -> None:
         sb = QStatusBar()
         self.setStatusBar(sb)
@@ -779,7 +790,7 @@ class MainWindow(QMainWindow):
             if image_name not in known_names:
                 continue
             normalized_status = str(status).strip().lower()
-            if normalized_status in {"in_progress", "completed"}:
+            if normalized_status in {"in_progress", "completed", "yolo", "to_rotate"}:
                 normalized[image_name] = normalized_status
 
         if normalized != project.image_completion:
@@ -1099,7 +1110,13 @@ class MainWindow(QMainWindow):
         self._project_mgr.save_user_state()
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()
-        label = "In Progress" if status == "in_progress" else "Completed"
+        status_labels = {
+            "in_progress": "In Progress",
+            "completed": "Completed",
+            "yolo": "YOLO",
+            "to_rotate": "To Rotate",
+        }
+        label = status_labels.get(status, status)
         self._lbl_hint.setText(f"{img.name}: {label}")
 
     def _set_selected_images_completion(self, status: str) -> None:
@@ -1126,12 +1143,37 @@ class MainWindow(QMainWindow):
                 self._browser.refresh_item(idx)
 
         self._update_completion_action()
-        label = "In Progress" if status == "in_progress" else "Completed"
+        status_labels = {
+            "in_progress": "In Progress",
+            "completed": "Completed",
+            "yolo": "YOLO",
+            "to_rotate": "To Rotate",
+        }
+        label = status_labels.get(status, status)
         n = len(selected)
         if n == 1:
             self._lbl_hint.setText(f"{selected[0].name}: {label}")
         else:
             self._lbl_hint.setText(f"{n} images set as {label}")
+
+    def _set_all_images_to_rotate(self) -> None:
+        project = self._project_mgr.current_project
+        if not project:
+            return
+
+        targets = list(self._all_images) if self._all_images else list(self._image_mgr.images)
+        if not targets:
+            self._lbl_hint.setText("No images to update.")
+            return
+
+        for img_path in targets:
+            project.set_image_completion(img_path.name, "to_rotate")
+            self._project_mgr.persist_image_completion(img_path.name, "to_rotate", img_path)
+
+        self._project_mgr.save_user_state()
+        self._browser.set_images(self._image_mgr.images)
+        self._update_completion_action()
+        self._lbl_hint.setText(f"{len(targets)} image(s) set as To Rotate")
 
     def _toggle_current_image_completion(self) -> None:
         img = self._image_mgr.current_image
@@ -1144,8 +1186,9 @@ class MainWindow(QMainWindow):
     def _update_completion_action(self) -> None:
         has_completed_action = hasattr(self, "_act_set_completed")
         has_in_progress_action = hasattr(self, "_act_set_in_progress")
+        has_yolo_action = hasattr(self, "_act_set_yolo")
         has_toggle_action = hasattr(self, "_act_toggle_completion")
-        if not (has_completed_action or has_in_progress_action or has_toggle_action):
+        if not (has_completed_action or has_in_progress_action or has_yolo_action or has_toggle_action):
             return
 
         img = self._image_mgr.current_image
@@ -1154,6 +1197,8 @@ class MainWindow(QMainWindow):
                 self._act_set_completed.setEnabled(False)
             if has_in_progress_action:
                 self._act_set_in_progress.setEnabled(False)
+            if has_yolo_action:
+                self._act_set_yolo.setEnabled(False)
             if has_toggle_action:
                 self._act_toggle_completion.setEnabled(False)
                 self._act_toggle_completion.setText("Mark Current Image &Completed")
@@ -1165,6 +1210,8 @@ class MainWindow(QMainWindow):
             self._act_set_completed.setEnabled(current != "completed")
         if has_in_progress_action:
             self._act_set_in_progress.setEnabled(current != "in_progress")
+        if has_yolo_action:
+            self._act_set_yolo.setEnabled(current != "yolo")
 
         if has_toggle_action:
             self._act_toggle_completion.setEnabled(True)
@@ -1426,8 +1473,31 @@ class MainWindow(QMainWindow):
         if not self._model_path:
             QMessageBox.warning(self, "No model", "Load a model first via Model > Load Model…")
             return
-        images = self._image_mgr.images
+        all_images = self._image_mgr.images
+        if not all_images:
+            return
+
+        project = self._project_mgr.current_project
+        images = list(all_images)
+        skipped_completed = 0
+        skipped_yolo = 0
+        if project:
+            filtered: list[Path] = []
+            for img in all_images:
+                status = str(project.get_image_completion(img.name) or "").strip().lower()
+                if status == "completed":
+                    skipped_completed += 1
+                    continue
+                if status == "yolo":
+                    skipped_yolo += 1
+                    continue
+                filtered.append(img)
+            images = filtered
+
         if not images:
+            self._lbl_hint.setText(
+                f"No images to process (completed skipped: {skipped_completed}, yolo skipped: {skipped_yolo})."
+            )
             return
 
         if not self._maybe_save_before_leaving():
@@ -1472,14 +1542,21 @@ class MainWindow(QMainWindow):
                 for lbl in labels:
                     lm.add_label(lbl)
                 lm.save()
+
+                if project:
+                    project.set_image_completion(img_path.name, "yolo")
+                    self._project_mgr.persist_image_completion(img_path.name, "yolo", img_path)
             except Exception as exc:
                 QMessageBox.warning(self, "Error", f"Error on {img_path.name}:\n{exc}")
             finally:
                 cleanup_inference_source(temp_source)
 
         progress.setValue(len(images))
-        self._browser.set_images(images)  # refresh indicators
-        self._lbl_hint.setText("Batch inference complete.")
+        self._browser.set_images(self._image_mgr.images)  # refresh indicators
+        self._project_mgr.save_user_state()
+        self._lbl_hint.setText(
+            f"Batch inference complete ({len(images)} processed, {skipped_completed} completed skipped, {skipped_yolo} yolo skipped)."
+        )
 
     # ------------------------------------------------------------------
     # Copy / Paste
@@ -2411,6 +2488,8 @@ Ctrl+Shift+M — Reassign selected image(s) to a member<br>
 <b>Status</b><br>
 Ctrl+Shift+K — Set current image as completed<br>
 Ctrl+Shift+J — Set current image as in progress<br>
+Ctrl+Shift+G — Set current image as YOLO<br>
+Status menu — Set all images as To Rotate<br>
         """.strip()
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
 
