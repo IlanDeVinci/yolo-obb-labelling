@@ -12,6 +12,10 @@ from typing import Any
 _YOLO_CLASS = None
 _LAST_ERROR = ""
 
+# Keep runtime deterministic in app mode: don't let ultralytics try pip installs.
+os.environ.setdefault("YOLO_AUTOINSTALL", "False")
+os.environ.setdefault("ULTRALYTICS_AUTOINSTALL", "0")
+
 
 def get_inference_diag_log_path() -> Path:
     root = Path(__file__).resolve().parents[2]

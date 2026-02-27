@@ -299,6 +299,16 @@ class MainWindow(QMainWindow):
         self._act_flip_orientation.triggered.connect(self._flip_selected_orientation)
         ann_menu.addAction(self._act_flip_orientation)
 
+        self._act_cycle_corners_cw = QAction("Cycle Selected OBB Corners (CW)", self)
+        self._act_cycle_corners_cw.setShortcut(QKeySequence("R"))
+        self._act_cycle_corners_cw.triggered.connect(self._cycle_selected_corners_cw)
+        ann_menu.addAction(self._act_cycle_corners_cw)
+
+        self._act_cycle_corners_ccw = QAction("Cycle Selected OBB Corners (CCW)", self)
+        self._act_cycle_corners_ccw.setShortcut(QKeySequence("Shift+R"))
+        self._act_cycle_corners_ccw.triggered.connect(self._cycle_selected_corners_ccw)
+        ann_menu.addAction(self._act_cycle_corners_ccw)
+
         self._act_rotate_sel_ccw = QAction("Rotate Selected -15°", self)
         self._act_rotate_sel_ccw.setShortcut(QKeySequence("Ctrl+Alt+Q"))
         self._act_rotate_sel_ccw.triggered.connect(lambda: self._rotate_selected_labels(-15.0))
@@ -2052,6 +2062,110 @@ class MainWindow(QMainWindow):
         self._autosave_timer.start()
         self._lbl_hint.setText(f"Flipped orientation for {len(selected_items)} selected OBB label(s).")
 
+    def _cycle_selected_corners_cw(self) -> None:
+        """Cycle selected OBB corner order clockwise by one step.
+
+        Mapping for corners [TL, TR, BR, BL] is:
+        [TL, TR, BR, BL] -> [BL, TL, TR, BR]
+        Geometry stays identical on-screen; only corner indexing changes.
+        """
+        selected_items = [
+            item for item in self._canvas._label_items
+            if item.isSelected() and isinstance(item.label, OBBLabel)
+        ]
+
+        if not selected_items:
+            self._lbl_hint.setText("No selected OBB labels to cycle corners.")
+            return
+
+        self._undo_stack.beginMacro("Cycle selected OBB corners clockwise")
+        changed_count = 0
+        try:
+            for item in selected_items:
+                label = item.label
+                if not isinstance(label, OBBLabel):
+                    continue
+
+                old_points = list(label.points)
+                if len(old_points) != 8:
+                    continue
+
+                p1 = old_points[0:2]
+                p2 = old_points[2:4]
+                p3 = old_points[4:6]
+                p4 = old_points[6:8]
+                new_points = p4 + p1 + p2 + p3
+                if new_points == old_points:
+                    continue
+
+                label.points = list(new_points)
+                label.mark_manual()
+                item.refresh_from_label()
+
+                cmd = ModifyLabelCommand(label, old_points, new_points, self._canvas)
+                self._undo_stack.push(cmd)
+                changed_count += 1
+        finally:
+            self._undo_stack.endMacro()
+
+        self._canvas.labels_changed.emit()
+        self._refresh_label_list()
+        self._update_dirty_indicator()
+        self._autosave_timer.start()
+        self._lbl_hint.setText(f"Cycled corners clockwise for {changed_count} selected OBB label(s).")
+
+    def _cycle_selected_corners_ccw(self) -> None:
+        """Cycle selected OBB corner order counter-clockwise by one step.
+
+        Mapping for corners [TL, TR, BR, BL] is:
+        [TL, TR, BR, BL] -> [TR, BR, BL, TL]
+        Geometry stays identical on-screen; only corner indexing changes.
+        """
+        selected_items = [
+            item for item in self._canvas._label_items
+            if item.isSelected() and isinstance(item.label, OBBLabel)
+        ]
+
+        if not selected_items:
+            self._lbl_hint.setText("No selected OBB labels to cycle corners.")
+            return
+
+        self._undo_stack.beginMacro("Cycle selected OBB corners counter-clockwise")
+        changed_count = 0
+        try:
+            for item in selected_items:
+                label = item.label
+                if not isinstance(label, OBBLabel):
+                    continue
+
+                old_points = list(label.points)
+                if len(old_points) != 8:
+                    continue
+
+                p1 = old_points[0:2]
+                p2 = old_points[2:4]
+                p3 = old_points[4:6]
+                p4 = old_points[6:8]
+                new_points = p2 + p3 + p4 + p1
+                if new_points == old_points:
+                    continue
+
+                label.points = list(new_points)
+                label.mark_manual()
+                item.refresh_from_label()
+
+                cmd = ModifyLabelCommand(label, old_points, new_points, self._canvas)
+                self._undo_stack.push(cmd)
+                changed_count += 1
+        finally:
+            self._undo_stack.endMacro()
+
+        self._canvas.labels_changed.emit()
+        self._refresh_label_list()
+        self._update_dirty_indicator()
+        self._autosave_timer.start()
+        self._lbl_hint.setText(f"Cycled corners counter-clockwise for {changed_count} selected OBB label(s).")
+
     def _rotate_selected_labels(self, angle_deg: float) -> None:
         self._transform_selected_labels(scale_factor=None, rotate_degrees=angle_deg)
 
@@ -2306,6 +2420,8 @@ Drag corner handle — Resize label<br>
 Alt/Ctrl + Drag corner/edge — Scale box up/down<br>
 Shift + Drag box (OBB) — Rotate quickly<br>
 Ctrl+Shift+L — Flip selected OBB orientation 180°<br>
+R — Cycle selected OBB corners clockwise (TL→TR→BR→BL)<br>
+Shift+R — Cycle selected OBB corners counter-clockwise<br>
 Ctrl+Alt+Q / Ctrl+Alt+E — Rotate selected labels -15° / +15°<br>
 Ctrl+Alt+S / Ctrl+Alt+W — Scale selected labels -10% / +10%<br>
 Ctrl+Shift+H — Show/hide class names on boxes<br>

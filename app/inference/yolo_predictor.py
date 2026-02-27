@@ -19,8 +19,6 @@ def get_yolo_class():
     return _bootstrap_get_yolo_class()
 
 
-# Important on Windows: pre-load torch/ultralytics before Qt imports.
-INFERENCE_AVAILABLE, INFERENCE_ERROR = warmup_inference_runtime()
 from PyQt6.QtCore import QThread, QObject, pyqtSignal
 
 from app.models.obb_label import OBBLabel, BBoxLabel, Label

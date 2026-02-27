@@ -4,3 +4,5 @@
 projets/**/.local/
 /__pycache__/
 /detection_models
+**/datasets/*
+**/enrich_images/*
