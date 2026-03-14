@@ -12,32 +12,53 @@
     <main class="page">
         <section class="card">
             <h1>YOLO Sync Backend</h1>
-            <p class="muted">Project auth, per-file locks, change feed, and backups.</p>
+            <p class="muted">Cloud sync control plane with project dashboard, activity feed, and admin settings.</p>
 
-            <div id="bootstrapBox" class="stack hidden">
+            <form id="bootstrapBox" class="stack hidden">
                 <h2>Bootstrap First Project</h2>
                 <input id="bootProject" placeholder="Project ID" />
                 <input id="bootProjectPassword" placeholder="Project Password" type="password" />
                 <input id="bootUser" placeholder="Admin Username" />
                 <input id="bootPass" placeholder="Admin Password" type="password" />
                 <input id="bootToken" placeholder="Bootstrap Token (if enabled)" type="password" />
-                <button id="bootBtn">Create Project + Admin</button>
-            </div>
+                <button id="bootBtn" type="submit">Create Project + Admin</button>
+            </form>
 
-            <div class="stack">
+            <form id="loginBox" class="stack">
                 <h2>Login</h2>
-                <input id="projectId" placeholder="Project ID" />
-                <input id="projectPassword" placeholder="Project Password" type="password" />
                 <input id="username" placeholder="Username" />
                 <input id="password" placeholder="Password" type="password" />
-                <button id="loginBtn">Login</button>
-                <button id="logoutBtn" class="secondary">Logout</button>
+                <div class="row">
+                    <button id="loadProjectsBtn" type="button" class="secondary">Load My Projects</button>
+                    <button id="loginBtn" type="submit">Login</button>
+                    <button id="logoutBtn" type="button" class="secondary">Logout</button>
+                </div>
+                <select id="projectIdSelect">
+                    <option value="">Select a project...</option>
+                </select>
+                <input id="projectPassword" placeholder="Project Password (if required)" type="password"
+                    class="hidden" />
+                <p id="loginHint" class="muted small"></p>
+            </form>
+
+            <div class="grid-2">
+                <div class="stack">
+                    <h2>Status</h2>
+                    <button id="statusBtn" class="secondary">Refresh Status</button>
+                    <pre id="statusOut">Not connected.</pre>
+                </div>
+
+                <div class="stack">
+                    <h2>Project Overview</h2>
+                    <button id="summaryBtn" class="secondary">Refresh Project Summary</button>
+                    <pre id="summaryOut">Not connected.</pre>
+                </div>
             </div>
 
             <div class="stack">
-                <h2>Status</h2>
-                <button id="statusBtn" class="secondary">Refresh Status</button>
-                <pre id="statusOut">Not connected.</pre>
+                <h2>Recent Modifications</h2>
+                <button id="changesBtn" class="secondary">Refresh Recent Changes</button>
+                <pre id="changesOut">No data yet.</pre>
             </div>
 
             <div id="adminBox" class="stack hidden">
@@ -45,9 +66,18 @@
                 <input id="newUser" placeholder="New Username" />
                 <input id="newPass" placeholder="New Password" type="password" />
                 <label class="inline"><input id="newIsAdmin" type="checkbox" /> Admin user</label>
-                <button id="createUserBtn">Create User</button>
-                <button id="listUsersBtn" class="secondary">List Users</button>
-                <button id="backupBtn" class="secondary">Run Backup Now</button>
+                <div class="row">
+                    <button id="createUserBtn">Create User</button>
+                    <button id="listUsersBtn" type="button" class="secondary">List Users</button>
+                    <button id="backupBtn" type="button" class="secondary">Run Backup Now</button>
+                </div>
+                <h2>Project Storage</h2>
+                <select id="storageMode">
+                    <option value="auto">auto (use backend default)</option>
+                    <option value="db">db (store images in DB)</option>
+                    <option value="s3">s3 (store images in S3)</option>
+                </select>
+                <button id="saveStorageBtn" type="button">Save Storage Mode</button>
                 <pre id="adminOut">No admin actions yet.</pre>
             </div>
 
@@ -58,12 +88,20 @@
     <script>
         const msg = document.getElementById('msg');
         const statusOut = document.getElementById('statusOut');
+        const summaryOut = document.getElementById('summaryOut');
+        const changesOut = document.getElementById('changesOut');
         const adminOut = document.getElementById('adminOut');
         const adminBox = document.getElementById('adminBox');
         const bootstrapBox = document.getElementById('bootstrapBox');
+        const projectIdSelect = document.getElementById('projectIdSelect');
+        const projectPasswordInput = document.getElementById('projectPassword');
+        const loginHint = document.getElementById('loginHint');
 
         let token = localStorage.getItem('syncToken') || '';
+        let username = localStorage.getItem('syncUsername') || '';
         let isAdmin = false;
+        let refreshTimer = null;
+        let requireProjectPassword = false;
 
         function setMessage(text, isError = false) {
             msg.textContent = text || '';
@@ -86,26 +124,124 @@
             return data;
         }
 
+        function clearRefreshTimer() {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
+            }
+        }
+
+        function ensureRefreshTimer() {
+            clearRefreshTimer();
+            if (!token) return;
+            refreshTimer = setInterval(() => {
+                refreshAll(true);
+            }, 5000);
+        }
+
+        function renderProjects(projects) {
+            const options = ['<option value="">Select a project...</option>'];
+            for (const item of projects || []) {
+                options.push(`<option value="${item.projectId}">${item.projectId}${item.isAdmin ? ' (admin)' : ''}</option>`);
+            }
+            projectIdSelect.innerHTML = options.join('');
+        }
+
+        async function loadProjectOptions() {
+            const u = document.getElementById('username').value.trim();
+            const p = document.getElementById('password').value;
+            if (!u || !p) {
+                throw new Error('Enter username and password first');
+            }
+
+            const data = await api('/api/auth/project-options', 'POST', {
+                username: u,
+                password: p,
+            }, false);
+
+            renderProjects(data.projects || []);
+            requireProjectPassword = !!data.requireProjectPassword;
+            projectPasswordInput.classList.toggle('hidden', !requireProjectPassword);
+            loginHint.textContent = `${(data.projects || []).length} project(s) found for ${u}.`;
+            if ((data.projects || []).length === 1) {
+                projectIdSelect.value = data.projects[0].projectId;
+            }
+            return data;
+        }
+
         async function init() {
             try {
                 const info = await api('/api/public/info');
                 bootstrapBox.classList.toggle('hidden', info.hasProjects);
+                requireProjectPassword = !!info.requireProjectPassword;
+                projectPasswordInput.classList.toggle('hidden', !requireProjectPassword);
+                loginHint.textContent = requireProjectPassword
+                    ? 'Project password is required after selecting project.'
+                    : 'Enter username/password then load projects.';
             } catch (e) {
                 setMessage(e.message, true);
             }
-            if (token) refreshStatus();
+
+            if (username) {
+                document.getElementById('username').value = username;
+            }
+
+            if (token) {
+                await refreshAll(true);
+                ensureRefreshTimer();
+            }
         }
 
         async function refreshStatus() {
             try {
                 const data = await api('/api/sync/status');
                 statusOut.textContent = JSON.stringify(data, null, 2);
+                isAdmin = !!data.isAdmin;
+                adminBox.classList.toggle('hidden', !isAdmin);
+                return data;
             } catch (e) {
                 statusOut.textContent = `Status error: ${e.message}`;
+                throw e;
             }
         }
 
-        document.getElementById('bootBtn').addEventListener('click', async () => {
+        async function refreshSummary() {
+            const data = await api('/api/project/summary');
+            summaryOut.textContent = JSON.stringify(data, null, 2);
+            return data;
+        }
+
+        async function refreshChanges() {
+            const data = await api('/api/project/recent-changes?limit=30');
+            changesOut.textContent = JSON.stringify(data, null, 2);
+            return data;
+        }
+
+        async function refreshAdminStorage() {
+            if (!isAdmin) return;
+            const data = await api('/api/admin/project/storage');
+            const mode = data.storageMode || 'auto';
+            document.getElementById('storageMode').value = mode;
+        }
+
+        async function refreshAll(silent = false) {
+            if (!token) return;
+            try {
+                await refreshStatus();
+                await Promise.all([refreshSummary(), refreshChanges()]);
+                await refreshAdminStorage();
+            } catch (e) {
+                if (String(e.message || '').includes('401')) {
+                    token = '';
+                    localStorage.removeItem('syncToken');
+                    clearRefreshTimer();
+                }
+                if (!silent) setMessage(e.message, true);
+            }
+        }
+
+        document.getElementById('bootstrapBox').addEventListener('submit', async (event) => {
+            event.preventDefault();
             try {
                 const payload = {
                     projectId: document.getElementById('bootProject').value.trim(),
@@ -134,10 +270,27 @@
             }
         });
 
-        document.getElementById('loginBtn').addEventListener('click', async () => {
+        document.getElementById('loadProjectsBtn').addEventListener('click', async () => {
             try {
+                await loadProjectOptions();
+                setMessage('Projects loaded. Choose one and login.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('loginBox').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            try {
+                if (!projectIdSelect.value) {
+                    await loadProjectOptions();
+                    if (!projectIdSelect.value) {
+                        throw new Error('Choose a project before login');
+                    }
+                }
+
                 const payload = {
-                    projectId: document.getElementById('projectId').value.trim(),
+                    projectId: projectIdSelect.value,
                     projectPassword: document.getElementById('projectPassword').value,
                     username: document.getElementById('username').value.trim(),
                     password: document.getElementById('password').value,
@@ -145,10 +298,13 @@
                 const data = await api('/api/auth/login', 'POST', payload);
                 token = data.token;
                 isAdmin = !!data.isAdmin;
+                username = data.username || payload.username;
                 localStorage.setItem('syncToken', token);
+                localStorage.setItem('syncUsername', username);
                 adminBox.classList.toggle('hidden', !isAdmin);
-                setMessage(`Logged in as ${data.username}`);
-                refreshStatus();
+                setMessage(`Logged in as ${data.username} on ${data.projectId}`);
+                await refreshAll(true);
+                ensureRefreshTimer();
             } catch (e) {
                 setMessage(e.message, true);
             }
@@ -163,12 +319,17 @@
             token = '';
             isAdmin = false;
             localStorage.removeItem('syncToken');
+            clearRefreshTimer();
             adminBox.classList.add('hidden');
             setMessage('Logged out.');
             statusOut.textContent = 'Not connected.';
+            summaryOut.textContent = 'Not connected.';
+            changesOut.textContent = 'No data yet.';
         });
 
-        document.getElementById('statusBtn').addEventListener('click', refreshStatus);
+        document.getElementById('statusBtn').addEventListener('click', () => refreshAll(false));
+        document.getElementById('summaryBtn').addEventListener('click', refreshSummary);
+        document.getElementById('changesBtn').addEventListener('click', refreshChanges);
 
         document.getElementById('createUserBtn').addEventListener('click', async () => {
             try {
@@ -199,6 +360,18 @@
                 const data = await api('/api/admin/backup-now', 'POST');
                 adminOut.textContent = JSON.stringify(data, null, 2);
                 setMessage('Backup created');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('saveStorageBtn').addEventListener('click', async () => {
+            try {
+                const mode = document.getElementById('storageMode').value;
+                const data = await api('/api/admin/project/storage', 'POST', { storageMode: mode });
+                adminOut.textContent = JSON.stringify(data, null, 2);
+                setMessage(`Storage mode saved: ${data.storageMode}`);
+                await refreshSummary();
             } catch (e) {
                 setMessage(e.message, true);
             }

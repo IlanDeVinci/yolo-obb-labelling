@@ -64,18 +64,33 @@ h2 {
   gap: 8px;
 }
 
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .hidden {
   display: none;
 }
 
-input {
+input,
+select {
   border: 1px solid #c9d3e3;
   border-radius: 8px;
   padding: 10px;
   outline: none;
+  background: #fff;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: var(--accent-2);
   box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.14);
 }
@@ -117,4 +132,15 @@ pre {
 }
 .msg.err {
   color: var(--err);
+}
+
+.small {
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+@media (max-width: 880px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
 }

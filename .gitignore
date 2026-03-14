@@ -8,3 +8,4 @@ projets/**/.local/
 **/enrich_images/*
 projets/**/.sync/
 projets/**/image-status/
+.env

@@ -35,6 +35,7 @@ http://localhost:8095/
 - `SYNC_BACKUP_RETENTION_DAYS` (default `14`)
 - `SYNC_MAX_FILE_BYTES` (default `8388608`)
 - `SYNC_BOOTSTRAP_TOKEN` (optional but recommended in production)
+- `SYNC_REQUIRE_PROJECT_PASSWORD` (`0` by default, set `1` to require project password during login)
 - `SYNC_S3_BUCKET` (optional, enables S3 storage for image files)
 - `SYNC_S3_PREFIX` (folder prefix inside bucket, default `datasets/pokemon`)
 - `SYNC_S3_REGION` (optional, e.g. `eu-west-3`)
@@ -64,6 +65,12 @@ datasets/pokemon/yolo-pokemon/images/IMG_1023.JPG
 ```
 
 Make sure the backend runtime has AWS credentials with `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` for that prefix.
+
+Admin UI now includes a per-project storage mode switch:
+
+- `auto`: use backend default (S3 if configured)
+- `db`: force images in DB
+- `s3`: force images in S3 for this project
 
 ## Production publish with NPM
 

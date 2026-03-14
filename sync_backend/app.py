@@ -42,6 +42,7 @@ SESSION_TTL_SECONDS = max(20, int(os.environ.get("SYNC_SESSION_TTL_SECONDS", "45
 BACKUP_RETENTION_DAYS = max(2, int(os.environ.get("SYNC_BACKUP_RETENTION_DAYS", "14")))
 MAX_FILE_BYTES = max(64 * 1024, int(os.environ.get("SYNC_MAX_FILE_BYTES", str(8 * 1024 * 1024))))
 BOOTSTRAP_TOKEN = os.environ.get("SYNC_BOOTSTRAP_TOKEN", "").strip()
+REQUIRE_PROJECT_PASSWORD = str(os.environ.get("SYNC_REQUIRE_PROJECT_PASSWORD", "0")).strip().lower() in {"1", "true", "yes", "on"}
 S3_BUCKET = os.environ.get("SYNC_S3_BUCKET", "").strip()
 S3_PREFIX = os.environ.get("SYNC_S3_PREFIX", "datasets").strip().strip("/")
 S3_REGION = os.environ.get("SYNC_S3_REGION", "").strip()
@@ -86,7 +87,12 @@ class BootstrapPayload(BaseModel):
 
 class LoginPayload(BaseModel):
     projectId: str
-    projectPassword: str
+    projectPassword: str = ""
+    username: str
+    password: str
+
+
+class ProjectOptionsPayload(BaseModel):
     username: str
     password: str
 
@@ -111,6 +117,10 @@ class UpsertFilePayload(BaseModel):
 
 class SyncUpsertPayload(BaseModel):
     updates: list[UpsertFilePayload]
+
+
+class ProjectStoragePayload(BaseModel):
+    storageMode: str = Field(pattern="^(auto|db|s3)$")
 
 
 @dataclass
@@ -248,6 +258,7 @@ def _init_db() -> None:
             CREATE TABLE IF NOT EXISTS projects (
               id TEXT PRIMARY KEY,
               password_hash TEXT NOT NULL,
+                            storage_mode TEXT NOT NULL DEFAULT 'auto',
               created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS users (
@@ -300,7 +311,31 @@ def _init_db() -> None:
             );
             """
         )
+        columns = _CONN.execute("PRAGMA table_info(projects)").fetchall()
+        column_names = {str(row["name"]) for row in columns}
+        if "storage_mode" not in column_names:
+            _CONN.execute("ALTER TABLE projects ADD COLUMN storage_mode TEXT NOT NULL DEFAULT 'auto'")
         _CONN.commit()
+
+
+def _get_project_storage_mode(project_id: str) -> str:
+    row = _CONN.execute(
+        "SELECT storage_mode FROM projects WHERE id = ?",
+        (project_id,),
+    ).fetchone()
+    raw = str(row["storage_mode"]).strip().lower() if row and row["storage_mode"] else "auto"
+    return raw if raw in {"auto", "db", "s3"} else "auto"
+
+
+def _project_uses_s3_images(project_id: str) -> bool:
+    mode = _get_project_storage_mode(project_id)
+    if mode == "db":
+        return False
+    if mode == "s3":
+        if not _is_s3_enabled():
+            raise HTTPException(status_code=400, detail="Project requires S3 image storage but S3 is not configured")
+        return True
+    return _is_s3_enabled()
 
 
 def _cleanup_stale_sessions() -> None:
@@ -408,6 +443,7 @@ def public_info() -> dict[str, Any]:
     return {
         "ok": True,
         "hasProjects": has_projects,
+        "requireProjectPassword": REQUIRE_PROJECT_PASSWORD,
         "s3ImagesEnabled": _is_s3_enabled(),
         "s3Bucket": S3_BUCKET,
         "s3Prefix": S3_PREFIX,
@@ -462,7 +498,14 @@ def login(payload: LoginPayload) -> dict[str, Any]:
         project = _CONN.execute(
             "SELECT password_hash FROM projects WHERE id = ?", (project_id,)
         ).fetchone()
-        if project is None or not _verify_password(payload.projectPassword, str(project["password_hash"])):
+        if project is None:
+            raise HTTPException(status_code=401, detail="Invalid project credentials")
+
+        provided_project_password = str(payload.projectPassword or "")
+        if REQUIRE_PROJECT_PASSWORD and not provided_project_password:
+            raise HTTPException(status_code=401, detail="Project password is required")
+
+        if provided_project_password and not _verify_password(provided_project_password, str(project["password_hash"])):
             raise HTTPException(status_code=401, detail="Invalid project credentials")
 
         user = _CONN.execute(
@@ -487,6 +530,39 @@ def login(payload: LoginPayload) -> dict[str, Any]:
         "username": username,
         "isAdmin": bool(user["is_admin"]),
         "sessionTtlSeconds": SESSION_TTL_SECONDS,
+    }
+
+
+@app.post("/api/auth/project-options")
+def auth_project_options(payload: ProjectOptionsPayload) -> dict[str, Any]:
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="username is required")
+
+    rows = _CONN.execute(
+        "SELECT project_id, username, password_hash, is_admin FROM users WHERE username = ? ORDER BY project_id ASC",
+        (username,),
+    ).fetchall()
+
+    projects: list[dict[str, Any]] = []
+    for row in rows:
+        if not _verify_password(payload.password, str(row["password_hash"])):
+            continue
+        projects.append(
+            {
+                "projectId": str(row["project_id"]),
+                "username": str(row["username"]),
+                "isAdmin": bool(row["is_admin"]),
+            }
+        )
+
+    if not projects:
+        raise HTTPException(status_code=401, detail="Invalid user credentials")
+
+    return {
+        "ok": True,
+        "requireProjectPassword": REQUIRE_PROJECT_PASSWORD,
+        "projects": projects,
     }
 
 
@@ -565,6 +641,115 @@ def backup_now(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]
     backup_path = _backup_db("manual")
     _cleanup_old_backups()
     return {"ok": True, "backupPath": backup_path}
+
+
+@app.get("/api/project/summary")
+def project_summary(session: SessionContext = Depends(_auth_from_header)) -> dict[str, Any]:
+    users_row = _CONN.execute(
+        "SELECT COUNT(*) AS c FROM users WHERE project_id = ?",
+        (session.project_id,),
+    ).fetchone()
+    files_row = _CONN.execute(
+        "SELECT COUNT(*) AS c FROM files WHERE project_id = ? AND deleted = 0",
+        (session.project_id,),
+    ).fetchone()
+    changes_row = _CONN.execute(
+        "SELECT COUNT(*) AS c FROM changes WHERE project_id = ?",
+        (session.project_id,),
+    ).fetchone()
+    latest_change = _CONN.execute(
+        "SELECT path, username, created_at FROM changes WHERE project_id = ? ORDER BY seq DESC LIMIT 1",
+        (session.project_id,),
+    ).fetchone()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "storageMode": _get_project_storage_mode(session.project_id),
+        "usesS3Images": _project_uses_s3_images(session.project_id),
+        "requireProjectPassword": REQUIRE_PROJECT_PASSWORD,
+        "totals": {
+            "users": int(users_row["c"] if users_row else 0),
+            "files": int(files_row["c"] if files_row else 0),
+            "changes": int(changes_row["c"] if changes_row else 0),
+        },
+        "latestChange": {
+            "path": str(latest_change["path"]),
+            "username": str(latest_change["username"]),
+            "createdAt": int(latest_change["created_at"]),
+        }
+        if latest_change
+        else None,
+    }
+
+
+@app.get("/api/project/recent-changes")
+def project_recent_changes(
+    limit: int = 30,
+    session: SessionContext = Depends(_auth_from_header),
+) -> dict[str, Any]:
+    safe_limit = max(5, min(120, int(limit)))
+    rows = _CONN.execute(
+        """
+        SELECT seq, username, path, deleted, mtime_ms, created_at
+        FROM changes
+        WHERE project_id = ?
+        ORDER BY seq DESC
+        LIMIT ?
+        """,
+        (session.project_id, safe_limit),
+    ).fetchall()
+
+    items = [
+        {
+            "seq": int(row["seq"]),
+            "username": str(row["username"]),
+            "path": str(row["path"]),
+            "deleted": bool(row["deleted"]),
+            "mtimeMs": int(row["mtime_ms"]),
+            "createdAt": int(row["created_at"]),
+        }
+        for row in rows
+    ]
+    return {"ok": True, "changes": items}
+
+
+@app.get("/api/admin/project/storage")
+def get_project_storage(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
+    mode = _get_project_storage_mode(session.project_id)
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "storageMode": mode,
+        "usesS3Images": _project_uses_s3_images(session.project_id),
+        "s3Enabled": _is_s3_enabled(),
+    }
+
+
+@app.post("/api/admin/project/storage")
+def set_project_storage(
+    payload: ProjectStoragePayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    mode = str(payload.storageMode).strip().lower()
+    if mode not in {"auto", "db", "s3"}:
+        raise HTTPException(status_code=400, detail="Invalid storageMode")
+    if mode == "s3" and not _is_s3_enabled():
+        raise HTTPException(status_code=400, detail="S3 storage requested but backend S3 is not configured")
+
+    with _db_lock:
+        _CONN.execute(
+            "UPDATE projects SET storage_mode = ? WHERE id = ?",
+            (mode, session.project_id),
+        )
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "storageMode": mode,
+        "usesS3Images": _project_uses_s3_images(session.project_id),
+    }
 
 
 # -------------------------
@@ -651,7 +836,7 @@ def sync_upsert(
                 continue
 
             is_image = _is_image_path(path)
-            use_s3_for_image = is_image and _is_s3_enabled()
+            use_s3_for_image = is_image and _project_uses_s3_images(session.project_id)
 
             if item.deleted:
                 content_b64 = ""
@@ -781,7 +966,7 @@ def sync_changes(
         deleted = bool(row["deleted"])
         content_b64 = str(row["content_base64"])
 
-        if _is_s3_enabled() and _is_image_path(path) and not deleted:
+        if _project_uses_s3_images(session.project_id) and _is_image_path(path) and not deleted:
             try:
                 content_b64 = _s3_get_image_base64(session.project_id, path)
             except (BotoCoreError, ClientError, Exception) as exc:
