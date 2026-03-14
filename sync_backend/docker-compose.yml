@@ -9,6 +9,7 @@ services:
       - SYNC_BACKUP_DIR=/data/backups
       - SYNC_SESSION_TTL_SECONDS=45
       - SYNC_BACKUP_RETENTION_DAYS=14
+      - SYNC_BOOTSTRAP_TOKEN=${SYNC_BOOTSTRAP_TOKEN:-}
     volumes:
       - ./data:/data
     restart: unless-stopped

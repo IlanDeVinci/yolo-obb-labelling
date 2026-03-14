@@ -28,6 +28,7 @@ BACKUP_DIR = Path(os.environ.get("SYNC_BACKUP_DIR", "./data/backups")).resolve()
 SESSION_TTL_SECONDS = max(20, int(os.environ.get("SYNC_SESSION_TTL_SECONDS", "45")))
 BACKUP_RETENTION_DAYS = max(2, int(os.environ.get("SYNC_BACKUP_RETENTION_DAYS", "14")))
 MAX_FILE_BYTES = max(64 * 1024, int(os.environ.get("SYNC_MAX_FILE_BYTES", str(8 * 1024 * 1024))))
+BOOTSTRAP_TOKEN = os.environ.get("SYNC_BOOTSTRAP_TOKEN", "").strip()
 
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -331,7 +332,15 @@ def public_info() -> dict[str, Any]:
 # -------------------------
 
 @app.post("/api/admin/bootstrap")
-def bootstrap(payload: BootstrapPayload) -> dict[str, Any]:
+def bootstrap(
+    payload: BootstrapPayload,
+    x_bootstrap_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    if BOOTSTRAP_TOKEN:
+        provided = (x_bootstrap_token or "").strip()
+        if not provided or not hmac.compare_digest(provided, BOOTSTRAP_TOKEN):
+            raise HTTPException(status_code=401, detail="Invalid bootstrap token")
+
     project_id = payload.projectId.strip()
     username = payload.username.strip()
     if not project_id or not username:
