@@ -20,6 +20,7 @@
                 <input id="bootProjectPassword" placeholder="Project Password" type="password" />
                 <input id="bootUser" placeholder="Admin Username" />
                 <input id="bootPass" placeholder="Admin Password" type="password" />
+                <input id="bootToken" placeholder="Bootstrap Token (if enabled)" type="password" />
                 <button id="bootBtn">Create Project + Admin</button>
             </div>
 
@@ -112,7 +113,20 @@
                     username: document.getElementById('bootUser').value.trim(),
                     password: document.getElementById('bootPass').value,
                 };
-                const data = await api('/api/admin/bootstrap', 'POST', payload);
+                const bootstrapToken = document.getElementById('bootToken').value.trim();
+                const headers = { 'Content-Type': 'application/json' };
+                if (bootstrapToken) headers['X-Bootstrap-Token'] = bootstrapToken;
+
+                const res = await fetch('/api/admin/bootstrap', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    const detail = data.detail || data.error || `HTTP ${res.status}`;
+                    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                }
                 setMessage(`Bootstrap complete for ${data.projectId}`);
                 bootstrapBox.classList.add('hidden');
             } catch (e) {
