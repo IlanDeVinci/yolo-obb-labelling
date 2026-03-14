@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import secrets
 import shutil
@@ -22,6 +23,18 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+try:
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+except Exception:  # pragma: no cover - optional dependency in local dev
+    boto3 = None
+
+    class BotoCoreError(Exception):
+        pass
+
+    class ClientError(Exception):
+        pass
+
 
 DB_PATH = Path(os.environ.get("SYNC_DB_PATH", "./data/sync.db")).resolve()
 BACKUP_DIR = Path(os.environ.get("SYNC_BACKUP_DIR", "./data/backups")).resolve()
@@ -29,6 +42,19 @@ SESSION_TTL_SECONDS = max(20, int(os.environ.get("SYNC_SESSION_TTL_SECONDS", "45
 BACKUP_RETENTION_DAYS = max(2, int(os.environ.get("SYNC_BACKUP_RETENTION_DAYS", "14")))
 MAX_FILE_BYTES = max(64 * 1024, int(os.environ.get("SYNC_MAX_FILE_BYTES", str(8 * 1024 * 1024))))
 BOOTSTRAP_TOKEN = os.environ.get("SYNC_BOOTSTRAP_TOKEN", "").strip()
+S3_BUCKET = os.environ.get("SYNC_S3_BUCKET", "").strip()
+S3_PREFIX = os.environ.get("SYNC_S3_PREFIX", "datasets").strip().strip("/")
+S3_REGION = os.environ.get("SYNC_S3_REGION", "").strip()
+
+IMAGE_SUFFIXES = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".tiff",
+    ".tif",
+    ".webp",
+}
 
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -48,6 +74,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 
 _db_lock = threading.Lock()
 _stop_event = threading.Event()
+_s3_client = None
 
 
 class BootstrapPayload(BaseModel):
@@ -121,6 +148,65 @@ def _normalize_path(value: str) -> str:
 def _requires_explicit_lock(path: str) -> bool:
     lower = path.lower()
     return lower.endswith(".txt") and "/labels/" in lower
+
+
+def _is_image_path(path: str) -> bool:
+    return Path(path).suffix.lower() in IMAGE_SUFFIXES
+
+
+def _is_s3_enabled() -> bool:
+    return bool(S3_BUCKET and boto3 is not None)
+
+
+def _s3_object_key(project_id: str, path: str) -> str:
+    # Keep all synced images inside a folder-like prefix, never at bucket root.
+    return f"{S3_PREFIX}/{project_id}/{path}" if S3_PREFIX else f"{project_id}/{path}"
+
+
+def _get_s3_client():
+    global _s3_client
+    if not _is_s3_enabled():
+        return None
+    if _s3_client is None:
+        kwargs: dict[str, Any] = {}
+        if S3_REGION:
+            kwargs["region_name"] = S3_REGION
+        _s3_client = boto3.client("s3", **kwargs)
+    return _s3_client
+
+
+def _s3_put_image(project_id: str, path: str, raw: bytes) -> None:
+    client = _get_s3_client()
+    if client is None:
+        raise RuntimeError("S3 client unavailable")
+
+    content_type, _ = mimetypes.guess_type(path)
+    extra_args = {}
+    if content_type:
+        extra_args["ContentType"] = content_type
+
+    key = _s3_object_key(project_id, path)
+    client.put_object(Bucket=S3_BUCKET, Key=key, Body=raw, **extra_args)
+
+
+def _s3_delete_image(project_id: str, path: str) -> None:
+    client = _get_s3_client()
+    if client is None:
+        return
+    key = _s3_object_key(project_id, path)
+    client.delete_object(Bucket=S3_BUCKET, Key=key)
+
+
+def _s3_get_image_base64(project_id: str, path: str) -> str:
+    client = _get_s3_client()
+    if client is None:
+        raise RuntimeError("S3 client unavailable")
+
+    key = _s3_object_key(project_id, path)
+    response = client.get_object(Bucket=S3_BUCKET, Key=key)
+    body = response.get("Body")
+    raw = body.read() if body is not None else b""
+    return base64.b64encode(raw).decode("ascii")
 
 
 def _hash_password(raw_password: str) -> str:
@@ -322,6 +408,9 @@ def public_info() -> dict[str, Any]:
     return {
         "ok": True,
         "hasProjects": has_projects,
+        "s3ImagesEnabled": _is_s3_enabled(),
+        "s3Bucket": S3_BUCKET,
+        "s3Prefix": S3_PREFIX,
         "sessionTtlSeconds": SESSION_TTL_SECONDS,
         "backupRetentionDays": BACKUP_RETENTION_DAYS,
     }
@@ -561,9 +650,18 @@ def sync_upsert(
                 rejected.append({"path": item.path, "reason": exc.detail})
                 continue
 
+            is_image = _is_image_path(path)
+            use_s3_for_image = is_image and _is_s3_enabled()
+
             if item.deleted:
                 content_b64 = ""
                 sha1 = ""
+                if use_s3_for_image:
+                    try:
+                        _s3_delete_image(session.project_id, path)
+                    except (BotoCoreError, ClientError, Exception) as exc:
+                        rejected.append({"path": path, "reason": f"S3 delete failed: {exc}"})
+                        continue
             else:
                 content_b64 = item.contentBase64 or ""
                 sha1 = item.sha1 or ""
@@ -574,6 +672,20 @@ def sync_upsert(
                 if estimate > MAX_FILE_BYTES:
                     rejected.append({"path": path, "reason": f"File exceeds max size {MAX_FILE_BYTES}"})
                     continue
+
+                if use_s3_for_image:
+                    try:
+                        raw = base64.b64decode(content_b64.encode("ascii"), validate=True)
+                    except Exception:
+                        rejected.append({"path": path, "reason": "Invalid base64 content"})
+                        continue
+                    try:
+                        _s3_put_image(session.project_id, path, raw)
+                    except (BotoCoreError, ClientError, Exception) as exc:
+                        rejected.append({"path": path, "reason": f"S3 upload failed: {exc}"})
+                        continue
+                    # Image payload is stored in S3; keep DB rows lightweight.
+                    content_b64 = ""
 
             if _requires_explicit_lock(path):
                 lock_row = _CONN.execute(
@@ -663,20 +775,31 @@ def sync_changes(
         (session.project_id, int(max(0, since)), safe_limit),
     ).fetchall()
 
-    changes = [
-        {
-            "seq": int(row["seq"]),
-            "username": str(row["username"]),
-            "sourceToken": str(row["source_token"]),
-            "path": str(row["path"]),
-            "deleted": bool(row["deleted"]),
-            "mtimeMs": int(row["mtime_ms"]),
-            "sha1": str(row["sha1"]),
-            "contentBase64": str(row["content_base64"]),
-            "createdAt": int(row["created_at"]),
-        }
-        for row in rows
-    ]
+    changes: list[dict[str, Any]] = []
+    for row in rows:
+        path = str(row["path"])
+        deleted = bool(row["deleted"])
+        content_b64 = str(row["content_base64"])
+
+        if _is_s3_enabled() and _is_image_path(path) and not deleted:
+            try:
+                content_b64 = _s3_get_image_base64(session.project_id, path)
+            except (BotoCoreError, ClientError, Exception) as exc:
+                raise HTTPException(status_code=500, detail=f"S3 read failed for {path}: {exc}") from exc
+
+        changes.append(
+            {
+                "seq": int(row["seq"]),
+                "username": str(row["username"]),
+                "sourceToken": str(row["source_token"]),
+                "path": path,
+                "deleted": deleted,
+                "mtimeMs": int(row["mtime_ms"]),
+                "sha1": str(row["sha1"]),
+                "contentBase64": content_b64,
+                "createdAt": int(row["created_at"]),
+            }
+        )
 
     max_row = _CONN.execute(
         "SELECT COALESCE(MAX(seq), 0) AS s FROM changes WHERE project_id = ?",

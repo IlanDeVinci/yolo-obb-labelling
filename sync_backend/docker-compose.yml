@@ -10,6 +10,9 @@ services:
       - SYNC_SESSION_TTL_SECONDS=45
       - SYNC_BACKUP_RETENTION_DAYS=14
       - SYNC_BOOTSTRAP_TOKEN=${SYNC_BOOTSTRAP_TOKEN:-}
+      - SYNC_S3_BUCKET=${SYNC_S3_BUCKET:-}
+      - SYNC_S3_PREFIX=${SYNC_S3_PREFIX:-datasets/pokemon}
+      - SYNC_S3_REGION=${SYNC_S3_REGION:-}
     volumes:
       - ./data:/data
     restart: unless-stopped

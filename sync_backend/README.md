@@ -15,6 +15,7 @@ Features:
 
 ```bash
 cd sync_backend
+cp .env.example .env
 docker compose up -d --build
 ```
 
@@ -34,6 +35,35 @@ http://localhost:8095/
 - `SYNC_BACKUP_RETENTION_DAYS` (default `14`)
 - `SYNC_MAX_FILE_BYTES` (default `8388608`)
 - `SYNC_BOOTSTRAP_TOKEN` (optional but recommended in production)
+- `SYNC_S3_BUCKET` (optional, enables S3 storage for image files)
+- `SYNC_S3_PREFIX` (folder prefix inside bucket, default `datasets/pokemon`)
+- `SYNC_S3_REGION` (optional, e.g. `eu-west-3`)
+
+## S3 Image Storage (Cloud Mode)
+
+When `SYNC_S3_BUCKET` is set, image files (`.jpg/.jpeg/.png/.bmp/.tiff/.tif/.webp`) are stored in S3 instead of the SQLite blob store.
+
+Object keys are always stored under a folder prefix, never at bucket root:
+
+```text
+<SYNC_S3_PREFIX>/<project_id>/<relative_path>
+```
+
+For your bucket:
+
+```env
+SYNC_S3_BUCKET=yolo-datasets-pokemon
+SYNC_S3_PREFIX=datasets/pokemon
+SYNC_S3_REGION=eu-west-3
+```
+
+Example key:
+
+```text
+datasets/pokemon/yolo-pokemon/images/IMG_1023.JPG
+```
+
+Make sure the backend runtime has AWS credentials with `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` for that prefix.
 
 ## Production publish with NPM
 
