@@ -1,6 +1,8 @@
 """Main application window."""
 from __future__ import annotations
+import hashlib
 import math
+import mimetypes
 import shutil
 import subprocess
 import sys
@@ -440,6 +442,10 @@ class MainWindow(QMainWindow):
 
         act = QAction("Clear Cloud Image Cache", self)
         act.triggered.connect(self._clear_cloud_image_cache)
+        cloud_menu.addAction(act)
+
+        act = QAction("Upload Local Images to S3", self)
+        act.triggered.connect(self._sync_local_images_to_s3)
         cloud_menu.addAction(act)
 
         # ---- Equipe ----
@@ -939,6 +945,117 @@ class MainWindow(QMainWindow):
         provider.clear_cache()
         stats = provider.cache_stats()
         self._lbl_hint.setText(f"Cloud cache cleared: {stats.get('cacheDir', '')}")
+
+    def _sync_local_images_to_s3(self) -> None:
+        agent = self._sync_agent
+        if agent is None:
+            QMessageBox.information(self, "Cloud Sync", "Cloud sync must be connected before uploading images.")
+            return
+
+        project = self._project_mgr.current_project
+        project_folder = self._project_mgr.get_project_folder()
+        if project is None or project_folder is None:
+            QMessageBox.information(self, "Cloud Sync", "Open a project first.")
+            return
+
+        dataset_folder = self._resolve_project_dataset_folder(project)
+        if dataset_folder is None or not dataset_folder.exists():
+            QMessageBox.information(self, "Cloud Sync", "Project dataset folder was not found.")
+            return
+
+        image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+        local_images = [p for p in dataset_folder.rglob("*") if p.is_file() and p.suffix.lower() in image_extensions]
+        if not local_images:
+            QMessageBox.information(self, "Cloud Sync", "No local images found to upload.")
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Upload Local Images",
+            f"Upload local images to S3?\n\nFound {len(local_images)} image(s). Existing cloud paths are skipped.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            manifest_payload = agent.get_image_manifest()
+        except Exception as exc:
+            QMessageBox.warning(self, "Cloud Sync", f"Cannot load cloud manifest: {exc}")
+            return
+
+        manifest_items = manifest_payload.get("manifest") if isinstance(manifest_payload, dict) else []
+        manifest_by_path: dict[str, dict[str, object]] = {}
+        if isinstance(manifest_items, list):
+            for item in manifest_items:
+                if isinstance(item, dict):
+                    rel = str(item.get("path") or "").strip().replace("\\", "/")
+                    if rel:
+                        manifest_by_path[rel] = item
+
+        uploaded = 0
+        skipped_existing = 0
+        skipped_outside_project = 0
+        failed = 0
+
+        progress = QProgressDialog("Uploading images to S3...", "Cancel", 0, len(local_images), self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
+        for idx, path in enumerate(local_images):
+            if progress.wasCanceled():
+                break
+            progress.setValue(idx)
+            progress.setLabelText(f"Uploading {path.name} ({idx + 1}/{len(local_images)})")
+            QApplication.processEvents()
+
+            try:
+                rel = path.resolve().relative_to(project_folder.resolve()).as_posix()
+            except Exception:
+                skipped_outside_project += 1
+                continue
+
+            existing = manifest_by_path.get(rel)
+            if existing is not None:
+                local_size = int(path.stat().st_size)
+                remote_size = int(existing.get("size") or 0)
+                etag = str(existing.get("etag") or "").strip().lower()
+                if local_size == remote_size and len(etag) == 32 and "-" not in etag:
+                    try:
+                        local_md5 = hashlib.md5(path.read_bytes()).hexdigest()
+                    except OSError:
+                        failed += 1
+                        continue
+                    if local_md5 == etag:
+                        skipped_existing += 1
+                        continue
+                else:
+                    skipped_existing += 1
+                    continue
+
+            try:
+                payload = path.read_bytes()
+                content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+                agent.upload_image_via_signed_url(rel, payload, content_type=content_type)
+                uploaded += 1
+            except Exception:
+                failed += 1
+
+        progress.setValue(len(local_images))
+
+        self._lbl_hint.setText(
+            f"Upload complete: {uploaded} uploaded, {skipped_existing} skipped, {failed} failed"
+        )
+        QMessageBox.information(
+            self,
+            "Cloud Upload Summary",
+            (
+                f"Uploaded: {uploaded}\n"
+                f"Skipped existing: {skipped_existing}\n"
+                f"Skipped outside project root: {skipped_outside_project}\n"
+                f"Failed: {failed}"
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Project actions

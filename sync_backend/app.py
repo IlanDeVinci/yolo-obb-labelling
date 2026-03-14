@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import threading
 import time
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,7 @@ S3_PREFIX = os.environ.get("SYNC_S3_PREFIX", "datasets").strip().strip("/")
 S3_REGION = os.environ.get("SYNC_S3_REGION", "").strip()
 SIGNED_URL_TTL_SECONDS = max(30, min(900, int(os.environ.get("SYNC_SIGNED_URL_TTL_SECONDS", "180"))))
 PREFETCH_MAX_BATCH = max(1, min(200, int(os.environ.get("SYNC_PREFETCH_MAX_BATCH", "40"))))
+CLOUDFRONT_BASE_URL = os.environ.get("SYNC_CLOUDFRONT_BASE_URL", "").strip().rstrip("/")
 
 IMAGE_SUFFIXES = {
     ".jpg",
@@ -544,6 +546,14 @@ def _s3_signed_put_url(project_id: str, path: str, *, content_type: str | None, 
     )
 
 
+def _image_read_url(project_id: str, path: str, *, expires_seconds: int) -> str:
+    if CLOUDFRONT_BASE_URL:
+        key = _s3_object_key(project_id, path)
+        encoded = urllib.parse.quote(key, safe="/._-")
+        return f"{CLOUDFRONT_BASE_URL}/{encoded}"
+    return _s3_signed_get_url(project_id, path, expires_seconds=expires_seconds)
+
+
 def _cleanup_stale_sessions() -> None:
     cutoff = _now_ms() - SESSION_TTL_SECONDS * 1000
     with _db_lock:
@@ -654,6 +664,7 @@ def public_info() -> dict[str, Any]:
         "s3ImagesEnabled": _is_s3_enabled(),
         "s3Bucket": S3_BUCKET,
         "s3Prefix": S3_PREFIX,
+        "cloudfrontBaseUrl": CLOUDFRONT_BASE_URL,
         "signedUrlTtlSeconds": SIGNED_URL_TTL_SECONDS,
         "sessionTtlSeconds": SESSION_TTL_SECONDS,
         "backupRetentionDays": BACKUP_RETENTION_DAYS,
@@ -1085,7 +1096,7 @@ def get_signed_image_read_url(path: str, session: SessionContext = Depends(_auth
         raise HTTPException(status_code=400, detail="Path must reference an image file")
 
     try:
-        url = _s3_signed_get_url(session.project_id, normalized, expires_seconds=SIGNED_URL_TTL_SECONDS)
+        url = _image_read_url(session.project_id, normalized, expires_seconds=SIGNED_URL_TTL_SECONDS)
     except (BotoCoreError, ClientError, Exception) as exc:
         raise HTTPException(status_code=500, detail=f"Failed to create signed URL: {exc}") from exc
 
@@ -1155,7 +1166,7 @@ def request_prefetch_batch(
     for item in window:
         path = str(item["path"])
         try:
-            url = _s3_signed_get_url(session.project_id, path, expires_seconds=SIGNED_URL_TTL_SECONDS)
+            url = _image_read_url(session.project_id, path, expires_seconds=SIGNED_URL_TTL_SECONDS)
         except (BotoCoreError, ClientError, Exception):
             continue
         items.append(

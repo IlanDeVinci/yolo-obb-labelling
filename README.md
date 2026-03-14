@@ -85,6 +85,7 @@ Cache controls are available in:
 
 - `Cloud > Cloud Sync Settings...` (location, size, TTL, prefetch)
 - `Cloud > Clear Cloud Image Cache`
+- `Cloud > Upload Local Images to S3` (bulk upload with existing-path dedupe)
 
 ## Inference dependencies
 

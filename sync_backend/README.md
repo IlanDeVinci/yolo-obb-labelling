@@ -44,6 +44,7 @@ http://localhost:8095/
 - `SYNC_S3_REGION` (optional, e.g. `eu-west-3`)
 - `SYNC_SIGNED_URL_TTL_SECONDS` (default `180`, max `900`)
 - `SYNC_PREFETCH_MAX_BATCH` (default `40`, max `200`)
+- `SYNC_CLOUDFRONT_BASE_URL` (optional; if set, image read URLs use CloudFront path URLs)
 
 ## S3 Image Storage (Cloud Mode)
 
@@ -70,6 +71,14 @@ datasets/pokemon/yolo-pokemon/images/IMG_1023.JPG
 ```
 
 Make sure the backend runtime has AWS credentials with `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` for that prefix.
+
+If you want clients to read images through CloudFront, set:
+
+```env
+SYNC_CLOUDFRONT_BASE_URL=https://d2u2ndc7skzey6.cloudfront.net
+```
+
+When this is set, `/api/images/signed-read` and `/api/images/prefetch` return CloudFront URLs. Leave it empty to use signed S3 GET URLs.
 
 Admin UI includes per-project settings:
 

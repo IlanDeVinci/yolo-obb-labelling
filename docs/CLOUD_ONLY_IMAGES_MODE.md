@@ -16,6 +16,7 @@ Cloud-only mode keeps image source-of-truth in S3 and avoids permanent local pro
   - `POST /api/images/prefetch`
 - Added auth enforcement per session/project for all image URL APIs.
 - Preserved lock semantics for label edits.
+- Optional CloudFront read URL mode via `SYNC_CLOUDFRONT_BASE_URL`.
 
 ## Desktop changes
 
@@ -27,6 +28,7 @@ Cloud-only mode keeps image source-of-truth in S3 and avoids permanent local pro
 - Cache controls:
   - `Cloud Sync Settings...` for location/max size/TTL/prefetch count.
   - `Cloud > Clear Cloud Image Cache`.
+- Added `Cloud > Upload Local Images to S3` for one-shot migration.
 - Cache is kept outside project folders by default.
 
 ## Security notes
@@ -62,29 +64,29 @@ Limit backend role to project prefix only:
 - Confirm manifest image list loads without local image files.
 - Open several images; verify download progress and rendering.
 
-2. Offline behavior
+1. Offline behavior
 
 - Open one image online first (ensure cached).
 - Disconnect network.
 - Re-open cached image: should succeed.
 - Open never-cached image: should show clear non-blocking error.
 
-3. Stale cache refresh
+1. Stale cache refresh
 
 - Replace an image in S3 (etag/lastModified changes).
 - Open image again and verify cache is refreshed.
 
-4. Concurrent editing
+1. Concurrent editing
 
 - Two users edit labels and switch active files.
 - Verify explicit lock behavior remains unchanged.
 
-5. Large dataset
+1. Large dataset
 
 - Use large manifest (thousands of images).
 - Verify listing/prefetch remain responsive.
 
-6. Permission model
+1. Permission model
 
 - User deletes self account: should succeed.
 - Admin deletes a user they created: should succeed.

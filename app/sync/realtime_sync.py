@@ -451,6 +451,42 @@ class RealtimeSyncAgent:
         query = urllib.parse.urlencode({"path": path})
         return self._request_json(f"/api/images/signed-read?{query}")
 
+    def get_signed_image_write(self, path: str, content_type: str | None = None) -> dict[str, Any]:
+        return self._request_json(
+            "/api/images/signed-write",
+            body={"path": path, "contentType": content_type or ""},
+        )
+
+    def upload_image_via_signed_url(self, path: str, payload: bytes, content_type: str | None = None) -> dict[str, Any]:
+        signed = self.get_signed_image_write(path, content_type=content_type)
+        url = str(signed.get("url") or "")
+        if not url:
+            raise RuntimeError("Signed write URL not returned by backend")
+
+        headers = {"Content-Type": content_type or "application/octet-stream"}
+        for attempt in range(3):
+            request = urllib.request.Request(url, data=payload, headers=headers, method="PUT")
+            try:
+                with urllib.request.urlopen(request, timeout=40):
+                    return signed
+            except urllib.error.HTTPError as error:
+                transient = int(error.code) in {408, 429, 500, 502, 503, 504}
+                if transient and attempt < 2:
+                    time.sleep(0.35 * (attempt + 1))
+                    continue
+                try:
+                    detail = error.read().decode("utf-8")
+                except Exception:
+                    detail = str(error)
+                raise RuntimeError(f"Signed upload failed ({error.code}) for {path}: {detail}") from error
+            except urllib.error.URLError as error:
+                if attempt < 2:
+                    time.sleep(0.35 * (attempt + 1))
+                    continue
+                raise RuntimeError(f"Signed upload request failed for {path}: {error}") from error
+
+        raise RuntimeError(f"Signed upload failed for {path}")
+
     def request_image_prefetch(self, current_path: str | None, count: int) -> dict[str, Any]:
         return self._request_json(
             "/api/images/prefetch",

@@ -9,3 +9,4 @@ projets/**/.local/
 projets/**/.sync/
 projets/**/image-status/
 .env
+/docs/
