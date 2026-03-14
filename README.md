@@ -70,6 +70,22 @@ Notes:
 - The `.sync/` folder stores local cursor state.
 - Backend creates daily DB backups automatically.
 
+### Cloud-Only Images Mode
+
+When backend project `imageAccessMode` is `cloud_only`:
+
+- Image list is loaded from backend S3 manifest (no local image files required).
+- On open, image is downloaded via short-lived signed URL into temporary cache.
+- Cache uses configurable location, max size, TTL, and auto-eviction.
+- Prefetch runs in background for upcoming images.
+- If offline and image is not cached, the app shows a clear non-blocking error.
+- Labels and metadata sync still use existing lock/sync backend flow.
+
+Cache controls are available in:
+
+- `Cloud > Cloud Sync Settings...` (location, size, TTL, prefetch)
+- `Cloud > Clear Cloud Image Cache`
+
 ## Inference dependencies
 
 Inference uses `ultralytics` + `torch` (CPU wheels by default in this project).

@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSettings, QTimer
+from PyQt6.QtCore import Qt, QSettings, QTimer, QStandardPaths
 from PyQt6.QtGui import QAction, QKeySequence, QShortcut, QUndoStack
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -61,6 +61,7 @@ from app.inference.yolo_predictor import (
 )
 from app.utils.image_io import prepare_inference_source, cleanup_inference_source
 from app.sync.realtime_sync import CloudSyncConfig, RealtimeSyncAgent
+from app.sync.cloud_images import CloudImageProvider, LocalFilesystemImageProvider
 
 
 class MainWindow(QMainWindow):
@@ -120,6 +121,9 @@ class MainWindow(QMainWindow):
         self._model_class_filter: list[int] = []
         self._syncing_label_selection: bool = False
         self._sync_agent = None
+        self._cloud_image_provider: CloudImageProvider | None = None
+        self._image_provider = LocalFilesystemImageProvider()
+        self._cloud_image_access_mode: str = "local"
         self._sync_status_cache: dict[str, object] = {}
         self._cloud_menu = None
         self._team_menu = None
@@ -434,6 +438,10 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self._show_cloud_sync_status)
         cloud_menu.addAction(act)
 
+        act = QAction("Clear Cloud Image Cache", self)
+        act.triggered.connect(self._clear_cloud_image_cache)
+        cloud_menu.addAction(act)
+
         # ---- Equipe ----
         team_menu = mb.addMenu("&Equipe")
         self._team_menu = team_menu
@@ -546,6 +554,10 @@ class MainWindow(QMainWindow):
         self._lbl_sync.setStyleSheet("padding: 0 8px; color: #de7f7f;")
         sb.addPermanentWidget(self._lbl_sync)
 
+        self._lbl_cloud_mode = QLabel("IMAGES: local")
+        self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #7b9db8;")
+        sb.addPermanentWidget(self._lbl_cloud_mode)
+
     # ------------------------------------------------------------------
     # Signal wiring
     # ------------------------------------------------------------------
@@ -615,7 +627,13 @@ class MainWindow(QMainWindow):
         # Clear undo history — undo across image navigation is not supported
         self._undo_stack.clear()
 
-        self._canvas.load_image(path)
+        try:
+            render_path = self._resolve_cloud_image_for_render(path)
+        except Exception as exc:
+            self._lbl_hint.setText(str(exc))
+            return
+
+        self._canvas.load_image(render_path)
         self._label_mgr.load_for_image(path)
         self._canvas.load_labels(self._label_mgr.labels)
         self._refresh_label_list()
@@ -627,6 +645,39 @@ class MainWindow(QMainWindow):
         # Persist the new index
         self._schedule_project_autosave()
         self._update_sync_active_file_lock()
+        self._schedule_cloud_prefetch(path)
+
+    def _resolve_cloud_image_for_render(self, virtual_path: Path) -> Path:
+        provider = self._image_provider
+        if provider is None:
+            raise RuntimeError("Image provider is unavailable")
+
+        progress = QProgressDialog("Downloading image...", None, 0, 100, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        progress.show()
+
+        def on_progress(done: int, total: int) -> None:
+            if total > 0:
+                progress.setMaximum(total)
+                progress.setValue(min(done, total))
+            else:
+                progress.setMaximum(0)
+            QApplication.processEvents()
+
+        try:
+            local_path = provider.resolve_for_open(virtual_path, progress_callback=on_progress)
+            return local_path
+        finally:
+            progress.close()
+
+    def _schedule_cloud_prefetch(self, current_virtual: Path) -> None:
+        provider = self._image_provider
+        if provider is None:
+            return
+        count = int(self._cloud_sync_settings.get("image_prefetch_count", 8) or 8)
+        provider.prefetch_after(current_virtual, count)
 
     def _maybe_save_before_leaving(self) -> bool:
         """Prompt to save if dirty. Returns False if user cancelled."""
@@ -862,6 +913,32 @@ class MainWindow(QMainWindow):
         self._normalize_project_completion_states()
         self._browser.set_images(self._image_mgr.images)
         self._load_current_image()
+
+    def _load_cloud_manifest_images(self) -> None:
+        provider = self._cloud_image_provider
+        if provider is None:
+            return
+        project = self._project_mgr.current_project
+        if project is None:
+            return
+
+        virtual_images = provider.manifest_virtual_paths()
+        self._all_images = list(virtual_images)
+        self._image_mgr.load_split(self._all_images, "")
+        self._normalize_project_completion_states()
+        self._browser.set_images(self._image_mgr.images)
+        if self._image_mgr.total > 0:
+            self._load_current_image()
+        self._lbl_hint.setText(f"Cloud manifest loaded: {len(self._all_images)} image(s)")
+
+    def _clear_cloud_image_cache(self) -> None:
+        provider = self._cloud_image_provider
+        if provider is None:
+            QMessageBox.information(self, "Cloud Cache", "Cloud image cache is not active.")
+            return
+        provider.clear_cache()
+        stats = provider.cache_stats()
+        self._lbl_hint.setText(f"Cloud cache cleared: {stats.get('cacheDir', '')}")
 
     # ------------------------------------------------------------------
     # Project actions
@@ -1102,6 +1179,10 @@ class MainWindow(QMainWindow):
             username=str(self._cloud_sync_settings.get("username", "")),
             user_password=str(self._cloud_sync_settings.get("user_password", "")),
             poll_seconds=float(self._cloud_sync_settings.get("poll_seconds", 1.2) or 1.2),
+            image_cache_dir=str(self._cloud_sync_settings.get("image_cache_dir", "")),
+            image_cache_max_mb=int(self._cloud_sync_settings.get("image_cache_max_mb", 2048) or 2048),
+            image_cache_ttl_hours=int(self._cloud_sync_settings.get("image_cache_ttl_hours", 24) or 24),
+            image_prefetch_count=int(self._cloud_sync_settings.get("image_prefetch_count", 8) or 8),
         )
         if not config.is_valid():
             self._sync_status_cache = {
@@ -1119,10 +1200,14 @@ class MainWindow(QMainWindow):
             )
             agent.start()
             self._sync_agent = agent
+            summary = agent.get_project_summary()
+            self._cloud_image_access_mode = str(summary.get("imageAccessMode") or "local")
+            self._setup_cloud_image_provider(project_folder, config)
             self._update_sync_active_file_lock()
             self._lbl_hint.setText("Cloud sync started")
         except Exception as exc:  # noqa: BLE001
             self._sync_agent = None
+            self._cloud_image_access_mode = "local"
             self._sync_status_cache = {
                 "connected": False,
                 "lastError": str(exc),
@@ -1133,6 +1218,14 @@ class MainWindow(QMainWindow):
     def _stop_project_sync(self) -> None:
         agent = self._sync_agent
         self._sync_agent = None
+        if self._cloud_image_provider is not None:
+            try:
+                self._cloud_image_provider.stop()
+            except Exception:
+                pass
+        self._cloud_image_provider = None
+        self._image_provider = LocalFilesystemImageProvider()
+        self._cloud_image_access_mode = "local"
         if agent is None:
             return
         try:
@@ -1140,8 +1233,50 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _setup_cloud_image_provider(self, project_folder: Path, config: CloudSyncConfig) -> None:
+        if self._cloud_image_provider is not None:
+            try:
+                self._cloud_image_provider.stop()
+            except Exception:
+                pass
+        self._cloud_image_provider = None
+
+        if self._cloud_image_access_mode == "local":
+            self._image_provider = LocalFilesystemImageProvider()
+            return
+
+        cache_dir_value = str(config.image_cache_dir or "").strip()
+        if not cache_dir_value:
+            base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+            cache_dir_value = str(Path(base) / "cloud-image-cache" / config.project_id)
+        cache_dir = Path(cache_dir_value)
+        try:
+            cache_dir.resolve().relative_to(project_folder.resolve())
+            base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+            cache_dir = Path(base) / "cloud-image-cache" / config.project_id
+        except Exception:
+            pass
+
+        provider = CloudImageProvider(
+            sync_agent=self._sync_agent,
+            project_root=project_folder,
+            cache_dir=cache_dir,
+            cache_max_mb=int(config.image_cache_max_mb),
+            cache_ttl_hours=int(config.image_cache_ttl_hours),
+        )
+        provider.refresh_manifest()
+        self._cloud_image_provider = provider
+        self._image_provider = provider
+        if self._cloud_image_access_mode == "cloud_only":
+            self._load_cloud_manifest_images()
+
     def _on_sync_status_update(self, status: dict[str, object]) -> None:
-        self._sync_status_cache = dict(status)
+        merged = dict(status)
+        provider = self._image_provider
+        if provider is not None:
+            merged["imageCache"] = provider.cache_stats()
+            merged["imageTelemetry"] = provider.telemetry()
+        self._sync_status_cache = merged
 
     def _refresh_sync_indicator(self) -> None:
         status = self._sync_status_cache or {}
@@ -1150,6 +1285,8 @@ class MainWindow(QMainWindow):
             error = str(status.get("lastError", "")).strip()
             self._lbl_sync.setText("SYNC: off" if not error else "SYNC: error")
             self._lbl_sync.setStyleSheet("padding: 0 8px; color: #de7f7f;")
+            self._lbl_cloud_mode.setText("IMAGES: local")
+            self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #7b9db8;")
             self._refresh_cloud_menu_state(connected=False, error=error)
             return
 
@@ -1158,6 +1295,17 @@ class MainWindow(QMainWindow):
         suffix = f" [{Path(active).name}]" if active else ""
         self._lbl_sync.setText(f"SYNC: live ({users} online){suffix}")
         self._lbl_sync.setStyleSheet("padding: 0 8px; color: #86cc9f;")
+        mode = str(status.get("imageAccessMode") or self._cloud_image_access_mode or "local")
+        self._cloud_image_access_mode = mode
+        if mode == "cloud_only":
+            self._lbl_cloud_mode.setText("IMAGES: Cloud-Only")
+            self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #63b38f;")
+        elif mode == "hybrid":
+            self._lbl_cloud_mode.setText("IMAGES: Hybrid")
+            self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #74a2d4;")
+        else:
+            self._lbl_cloud_mode.setText("IMAGES: local")
+            self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #7b9db8;")
         self._refresh_cloud_menu_state(connected=True, error="")
 
     def _is_cloud_sync_enabled(self) -> bool:
@@ -1194,6 +1342,7 @@ class MainWindow(QMainWindow):
             action.setEnabled(not enabled)
 
     def _load_cloud_sync_settings(self) -> dict[str, object]:
+        default_cache_root = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         return {
             "enabled": self._settings.value("cloud_sync/enabled", False, type=bool),
             "server_url": self._settings.value("cloud_sync/server_url", "", type=str),
@@ -1202,6 +1351,14 @@ class MainWindow(QMainWindow):
             "username": self._settings.value("cloud_sync/username", "", type=str),
             "user_password": self._settings.value("cloud_sync/user_password", "", type=str),
             "poll_seconds": self._settings.value("cloud_sync/poll_seconds", 1.2, type=float),
+            "image_cache_dir": self._settings.value(
+                "cloud_sync/image_cache_dir",
+                str(Path(default_cache_root) / "cloud-image-cache"),
+                type=str,
+            ),
+            "image_cache_max_mb": self._settings.value("cloud_sync/image_cache_max_mb", 2048, type=int),
+            "image_cache_ttl_hours": self._settings.value("cloud_sync/image_cache_ttl_hours", 24, type=int),
+            "image_prefetch_count": self._settings.value("cloud_sync/image_prefetch_count", 8, type=int),
         }
 
     def _save_cloud_sync_settings(self, values: dict[str, object]) -> None:
@@ -1213,6 +1370,10 @@ class MainWindow(QMainWindow):
         self._settings.setValue("cloud_sync/username", str(values.get("username", "")))
         self._settings.setValue("cloud_sync/user_password", str(values.get("user_password", "")))
         self._settings.setValue("cloud_sync/poll_seconds", float(values.get("poll_seconds", 1.2) or 1.2))
+        self._settings.setValue("cloud_sync/image_cache_dir", str(values.get("image_cache_dir", "")))
+        self._settings.setValue("cloud_sync/image_cache_max_mb", int(values.get("image_cache_max_mb", 2048) or 2048))
+        self._settings.setValue("cloud_sync/image_cache_ttl_hours", int(values.get("image_cache_ttl_hours", 24) or 24))
+        self._settings.setValue("cloud_sync/image_prefetch_count", int(values.get("image_prefetch_count", 8) or 8))
         self._refresh_cloud_menu_state(connected=False, error="")
         self._apply_team_filter()
 
@@ -1224,7 +1385,16 @@ class MainWindow(QMainWindow):
         self._start_project_sync_if_enabled()
 
     def _show_cloud_sync_status(self) -> None:
-        dlg = CloudSyncStatusDialog(lambda: dict(self._sync_status_cache), self)
+        def status_payload() -> dict[str, object]:
+            payload = dict(self._sync_status_cache)
+            provider = self._cloud_image_provider
+            if provider is not None:
+                payload["imageCache"] = provider.cache_stats()
+                payload["imageTelemetry"] = provider.telemetry()
+            payload["imageAccessMode"] = self._cloud_image_access_mode
+            return payload
+
+        dlg = CloudSyncStatusDialog(status_payload, self)
         dlg.exec()
 
     def _update_sync_active_file_lock(self) -> None:

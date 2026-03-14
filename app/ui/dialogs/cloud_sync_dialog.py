@@ -39,6 +39,10 @@ class CloudSyncSettingsDialog(QDialog):
         self._user_password = QLineEdit(str(initial.get("user_password", "")))
         self._user_password.setEchoMode(QLineEdit.EchoMode.Password)
         self._poll = QLineEdit(str(initial.get("poll_seconds", "1.2")))
+        self._cache_dir = QLineEdit(str(initial.get("image_cache_dir", "")))
+        self._cache_max_mb = QLineEdit(str(initial.get("image_cache_max_mb", "2048")))
+        self._cache_ttl_hours = QLineEdit(str(initial.get("image_cache_ttl_hours", "24")))
+        self._prefetch_count = QLineEdit(str(initial.get("image_prefetch_count", "8")))
 
         form.addRow("Server URL", self._server)
         form.addRow("Project ID", self._project_id)
@@ -46,6 +50,10 @@ class CloudSyncSettingsDialog(QDialog):
         form.addRow("Username", self._username)
         form.addRow("User Password", self._user_password)
         form.addRow("Poll Seconds", self._poll)
+        form.addRow("Image Cache Directory", self._cache_dir)
+        form.addRow("Cache Max Size (MB)", self._cache_max_mb)
+        form.addRow("Cache TTL (hours)", self._cache_ttl_hours)
+        form.addRow("Prefetch Count", self._prefetch_count)
         layout.addLayout(form)
 
         note = QLabel(
@@ -67,6 +75,18 @@ class CloudSyncSettingsDialog(QDialog):
             poll = float(self._poll.text().strip() or "1.2")
         except ValueError:
             poll = 1.2
+        try:
+            cache_max_mb = int(self._cache_max_mb.text().strip() or "2048")
+        except ValueError:
+            cache_max_mb = 2048
+        try:
+            cache_ttl_hours = int(self._cache_ttl_hours.text().strip() or "24")
+        except ValueError:
+            cache_ttl_hours = 24
+        try:
+            prefetch_count = int(self._prefetch_count.text().strip() or "8")
+        except ValueError:
+            prefetch_count = 8
 
         return {
             "enabled": self._enabled.isChecked(),
@@ -76,6 +96,10 @@ class CloudSyncSettingsDialog(QDialog):
             "username": self._username.text().strip(),
             "user_password": self._user_password.text(),
             "poll_seconds": max(0.5, poll),
+            "image_cache_dir": self._cache_dir.text().strip(),
+            "image_cache_max_mb": max(128, cache_max_mb),
+            "image_cache_ttl_hours": max(1, cache_ttl_hours),
+            "image_prefetch_count": max(1, min(50, prefetch_count)),
         }
 
 

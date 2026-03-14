@@ -6,8 +6,11 @@ Features:
 
 - Project auth (`project_id` + `project password`)
 - Per-user auth (`username` + `password`)
+- Role model: `owner`, `admin`, `user`
 - Per-file locking with active file lease
 - Incremental change feed for clients
+- Cloud image access modes: `local`, `hybrid`, `cloud_only`
+- Signed S3 image URLs + manifest/prefetch APIs
 - Daily SQLite backups + retention cleanup
 - Minimal web admin UI
 
@@ -39,6 +42,8 @@ http://localhost:8095/
 - `SYNC_S3_BUCKET` (optional, enables S3 storage for image files)
 - `SYNC_S3_PREFIX` (folder prefix inside bucket, default `datasets/pokemon`)
 - `SYNC_S3_REGION` (optional, e.g. `eu-west-3`)
+- `SYNC_SIGNED_URL_TTL_SECONDS` (default `180`, max `900`)
+- `SYNC_PREFETCH_MAX_BATCH` (default `40`, max `200`)
 
 ## S3 Image Storage (Cloud Mode)
 
@@ -66,11 +71,20 @@ datasets/pokemon/yolo-pokemon/images/IMG_1023.JPG
 
 Make sure the backend runtime has AWS credentials with `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` for that prefix.
 
-Admin UI now includes a per-project storage mode switch:
+Admin UI includes per-project settings:
 
 - `auto`: use backend default (S3 if configured)
 - `db`: force images in DB
 - `s3`: force images in S3 for this project
+- `imageAccessMode=local`: images expected from local project files
+- `imageAccessMode=hybrid`: local files still work; S3 signed URL flow also available
+- `imageAccessMode=cloud_only`: desktop lists S3 manifest and downloads on demand only
+
+## User deletion permissions
+
+- Users can always delete their own account.
+- Admins can delete users they created.
+- Owners can delete any user (except the last remaining owner).
 
 ## Production publish with NPM
 
@@ -116,6 +130,13 @@ After bootstrap succeeds, keep the token set. It still protects the endpoint aga
 - `POST /api/sync/upsert`
 - `GET /api/sync/changes`
 - `GET /api/sync/status`
+- `GET /api/images/manifest`
+- `GET /api/images/signed-read?path=...`
+- `POST /api/images/signed-write`
+- `POST /api/images/prefetch`
+- `POST /api/admin/project/image-access`
+- `GET /api/admin/project/image-access`
+- `DELETE /api/users/{username}`
 
 ## Lock behavior
 
@@ -123,3 +144,24 @@ After bootstrap succeeds, keep the token set. It still protects the endpoint aga
 - Activating a new file lock releases previous one.
 - Locks auto-release when session heartbeat expires.
 - Label files (`.../labels/.../*.txt`) require explicit lock ownership to push changes.
+
+## Migration notes
+
+- Existing DBs are auto-migrated at startup.
+- `projects.image_access_mode` is added with defaults inferred from legacy `storage_mode`.
+- `users.role` / `users.created_by` and `sessions.role` are added.
+- For each project with no owner, the oldest admin is promoted to owner.
+
+## Test plan
+
+- Online flow:
+  - Login, open cloud project in `cloud_only`, verify manifest loads and image opens via signed URL.
+- Offline flow:
+  - Open an already cached image with network disabled (should load from cache).
+  - Open a non-cached image with network disabled (should show non-blocking error).
+- Stale cache:
+  - Replace image object in S3 (etag change), re-open image, verify cache refresh.
+- Concurrent users:
+  - Two users edit label files, lock semantics unchanged.
+- Large dataset:
+  - Project with thousands of images, verify manifest load and prefetch batching.

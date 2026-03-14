@@ -39,6 +39,10 @@ class CloudSyncConfig:
     username: str = ""
     user_password: str = ""
     poll_seconds: float = 1.2
+    image_cache_dir: str = ""
+    image_cache_max_mb: int = 2048
+    image_cache_ttl_hours: int = 24
+    image_prefetch_count: int = 8
 
     def is_valid(self) -> bool:
         if not self.enabled:
@@ -85,6 +89,7 @@ class RealtimeSyncAgent:
         self._pending_active_file: str | None = None
         self._inbound_apply_until: dict[Path, float] = {}
         self._initial_remote_refresh_done = False
+        self._image_access_mode = "local"
 
         self._status: dict[str, Any] = {
             "connected": False,
@@ -100,6 +105,7 @@ class RealtimeSyncAgent:
             "onlineUsers": 0,
             "locks": [],
             "recentBackups": [],
+            "imageAccessMode": "local",
         }
 
     @property
@@ -153,6 +159,14 @@ class RealtimeSyncAgent:
         if not self._token:
             self._login()
 
+        if self._image_access_mode == "local":
+            try:
+                summary = self._request_json("/api/project/summary")
+                self._image_access_mode = str(summary.get("imageAccessMode") or "local")
+                self._set_status(imageAccessMode=self._image_access_mode)
+            except Exception:
+                pass
+
         if not self._initial_remote_refresh_done:
             incoming = self._fetch_remote_changes()
             changes = incoming.get("changes") if isinstance(incoming, dict) else []
@@ -200,6 +214,7 @@ class RealtimeSyncAgent:
         self._save_cursor(self._cursor)
 
         status = self._request_json("/api/sync/status")
+        self._image_access_mode = str(status.get("imageAccessMode") or self._image_access_mode or "local")
         self._set_status(
             connected=True,
             activeFile=status.get("activeFile"),
@@ -207,6 +222,7 @@ class RealtimeSyncAgent:
             onlineUsers=int(status.get("onlineUsers", 0)),
             locks=list(status.get("locks", [])),
             recentBackups=list(status.get("recentBackups", [])),
+            imageAccessMode=self._image_access_mode,
             lastError="",
             lastSyncAt=int(time.time()),
         )
@@ -224,6 +240,7 @@ class RealtimeSyncAgent:
             raise RuntimeError("Sync login failed: missing token")
         self._token = token
         self._initial_remote_refresh_done = False
+        self._image_access_mode = "local"
         self._set_status(connected=True, projectId=self._config.project_id, username=self._config.username)
 
     def _fetch_remote_changes(self) -> dict[str, Any]:
@@ -292,6 +309,10 @@ class RealtimeSyncAgent:
             rel_path = str(change.get("path", "")).strip().replace("\\", "/")
             if not rel_path:
                 continue
+            if self._image_access_mode == "cloud_only" and Path(rel_path).suffix.lower() in {
+                ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"
+            }:
+                continue
 
             target = (self._project_root / rel_path).resolve()
             try:
@@ -331,6 +352,7 @@ class RealtimeSyncAgent:
 
     def _build_snapshot(self) -> dict[str, dict[str, Any]]:
         snapshot: dict[str, dict[str, Any]] = {}
+        cloud_only = self._image_access_mode == "cloud_only"
         for path in self._project_root.rglob("*"):
             if not path.is_file():
                 continue
@@ -340,6 +362,8 @@ class RealtimeSyncAgent:
 
             suffix = path.suffix.lower()
             if suffix and suffix not in _DEFAULT_INCLUDE_EXTENSIONS:
+                continue
+            if cloud_only and suffix in {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}:
                 continue
 
             try:
@@ -380,25 +404,58 @@ class RealtimeSyncAgent:
         payload = json.dumps(body or {}).encode("utf-8") if body is not None else None
         request = urllib.request.Request(url, data=payload, headers=headers)
 
-        try:
-            with urllib.request.urlopen(request, timeout=12) as response:
-                raw = response.read().decode("utf-8")
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else {}
-        except urllib.error.HTTPError as error:
-            detail = ""
+        for attempt in range(3):
             try:
-                raw = error.read().decode("utf-8")
+                with urllib.request.urlopen(request, timeout=12) as response:
+                    raw = response.read().decode("utf-8")
+                parsed = json.loads(raw)
+                return parsed if isinstance(parsed, dict) else {}
+            except urllib.error.HTTPError as error:
+                detail = ""
                 try:
-                    payload = json.loads(raw)
-                    detail = str(payload.get("detail") or payload.get("error") or raw)
+                    raw = error.read().decode("utf-8")
+                    try:
+                        payload = json.loads(raw)
+                        detail = str(payload.get("detail") or payload.get("error") or raw)
+                    except Exception:
+                        detail = raw.strip() or str(error)
                 except Exception:
-                    detail = raw.strip() or str(error)
-            except Exception:
-                detail = str(error)
-            raise RuntimeError(f"HTTP {error.code} on {endpoint}: {detail}") from error
-        except urllib.error.URLError as error:
-            raise RuntimeError(f"Request failed: {error}") from error
+                    detail = str(error)
+
+                is_transient = int(error.code) in {408, 429, 500, 502, 503, 504}
+                if is_transient and attempt < 2:
+                    time.sleep(0.35 * (attempt + 1))
+                    continue
+                raise RuntimeError(f"HTTP {error.code} on {endpoint}: {detail}") from error
+            except urllib.error.URLError as error:
+                if attempt < 2:
+                    time.sleep(0.35 * (attempt + 1))
+                    continue
+                raise RuntimeError(f"Request failed: {error}") from error
+        return {}
+
+    def get_image_access_mode(self) -> str:
+        return str(self._image_access_mode or "local")
+
+    def get_project_summary(self) -> dict[str, Any]:
+        payload = self._request_json("/api/project/summary")
+        mode = str(payload.get("imageAccessMode") or "local")
+        self._image_access_mode = mode
+        self._set_status(imageAccessMode=mode)
+        return payload
+
+    def get_image_manifest(self) -> dict[str, Any]:
+        return self._request_json("/api/images/manifest")
+
+    def get_signed_image_read(self, path: str) -> dict[str, Any]:
+        query = urllib.parse.urlencode({"path": path})
+        return self._request_json(f"/api/images/signed-read?{query}")
+
+    def request_image_prefetch(self, current_path: str | None, count: int) -> dict[str, Any]:
+        return self._request_json(
+            "/api/images/prefetch",
+            body={"currentPath": current_path or "", "count": int(max(1, count))},
+        )
 
     def _normalize_server_url(self, raw_url: str) -> str:
         value = str(raw_url or "").strip()

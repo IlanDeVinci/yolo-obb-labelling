@@ -46,6 +46,8 @@ REQUIRE_PROJECT_PASSWORD = str(os.environ.get("SYNC_REQUIRE_PROJECT_PASSWORD", "
 S3_BUCKET = os.environ.get("SYNC_S3_BUCKET", "").strip()
 S3_PREFIX = os.environ.get("SYNC_S3_PREFIX", "datasets").strip().strip("/")
 S3_REGION = os.environ.get("SYNC_S3_REGION", "").strip()
+SIGNED_URL_TTL_SECONDS = max(30, min(900, int(os.environ.get("SYNC_SIGNED_URL_TTL_SECONDS", "180"))))
+PREFETCH_MAX_BATCH = max(1, min(200, int(os.environ.get("SYNC_PREFETCH_MAX_BATCH", "40"))))
 
 IMAGE_SUFFIXES = {
     ".jpg",
@@ -103,6 +105,20 @@ class CreateUserPayload(BaseModel):
     isAdmin: bool = False
 
 
+class SignedWritePayload(BaseModel):
+    path: str
+    contentType: str | None = None
+
+
+class PrefetchBatchPayload(BaseModel):
+    currentPath: str | None = None
+    count: int = Field(default=10, ge=1, le=200)
+
+
+class ProjectImageAccessPayload(BaseModel):
+    imageAccessMode: str = Field(pattern="^(local|hybrid|cloud_only)$")
+
+
 class ActivateLockPayload(BaseModel):
     path: str | None = None
 
@@ -128,6 +144,7 @@ class SessionContext:
     token: str
     project_id: str
     username: str
+    role: str
     is_admin: bool
     active_file: str | None
 
@@ -259,6 +276,7 @@ def _init_db() -> None:
               id TEXT PRIMARY KEY,
               password_hash TEXT NOT NULL,
                             storage_mode TEXT NOT NULL DEFAULT 'auto',
+                            image_access_mode TEXT NOT NULL DEFAULT 'local',
               created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS users (
@@ -267,6 +285,8 @@ def _init_db() -> None:
               username TEXT NOT NULL,
               password_hash TEXT NOT NULL,
               is_admin INTEGER NOT NULL DEFAULT 0,
+                            role TEXT NOT NULL DEFAULT 'user',
+                            created_by TEXT,
               created_at TEXT NOT NULL,
               UNIQUE(project_id, username)
             );
@@ -274,6 +294,7 @@ def _init_db() -> None:
               token TEXT PRIMARY KEY,
               project_id TEXT NOT NULL,
               username TEXT NOT NULL,
+                            role TEXT NOT NULL DEFAULT 'user',
               is_admin INTEGER NOT NULL DEFAULT 0,
               active_file TEXT,
               created_at INTEGER NOT NULL,
@@ -315,6 +336,64 @@ def _init_db() -> None:
         column_names = {str(row["name"]) for row in columns}
         if "storage_mode" not in column_names:
             _CONN.execute("ALTER TABLE projects ADD COLUMN storage_mode TEXT NOT NULL DEFAULT 'auto'")
+        if "image_access_mode" not in column_names:
+            _CONN.execute("ALTER TABLE projects ADD COLUMN image_access_mode TEXT NOT NULL DEFAULT 'local'")
+            _CONN.execute(
+                """
+                UPDATE projects
+                SET image_access_mode = CASE
+                  WHEN lower(storage_mode) = 's3' THEN 'hybrid'
+                  ELSE 'local'
+                END
+                """
+            )
+
+        user_columns = _CONN.execute("PRAGMA table_info(users)").fetchall()
+        user_column_names = {str(row["name"]) for row in user_columns}
+        if "role" not in user_column_names:
+            _CONN.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+            _CONN.execute(
+                "UPDATE users SET role = CASE WHEN is_admin = 1 THEN 'admin' ELSE 'user' END"
+            )
+        if "created_by" not in user_column_names:
+            _CONN.execute("ALTER TABLE users ADD COLUMN created_by TEXT")
+
+        session_columns = _CONN.execute("PRAGMA table_info(sessions)").fetchall()
+        session_column_names = {str(row["name"]) for row in session_columns}
+        if "role" not in session_column_names:
+            _CONN.execute("ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+
+        project_ids = [
+            str(row["id"]) for row in _CONN.execute("SELECT id FROM projects ORDER BY id ASC").fetchall()
+        ]
+        for project_id in project_ids:
+            owner_exists = _CONN.execute(
+                "SELECT 1 FROM users WHERE project_id = ? AND role = 'owner' LIMIT 1",
+                (project_id,),
+            ).fetchone()
+            if owner_exists is None:
+                oldest_admin = _CONN.execute(
+                    """
+                    SELECT username
+                    FROM users
+                    WHERE project_id = ? AND (role = 'admin' OR is_admin = 1)
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT 1
+                    """,
+                    (project_id,),
+                ).fetchone()
+                if oldest_admin is not None:
+                    _CONN.execute(
+                        "UPDATE users SET role = 'owner', is_admin = 1 WHERE project_id = ? AND username = ?",
+                        (project_id, str(oldest_admin["username"])),
+                    )
+
+        _CONN.execute(
+            "UPDATE users SET role = CASE WHEN role IN ('owner', 'admin', 'user') THEN role ELSE 'user' END"
+        )
+        _CONN.execute(
+            "UPDATE users SET is_admin = CASE WHEN role IN ('owner', 'admin') THEN 1 ELSE 0 END"
+        )
         _CONN.commit()
 
 
@@ -328,6 +407,14 @@ def _get_project_storage_mode(project_id: str) -> str:
 
 
 def _project_uses_s3_images(project_id: str) -> bool:
+    access_mode = _get_project_image_access_mode(project_id)
+    if access_mode == "local":
+        return False
+    if access_mode in {"hybrid", "cloud_only"}:
+        if not _is_s3_enabled():
+            raise HTTPException(status_code=400, detail="Project image access mode requires S3 but S3 is not configured")
+        return True
+
     mode = _get_project_storage_mode(project_id)
     if mode == "db":
         return False
@@ -336,6 +423,125 @@ def _project_uses_s3_images(project_id: str) -> bool:
             raise HTTPException(status_code=400, detail="Project requires S3 image storage but S3 is not configured")
         return True
     return _is_s3_enabled()
+
+
+def _get_project_image_access_mode(project_id: str) -> str:
+    row = _CONN.execute(
+        "SELECT image_access_mode FROM projects WHERE id = ?",
+        (project_id,),
+    ).fetchone()
+    raw = str(row["image_access_mode"]).strip().lower() if row and row["image_access_mode"] else "local"
+    return raw if raw in {"local", "hybrid", "cloud_only"} else "local"
+
+
+def _session_can_delete_user(session: SessionContext, target_username: str) -> bool:
+    if target_username == session.username:
+        return True
+
+    if session.role == "owner":
+        return True
+
+    if session.role != "admin":
+        return False
+
+    row = _CONN.execute(
+        "SELECT created_by FROM users WHERE project_id = ? AND username = ?",
+        (session.project_id, target_username),
+    ).fetchone()
+    if row is None:
+        return False
+    return str(row["created_by"] or "") == session.username
+
+
+def _ensure_s3_image_mode(session: SessionContext) -> None:
+    mode = _get_project_image_access_mode(session.project_id)
+    if mode == "local":
+        raise HTTPException(status_code=400, detail="Project imageAccessMode is local")
+    if not _project_uses_s3_images(session.project_id):
+        raise HTTPException(status_code=400, detail="S3 image access is unavailable for this project")
+
+
+def _s3_list_project_images(project_id: str) -> list[dict[str, Any]]:
+    client = _get_s3_client()
+    if client is None:
+        raise HTTPException(status_code=400, detail="S3 client unavailable")
+
+    prefix = _s3_object_key(project_id, "")
+    entries: list[dict[str, Any]] = []
+    continuation_token: str | None = None
+
+    while True:
+        kwargs: dict[str, Any] = {
+            "Bucket": S3_BUCKET,
+            "Prefix": prefix,
+            "MaxKeys": 1000,
+        }
+        if continuation_token:
+            kwargs["ContinuationToken"] = continuation_token
+        result = client.list_objects_v2(**kwargs)
+        for item in result.get("Contents", []):
+            key = str(item.get("Key") or "")
+            if not key or not key.startswith(prefix):
+                continue
+            rel = key[len(prefix):].lstrip("/")
+            if not rel or not _is_image_path(rel):
+                continue
+
+            modified = item.get("LastModified")
+            modified_ms = 0
+            if modified is not None:
+                try:
+                    modified_ms = int(modified.timestamp() * 1000)
+                except Exception:
+                    modified_ms = 0
+
+            entries.append(
+                {
+                    "path": rel,
+                    "size": int(item.get("Size") or 0),
+                    "etag": str(item.get("ETag") or "").strip('"'),
+                    "lastModified": modified_ms,
+                }
+            )
+
+        if not bool(result.get("IsTruncated")):
+            break
+        continuation_token = str(result.get("NextContinuationToken") or "") or None
+
+    entries.sort(key=lambda v: str(v["path"]).lower())
+    return entries
+
+
+def _s3_signed_get_url(project_id: str, path: str, *, expires_seconds: int) -> str:
+    client = _get_s3_client()
+    if client is None:
+        raise HTTPException(status_code=400, detail="S3 client unavailable")
+    key = _s3_object_key(project_id, path)
+    return str(
+        client.generate_presigned_url(
+            ClientMethod="get_object",
+            Params={"Bucket": S3_BUCKET, "Key": key},
+            ExpiresIn=expires_seconds,
+        )
+    )
+
+
+def _s3_signed_put_url(project_id: str, path: str, *, content_type: str | None, expires_seconds: int) -> str:
+    client = _get_s3_client()
+    if client is None:
+        raise HTTPException(status_code=400, detail="S3 client unavailable")
+    key = _s3_object_key(project_id, path)
+    params: dict[str, Any] = {"Bucket": S3_BUCKET, "Key": key}
+    guessed = content_type or mimetypes.guess_type(path)[0]
+    if guessed:
+        params["ContentType"] = guessed
+    return str(
+        client.generate_presigned_url(
+            ClientMethod="put_object",
+            Params=params,
+            ExpiresIn=expires_seconds,
+        )
+    )
 
 
 def _cleanup_stale_sessions() -> None:
@@ -361,7 +567,7 @@ def _touch_session(token: str) -> None:
 def _get_session_by_token(token: str) -> SessionContext:
     _cleanup_stale_sessions()
     row = _CONN.execute(
-        "SELECT token, project_id, username, is_admin, active_file FROM sessions WHERE token = ?",
+        "SELECT token, project_id, username, role, is_admin, active_file FROM sessions WHERE token = ?",
         (token,),
     ).fetchone()
     if row is None:
@@ -371,6 +577,7 @@ def _get_session_by_token(token: str) -> SessionContext:
         token=str(row["token"]),
         project_id=str(row["project_id"]),
         username=str(row["username"]),
+        role=str(row["role"] or "user"),
         is_admin=bool(row["is_admin"]),
         active_file=str(row["active_file"]) if row["active_file"] else None,
     )
@@ -447,6 +654,7 @@ def public_info() -> dict[str, Any]:
         "s3ImagesEnabled": _is_s3_enabled(),
         "s3Bucket": S3_BUCKET,
         "s3Prefix": S3_PREFIX,
+        "signedUrlTtlSeconds": SIGNED_URL_TTL_SECONDS,
         "sessionTtlSeconds": SESSION_TTL_SECONDS,
         "backupRetentionDays": BACKUP_RETENTION_DAYS,
     }
@@ -484,6 +692,10 @@ def bootstrap(
             "INSERT INTO users (project_id, username, password_hash, is_admin, created_at) VALUES (?, ?, ?, 1, ?)",
             (project_id, username, _hash_password(payload.password), _utc_now_iso()),
         )
+        _CONN.execute(
+            "UPDATE users SET role = 'owner', created_by = NULL WHERE project_id = ? AND username = ?",
+            (project_id, username),
+        )
         _CONN.commit()
 
     return {"ok": True, "projectId": project_id, "admin": username}
@@ -509,7 +721,7 @@ def login(payload: LoginPayload) -> dict[str, Any]:
             raise HTTPException(status_code=401, detail="Invalid project credentials")
 
         user = _CONN.execute(
-            "SELECT username, password_hash, is_admin FROM users WHERE project_id = ? AND username = ?",
+            "SELECT username, password_hash, is_admin, role FROM users WHERE project_id = ? AND username = ?",
             (project_id, username),
         ).fetchone()
         if user is None or not _verify_password(payload.password, str(user["password_hash"])):
@@ -518,8 +730,8 @@ def login(payload: LoginPayload) -> dict[str, Any]:
         token = secrets.token_urlsafe(32)
         now = _now_ms()
         _CONN.execute(
-            "INSERT INTO sessions (token, project_id, username, is_admin, active_file, created_at, last_seen) VALUES (?, ?, ?, ?, NULL, ?, ?)",
-            (token, project_id, username, int(user["is_admin"]), now, now),
+            "INSERT INTO sessions (token, project_id, username, role, is_admin, active_file, created_at, last_seen) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+            (token, project_id, username, str(user["role"] or "user"), int(user["is_admin"]), now, now),
         )
         _CONN.commit()
 
@@ -528,6 +740,7 @@ def login(payload: LoginPayload) -> dict[str, Any]:
         "token": token,
         "projectId": project_id,
         "username": username,
+        "role": str(user["role"] or "user"),
         "isAdmin": bool(user["is_admin"]),
         "sessionTtlSeconds": SESSION_TTL_SECONDS,
     }
@@ -540,7 +753,7 @@ def auth_project_options(payload: ProjectOptionsPayload) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="username is required")
 
     rows = _CONN.execute(
-        "SELECT project_id, username, password_hash, is_admin FROM users WHERE username = ? ORDER BY project_id ASC",
+        "SELECT project_id, username, password_hash, is_admin, role FROM users WHERE username = ? ORDER BY project_id ASC",
         (username,),
     ).fetchall()
 
@@ -553,6 +766,7 @@ def auth_project_options(payload: ProjectOptionsPayload) -> dict[str, Any]:
                 "projectId": str(row["project_id"]),
                 "username": str(row["username"]),
                 "isAdmin": bool(row["is_admin"]),
+                "role": str(row["role"] or "user"),
             }
         )
 
@@ -590,18 +804,21 @@ def heartbeat(session: SessionContext = Depends(_auth_from_header)) -> dict[str,
 @app.get("/api/admin/users")
 def list_users(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
     rows = _CONN.execute(
-        "SELECT username, is_admin, created_at FROM users WHERE project_id = ? ORDER BY username ASC",
+        "SELECT username, is_admin, role, created_by, created_at FROM users WHERE project_id = ? ORDER BY username ASC",
         (session.project_id,),
     ).fetchall()
     users = [
         {
             "username": str(row["username"]),
             "isAdmin": bool(row["is_admin"]),
+            "role": str(row["role"] or "user"),
+            "createdBy": str(row["created_by"] or ""),
+            "canDelete": _session_can_delete_user(session, str(row["username"])),
             "createdAt": str(row["created_at"]),
         }
         for row in rows
     ]
-    return {"ok": True, "users": users}
+    return {"ok": True, "users": users, "me": session.username, "myRole": session.role}
 
 
 @app.post("/api/admin/users")
@@ -613,6 +830,10 @@ def create_user(
     if not username:
         raise HTTPException(status_code=400, detail="username is required")
 
+    target_role = "admin" if payload.isAdmin else "user"
+    if target_role == "admin" and session.role != "owner":
+        raise HTTPException(status_code=403, detail="Only owners can create admin users")
+
     with _db_lock:
         exists = _CONN.execute(
             "SELECT username FROM users WHERE project_id = ? AND username = ?",
@@ -622,18 +843,65 @@ def create_user(
             raise HTTPException(status_code=409, detail="User already exists")
 
         _CONN.execute(
-            "INSERT INTO users (project_id, username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (project_id, username, password_hash, is_admin, role, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 session.project_id,
                 username,
                 _hash_password(payload.password),
-                1 if payload.isAdmin else 0,
+                1 if target_role in {"owner", "admin"} else 0,
+                target_role,
+                session.username,
                 _utc_now_iso(),
             ),
         )
         _CONN.commit()
 
-    return {"ok": True, "username": username}
+    return {"ok": True, "username": username, "role": target_role, "createdBy": session.username}
+
+
+@app.delete("/api/users/{target_username}")
+def delete_user(target_username: str, session: SessionContext = Depends(_auth_from_header)) -> dict[str, Any]:
+    target = target_username.strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="username is required")
+
+    if not _session_can_delete_user(session, target):
+        raise HTTPException(status_code=403, detail="Not allowed to delete this user")
+
+    with _db_lock:
+        row = _CONN.execute(
+            "SELECT username, role FROM users WHERE project_id = ? AND username = ?",
+            (session.project_id, target),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        role = str(row["role"] or "user")
+        if role == "owner":
+            owners_row = _CONN.execute(
+                "SELECT COUNT(*) AS c FROM users WHERE project_id = ? AND role = 'owner'",
+                (session.project_id,),
+            ).fetchone()
+            owners_count = int(owners_row["c"] if owners_row else 0)
+            if owners_count <= 1:
+                raise HTTPException(status_code=400, detail="Cannot delete the last owner")
+
+        target_sessions = _CONN.execute(
+            "SELECT token FROM sessions WHERE project_id = ? AND username = ?",
+            (session.project_id, target),
+        ).fetchall()
+        for token_row in target_sessions:
+            token = str(token_row["token"])
+            _CONN.execute("DELETE FROM locks WHERE token = ?", (token,))
+            _CONN.execute("DELETE FROM sessions WHERE token = ?", (token,))
+
+        _CONN.execute(
+            "DELETE FROM users WHERE project_id = ? AND username = ?",
+            (session.project_id, target),
+        )
+        _CONN.commit()
+
+    return {"ok": True, "deleted": target}
 
 
 @app.post("/api/admin/backup-now")
@@ -665,7 +933,9 @@ def project_summary(session: SessionContext = Depends(_auth_from_header)) -> dic
     return {
         "ok": True,
         "projectId": session.project_id,
+        "role": session.role,
         "storageMode": _get_project_storage_mode(session.project_id),
+        "imageAccessMode": _get_project_image_access_mode(session.project_id),
         "usesS3Images": _project_uses_s3_images(session.project_id),
         "requireProjectPassword": REQUIRE_PROJECT_PASSWORD,
         "totals": {
@@ -720,7 +990,9 @@ def get_project_storage(session: SessionContext = Depends(_admin_only)) -> dict[
     return {
         "ok": True,
         "projectId": session.project_id,
+        "role": session.role,
         "storageMode": mode,
+        "imageAccessMode": _get_project_image_access_mode(session.project_id),
         "usesS3Images": _project_uses_s3_images(session.project_id),
         "s3Enabled": _is_s3_enabled(),
     }
@@ -748,7 +1020,158 @@ def set_project_storage(
         "ok": True,
         "projectId": session.project_id,
         "storageMode": mode,
+        "imageAccessMode": _get_project_image_access_mode(session.project_id),
         "usesS3Images": _project_uses_s3_images(session.project_id),
+    }
+
+
+@app.get("/api/admin/project/image-access")
+def get_project_image_access(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
+    mode = _get_project_image_access_mode(session.project_id)
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "imageAccessMode": mode,
+        "s3Enabled": _is_s3_enabled(),
+        "signedUrlTtlSeconds": SIGNED_URL_TTL_SECONDS,
+        "prefetchMaxBatch": PREFETCH_MAX_BATCH,
+    }
+
+
+@app.post("/api/admin/project/image-access")
+def set_project_image_access(
+    payload: ProjectImageAccessPayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    mode = str(payload.imageAccessMode).strip().lower()
+    if mode not in {"local", "hybrid", "cloud_only"}:
+        raise HTTPException(status_code=400, detail="Invalid imageAccessMode")
+    if mode in {"hybrid", "cloud_only"} and not _is_s3_enabled():
+        raise HTTPException(status_code=400, detail="Cloud image modes require backend S3 configuration")
+
+    with _db_lock:
+        _CONN.execute(
+            "UPDATE projects SET image_access_mode = ? WHERE id = ?",
+            (mode, session.project_id),
+        )
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "imageAccessMode": mode,
+        "usesS3Images": _project_uses_s3_images(session.project_id),
+    }
+
+
+@app.get("/api/images/manifest")
+def list_image_manifest(session: SessionContext = Depends(_auth_from_header)) -> dict[str, Any]:
+    _ensure_s3_image_mode(session)
+    items = _s3_list_project_images(session.project_id)
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "imageAccessMode": _get_project_image_access_mode(session.project_id),
+        "manifest": items,
+        "count": len(items),
+    }
+
+
+@app.get("/api/images/signed-read")
+def get_signed_image_read_url(path: str, session: SessionContext = Depends(_auth_from_header)) -> dict[str, Any]:
+    _ensure_s3_image_mode(session)
+    normalized = _normalize_path(path)
+    if not _is_image_path(normalized):
+        raise HTTPException(status_code=400, detail="Path must reference an image file")
+
+    try:
+        url = _s3_signed_get_url(session.project_id, normalized, expires_seconds=SIGNED_URL_TTL_SECONDS)
+    except (BotoCoreError, ClientError, Exception) as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create signed URL: {exc}") from exc
+
+    return {
+        "ok": True,
+        "path": normalized,
+        "method": "GET",
+        "expiresIn": SIGNED_URL_TTL_SECONDS,
+        "url": url,
+    }
+
+
+@app.post("/api/images/signed-write")
+def get_signed_image_write_url(
+    payload: SignedWritePayload,
+    session: SessionContext = Depends(_auth_from_header),
+) -> dict[str, Any]:
+    if session.role not in {"owner", "admin"}:
+        raise HTTPException(status_code=403, detail="Only admin/owner can request image upload URLs")
+
+    _ensure_s3_image_mode(session)
+    normalized = _normalize_path(payload.path)
+    if not _is_image_path(normalized):
+        raise HTTPException(status_code=400, detail="Path must reference an image file")
+
+    try:
+        url = _s3_signed_put_url(
+            session.project_id,
+            normalized,
+            content_type=payload.contentType,
+            expires_seconds=SIGNED_URL_TTL_SECONDS,
+        )
+    except (BotoCoreError, ClientError, Exception) as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create signed URL: {exc}") from exc
+
+    return {
+        "ok": True,
+        "path": normalized,
+        "method": "PUT",
+        "expiresIn": SIGNED_URL_TTL_SECONDS,
+        "url": url,
+    }
+
+
+@app.post("/api/images/prefetch")
+def request_prefetch_batch(
+    payload: PrefetchBatchPayload,
+    session: SessionContext = Depends(_auth_from_header),
+) -> dict[str, Any]:
+    _ensure_s3_image_mode(session)
+    manifest = _s3_list_project_images(session.project_id)
+    if not manifest:
+        return {"ok": True, "items": [], "count": 0}
+
+    requested_count = max(1, min(int(payload.count), PREFETCH_MAX_BATCH))
+    start_index = 0
+    current = str(payload.currentPath or "").strip()
+    if current:
+        normalized_current = _normalize_path(current)
+        for idx, item in enumerate(manifest):
+            if str(item["path"]) == normalized_current:
+                start_index = idx + 1
+                break
+
+    window = manifest[start_index:start_index + requested_count]
+    items: list[dict[str, Any]] = []
+    for item in window:
+        path = str(item["path"])
+        try:
+            url = _s3_signed_get_url(session.project_id, path, expires_seconds=SIGNED_URL_TTL_SECONDS)
+        except (BotoCoreError, ClientError, Exception):
+            continue
+        items.append(
+            {
+                **item,
+                "url": url,
+                "expiresIn": SIGNED_URL_TTL_SECONDS,
+            }
+        )
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "startIndex": start_index,
+        "count": len(items),
+        "items": items,
     }
 
 
@@ -948,6 +1371,7 @@ def sync_changes(
     limit: int = 1200,
     session: SessionContext = Depends(_auth_from_header),
 ) -> dict[str, Any]:
+    image_access_mode = _get_project_image_access_mode(session.project_id)
     safe_limit = max(50, min(2500, int(limit)))
     rows = _CONN.execute(
         """
@@ -966,7 +1390,11 @@ def sync_changes(
         deleted = bool(row["deleted"])
         content_b64 = str(row["content_base64"])
 
-        if _project_uses_s3_images(session.project_id) and _is_image_path(path) and not deleted:
+        if image_access_mode == "cloud_only" and _is_image_path(path):
+            # Cloud-only clients fetch images through signed URLs + cache,
+            # so change feed keeps metadata only.
+            content_b64 = ""
+        elif _project_uses_s3_images(session.project_id) and _is_image_path(path) and not deleted:
             try:
                 content_b64 = _s3_get_image_base64(session.project_id, path)
             except (BotoCoreError, ClientError, Exception) as exc:
@@ -1034,7 +1462,9 @@ def sync_status(session: SessionContext = Depends(_auth_from_header)) -> dict[st
         "ok": True,
         "projectId": session.project_id,
         "username": session.username,
+        "role": session.role,
         "isAdmin": session.is_admin,
+        "imageAccessMode": _get_project_image_access_mode(session.project_id),
         "activeFile": session.active_file,
         "onlineUsers": int(users_online_row["c"] if users_online_row else 0),
         "latestSeq": int(change_row["s"] if change_row else 0),
