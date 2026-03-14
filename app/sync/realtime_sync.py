@@ -526,6 +526,24 @@ class RealtimeSyncAgent:
             body={"imageName": str(image_name or ""), "status": str(status or "")},
         )
 
+    def admin_sync_all_image_statuses(self, statuses: dict[str, str]) -> dict[str, Any]:
+        """Admin-only bulk upsert for image statuses.
+
+        `statuses` is a mapping: image basename -> status.
+        """
+        self._ensure_auth()
+        items: list[dict[str, str]] = []
+        for image_name, status in (statuses or {}).items():
+            name = str(image_name or "").strip()
+            state = str(status or "").strip().lower()
+            if not name or state not in {"in_progress", "completed", "yolo", "to_rotate"}:
+                continue
+            items.append({"imageName": name, "status": state})
+        return self._request_json(
+            "/api/admin/image-status/sync-all",
+            body={"items": items},
+        )
+
     def submit_deletions(self, paths: list[str]) -> dict[str, Any]:
         """Push explicit delete updates for project-relative paths."""
         self._ensure_auth()

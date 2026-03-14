@@ -129,6 +129,15 @@ class ImageStatusPayload(BaseModel):
     status: str = Field(pattern="^(in_progress|completed|yolo|to_rotate)$")
 
 
+class ImageStatusSyncItem(BaseModel):
+    imageName: str = Field(min_length=1, max_length=512)
+    status: str = Field(pattern="^(in_progress|completed|yolo|to_rotate)$")
+
+
+class AdminImageStatusSyncPayload(BaseModel):
+    items: list[ImageStatusSyncItem] = Field(default_factory=list, max_length=50000)
+
+
 class ActivateLockPayload(BaseModel):
     path: str | None = None
 
@@ -152,6 +161,11 @@ class ProjectStoragePayload(BaseModel):
 class AdminImageDeletePayload(BaseModel):
     paths: list[str] = Field(default_factory=list)
     deleteLabels: bool = True
+
+
+class AdminImageStatusReconcilePayload(BaseModel):
+    defaultStatus: str = Field(default="in_progress", pattern="^(in_progress|completed|yolo|to_rotate)$")
+    removeOrphans: bool = False
 
 
 @dataclass
@@ -648,6 +662,112 @@ def _label_paths_for_image(image_path: str) -> list[str]:
             ]
 
     return [f"labels/{label_name}", f"labels/BB/{label_name}", f"labels/OBB/{label_name}"]
+
+
+def _bbox_to_corners(x_center: float, y_center: float, width: float, height: float) -> list[float]:
+    half_w = width / 2.0
+    half_h = height / 2.0
+    x1 = x_center - half_w
+    y1 = y_center - half_h
+    x2 = x_center + half_w
+    y2 = y_center - half_h
+    x3 = x_center + half_w
+    y3 = y_center + half_h
+    x4 = x_center - half_w
+    y4 = y_center + half_h
+    return [x1, y1, x2, y2, x3, y3, x4, y4]
+
+
+def _parse_yolo_label_rows(raw_text: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for idx, line in enumerate(str(raw_text or "").splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        parts = stripped.split()
+        try:
+            class_id = int(parts[0])
+        except (ValueError, IndexError):
+            continue
+
+        try:
+            if len(parts) >= 9:
+                points = [float(v) for v in parts[1:9]]
+                rows.append({"line": idx, "classId": class_id, "points": points, "format": "obb"})
+                continue
+            if len(parts) >= 5:
+                x_center = float(parts[1])
+                y_center = float(parts[2])
+                width = float(parts[3])
+                height = float(parts[4])
+                rows.append(
+                    {
+                        "line": idx,
+                        "classId": class_id,
+                        "points": _bbox_to_corners(x_center, y_center, width, height),
+                        "format": "bbox",
+                    }
+                )
+                continue
+        except ValueError:
+            continue
+    return rows
+
+
+def _fetch_project_image_status_map(project_id: str) -> dict[str, str]:
+    rows = _CONN.execute(
+        "SELECT image_name, status FROM image_status WHERE project_id = ?",
+        (project_id,),
+    ).fetchall()
+    out: dict[str, str] = {}
+    for row in rows:
+        image_name = str(row["image_name"] or "").strip()
+        status = str(row["status"] or "").strip().lower()
+        if not image_name:
+            continue
+        if status not in {"in_progress", "completed", "yolo", "to_rotate"}:
+            continue
+        out[image_name] = status
+    return out
+
+
+def _collect_project_image_rows_from_db(project_id: str) -> dict[str, dict[str, Any]]:
+    rows = _CONN.execute(
+        "SELECT path, mtime_ms, updated_at, content_base64, sha1 FROM files WHERE project_id = ? AND deleted = 0 ORDER BY path ASC",
+        (project_id,),
+    ).fetchall()
+
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        path = str(row["path"] or "")
+        if not path or not _is_image_path(path):
+            continue
+        out[path] = {
+            "path": path,
+            "mtimeMs": int(row["mtime_ms"] or 0),
+            "updatedAt": int(row["updated_at"] or 0),
+            "sha1": str(row["sha1"] or ""),
+            "sizeBytes": _estimate_b64_size_bytes(str(row["content_base64"] or "")),
+        }
+    return out
+
+
+def _collect_project_image_rows_from_s3(project_id: str) -> dict[str, dict[str, Any]]:
+    if not _is_s3_enabled():
+        return {}
+    manifest = _s3_list_project_images(project_id)
+    out: dict[str, dict[str, Any]] = {}
+    for item in manifest:
+        path = str(item.get("path") or "")
+        if not path:
+            continue
+        out[path] = {
+            "path": path,
+            "sizeBytes": int(item.get("size") or 0),
+            "mtimeMs": int(item.get("lastModified") or 0),
+            "etag": str(item.get("etag") or ""),
+        }
+    return out
 
 
 def _record_deleted_file(project_id: str, *, username: str, source_token: str, path: str, mtime_ms: int) -> None:
@@ -1395,6 +1515,70 @@ def upsert_image_status(
     }
 
 
+@app.post("/api/admin/image-status/sync-all")
+def admin_sync_all_image_statuses(
+    payload: AdminImageStatusSyncPayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    items = payload.items or []
+    if not items:
+        return {
+            "ok": True,
+            "projectId": session.project_id,
+            "received": 0,
+            "upserted": 0,
+            "skipped": 0,
+        }
+
+    now = _now_ms()
+    upserted = 0
+    skipped = 0
+    seen: set[str] = set()
+
+    with _db_lock:
+        for entry in items:
+            image_name = str(entry.imageName or "").strip()
+            status = str(entry.status or "").strip().lower()
+
+            if not image_name or "/" in image_name or "\\" in image_name:
+                skipped += 1
+                continue
+            if status not in {"in_progress", "completed", "yolo", "to_rotate"}:
+                skipped += 1
+                continue
+
+            key = image_name.lower()
+            if key in seen:
+                skipped += 1
+                continue
+            seen.add(key)
+
+            _CONN.execute(
+                """
+                INSERT INTO image_status (project_id, image_name, status, updated_at, updated_by)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, image_name) DO UPDATE SET
+                  status=excluded.status,
+                  updated_at=excluded.updated_at,
+                  updated_by=excluded.updated_by
+                """,
+                (session.project_id, image_name, status, now, session.username),
+            )
+            upserted += 1
+
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "received": len(items),
+        "upserted": upserted,
+        "skipped": skipped,
+        "updatedBy": session.username,
+        "updatedAt": now,
+    }
+
+
 @app.post("/api/admin/images/upload")
 async def admin_upload_image(
     file: UploadFile = File(...),
@@ -1636,6 +1820,7 @@ def admin_list_images(
     sortBy: str = "path",
     order: str = "asc",
     limit: int = 5000,
+    includeS3: bool = True,
     session: SessionContext = Depends(_admin_only),
 ) -> dict[str, Any]:
     sort_key = str(sortBy or "path").strip().lower()
@@ -1644,40 +1829,32 @@ def admin_list_images(
     sort_order = sort_order if sort_order in {"asc", "desc"} else "asc"
     safe_limit = max(1, min(int(limit or 5000), 20000))
 
-    rows = _CONN.execute(
-        "SELECT path, mtime_ms, updated_at, content_base64 FROM files WHERE project_id = ? AND deleted = 0 ORDER BY path ASC",
-        (session.project_id,),
-    ).fetchall()
+    db_rows = _collect_project_image_rows_from_db(session.project_id)
+    s3_rows: dict[str, dict[str, Any]] = {}
+    if includeS3 and _is_s3_enabled():
+        try:
+            s3_rows = _collect_project_image_rows_from_s3(session.project_id)
+        except Exception:
+            s3_rows = {}
 
-    s3_meta: dict[str, tuple[int, int]] = {}
-    try:
-        if _project_uses_s3_images(session.project_id):
-            manifest = _s3_list_project_images(session.project_id)
-            s3_meta = {
-                str(item.get("path") or ""): (int(item.get("size") or 0), int(item.get("lastModified") or 0))
-                for item in manifest
-                if str(item.get("path") or "")
-            }
-    except Exception:
-        s3_meta = {}
-
+    status_by_name = _fetch_project_image_status_map(session.project_id)
     items: list[dict[str, Any]] = []
-    for row in rows:
-        path = str(row["path"] or "")
-        if not path or not _is_image_path(path):
-            continue
-
-        size_bytes, modified_ms = s3_meta.get(path, (0, int(row["mtime_ms"] or 0)))
-        if size_bytes <= 0:
-            size_bytes = _estimate_b64_size_bytes(str(row["content_base64"] or ""))
-
+    all_paths = sorted(set(db_rows.keys()) | set(s3_rows.keys()), key=lambda v: v.lower())
+    for path in all_paths:
+        db_item = db_rows.get(path)
+        s3_item = s3_rows.get(path)
+        size_bytes = int((s3_item or {}).get("sizeBytes") or (db_item or {}).get("sizeBytes") or 0)
+        modified_ms = int((s3_item or {}).get("mtimeMs") or (db_item or {}).get("mtimeMs") or 0)
         items.append(
             {
                 "path": path,
                 "name": Path(path).name,
                 "sizeBytes": int(size_bytes),
                 "mtimeMs": int(modified_ms),
-                "updatedAt": int(row["updated_at"] or 0),
+                "updatedAt": int((db_item or {}).get("updatedAt") or 0),
+                "status": status_by_name.get(Path(path).name, ""),
+                "indexedInDb": bool(db_item),
+                "presentInS3": bool(s3_item),
             }
         )
 
@@ -1693,8 +1870,173 @@ def admin_list_images(
         "projectId": session.project_id,
         "sortBy": sort_key,
         "order": sort_order,
+        "includeS3": bool(includeS3),
         "count": len(items),
         "items": items[:safe_limit],
+    }
+
+
+@app.post("/api/admin/images/reconcile-status")
+def admin_reconcile_image_status(
+    payload: AdminImageStatusReconcilePayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    default_status = str(payload.defaultStatus or "in_progress").strip().lower()
+    if default_status not in {"in_progress", "completed", "yolo", "to_rotate"}:
+        raise HTTPException(status_code=400, detail="Invalid default status")
+
+    image_paths: set[str] = set(_collect_project_image_rows_from_db(session.project_id).keys())
+    if _is_s3_enabled():
+        try:
+            image_paths.update(_collect_project_image_rows_from_s3(session.project_id).keys())
+        except Exception:
+            pass
+
+    image_names = {Path(path).name for path in image_paths if Path(path).name}
+
+    current_rows = _CONN.execute(
+        "SELECT image_name FROM image_status WHERE project_id = ?",
+        (session.project_id,),
+    ).fetchall()
+    current_names = {str(row["image_name"] or "").strip() for row in current_rows if row["image_name"] is not None}
+
+    added = 0
+    removed = 0
+    now = _now_ms()
+    with _db_lock:
+        for image_name in sorted(image_names - current_names):
+            _CONN.execute(
+                """
+                INSERT INTO image_status (project_id, image_name, status, updated_at, updated_by)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, image_name) DO NOTHING
+                """,
+                (session.project_id, image_name, default_status, now, session.username),
+            )
+            added += 1
+
+        if bool(payload.removeOrphans):
+            orphan_names = sorted(name for name in current_names if name and name not in image_names)
+            for image_name in orphan_names:
+                _CONN.execute(
+                    "DELETE FROM image_status WHERE project_id = ? AND image_name = ?",
+                    (session.project_id, image_name),
+                )
+                removed += 1
+
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "defaultStatus": default_status,
+        "imageCount": len(image_names),
+        "added": added,
+        "removed": removed,
+    }
+
+
+@app.get("/api/admin/images/view")
+def admin_get_image_view(
+    path: str,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    normalized = _normalize_path(path)
+    if not _is_image_path(normalized):
+        raise HTTPException(status_code=400, detail="Path must reference an image file")
+
+    # Prefer S3 for latest object if available.
+    if _is_s3_enabled() and _s3_image_exists(session.project_id, normalized):
+        try:
+            return {
+                "ok": True,
+                "path": normalized,
+                "source": "s3",
+                "url": _image_read_url(session.project_id, normalized, expires_seconds=SIGNED_URL_TTL_SECONDS),
+                "expiresIn": SIGNED_URL_TTL_SECONDS,
+            }
+        except (BotoCoreError, ClientError, Exception) as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to resolve image URL: {exc}") from exc
+
+    row = _CONN.execute(
+        "SELECT content_base64 FROM files WHERE project_id = ? AND path = ? AND deleted = 0",
+        (session.project_id, normalized),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    content_b64 = str(row["content_base64"] or "")
+    if not content_b64:
+        raise HTTPException(status_code=404, detail="Image content is unavailable for this path")
+
+    content_type = mimetypes.guess_type(normalized)[0] or "application/octet-stream"
+    return {
+        "ok": True,
+        "path": normalized,
+        "source": "db",
+        "contentType": content_type,
+        "url": f"data:{content_type};base64,{content_b64}",
+    }
+
+
+@app.get("/api/admin/images/labels")
+def admin_get_image_labels(
+    path: str,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    normalized = _normalize_path(path)
+    if not _is_image_path(normalized):
+        raise HTTPException(status_code=400, detail="Path must reference an image file")
+
+    candidates = _label_paths_for_image(normalized)
+    if not candidates:
+        return {"ok": True, "path": normalized, "labels": [], "labelPath": ""}
+
+    placeholders = ", ".join(["?"] * len(candidates))
+    params: list[Any] = [session.project_id, *candidates]
+    rows = _CONN.execute(
+        f"SELECT path, content_base64 FROM files WHERE project_id = ? AND deleted = 0 AND path IN ({placeholders})",
+        params,
+    ).fetchall()
+
+    if not rows:
+        return {"ok": True, "path": normalized, "labels": [], "labelPath": ""}
+
+    def _priority(label_path: str) -> int:
+        lower = label_path.lower()
+        if "/labels/obb/" in lower:
+            return 0
+        if "/labels/bb/" in lower:
+            return 1
+        return 2
+
+    selected = sorted(
+        (
+            (
+                str(row["path"] or ""),
+                str(row["content_base64"] or ""),
+            )
+            for row in rows
+        ),
+        key=lambda item: (_priority(item[0]), item[0].lower()),
+    )[0]
+
+    label_path, content_b64 = selected
+    if not content_b64:
+        return {"ok": True, "path": normalized, "labels": [], "labelPath": label_path}
+
+    try:
+        raw_text = base64.b64decode(content_b64.encode("ascii"), validate=False).decode("utf-8", errors="replace")
+    except Exception:
+        raw_text = ""
+
+    labels = _parse_yolo_label_rows(raw_text)
+    return {
+        "ok": True,
+        "path": normalized,
+        "labelPath": label_path,
+        "count": len(labels),
+        "labels": labels,
     }
 
 

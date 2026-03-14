@@ -435,6 +435,9 @@
                         </div>
                         <div class="row">
                             <button id="refreshImagesBtn" type="button" class="btn ghost">Refresh Images</button>
+                            <button id="openSlideshowBtn" type="button" class="btn solid">Open Slideshow</button>
+                            <button id="reconcileStatusesBtn" type="button" class="btn ghost">Sync Missing
+                                Statuses</button>
                             <button id="deleteSelectedImagesBtn" type="button" class="btn danger">Delete Selected
                                 Images</button>
                             <button id="purgeModeLabelsBtn" type="button" class="btn ghost">Purge BB/OBB Label
@@ -450,13 +453,15 @@
                                     <tr>
                                         <th><input id="imagesSelectAll" type="checkbox" /></th>
                                         <th>Path</th>
+                                        <th>Status</th>
+                                        <th>Source</th>
                                         <th>Size</th>
                                         <th>Modified</th>
                                     </tr>
                                 </thead>
                                 <tbody id="imagesBody">
                                     <tr>
-                                        <td colspan="4" class="muted">No images loaded.</td>
+                                        <td colspan="6" class="muted">No images loaded.</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -467,6 +472,43 @@
         </section>
 
         <p id="msg" class="msg" aria-live="polite"></p>
+
+        <div id="slideshowModal" class="slideshow-modal hidden" aria-hidden="true">
+            <div class="slideshow-backdrop" data-close-slideshow="1"></div>
+            <section class="slideshow-panel" role="dialog" aria-label="Image slideshow">
+                <header class="slideshow-head">
+                    <div>
+                        <h3 id="slideTitle">Image</h3>
+                        <p id="slideCounter" class="muted small">0 / 0</p>
+                    </div>
+                    <button id="closeSlideshowBtn" type="button" class="btn ghost">Close</button>
+                </header>
+
+                <div class="slideshow-controls row">
+                    <label class="inline"><input id="slideShowLabels" type="checkbox" checked /> Show YOLO
+                        labels</label>
+                    <label class="inline"><input id="slideShuffle" type="checkbox" /> Shuffle</label>
+                    <label class="inline"><input id="slideAutoplay" type="checkbox" /> Autoplay</label>
+                    <label class="inline">Interval ms<input id="slideInterval" type="number" min="400" step="100"
+                            value="2200" /></label>
+                    <span id="slideStatusText" class="muted small">status: -</span>
+                    <span id="slideSourceText" class="muted small">source: -</span>
+                </div>
+
+                <div class="slideshow-stage" id="slideStage">
+                    <img id="slideImage" alt="Project image" />
+                    <canvas id="slideOverlay"></canvas>
+                </div>
+
+                <footer class="slideshow-foot row">
+                    <button id="slidePrevBtn" type="button" class="btn ghost">Prev</button>
+                    <button id="slideNextBtn" type="button" class="btn ghost">Next</button>
+                    <button id="slideMarkCompletedBtn" type="button" class="btn solid">Mark Completed (C)</button>
+                    <button id="slideMarkInProgressBtn" type="button" class="btn ghost">Mark In Progress (I)</button>
+                    <button id="slideDeleteBtn" type="button" class="btn danger">Delete Image (Del)</button>
+                </footer>
+            </section>
+        </div>
     </main>
 
     <script>
@@ -505,7 +547,19 @@
         const imagesDeleteLabels = document.getElementById('imagesDeleteLabels');
         const imagesSelectAll = document.getElementById('imagesSelectAll');
         const imagesSummary = document.getElementById('imagesSummary');
+        const slideshowModal = document.getElementById('slideshowModal');
+        const slideImage = document.getElementById('slideImage');
+        const slideOverlay = document.getElementById('slideOverlay');
+        const slideTitle = document.getElementById('slideTitle');
+        const slideCounter = document.getElementById('slideCounter');
+        const slideStatusText = document.getElementById('slideStatusText');
+        const slideSourceText = document.getElementById('slideSourceText');
+        const slideShowLabels = document.getElementById('slideShowLabels');
+        const slideShuffle = document.getElementById('slideShuffle');
+        const slideAutoplay = document.getElementById('slideAutoplay');
+        const slideInterval = document.getElementById('slideInterval');
 
+        const DASH_PAGE_STORAGE_KEY = 'syncDashPage';
         let token = localStorage.getItem('syncToken') || '';
         let currentUser = localStorage.getItem('syncUsername') || '';
         let currentProjectId = '';
@@ -513,12 +567,23 @@
         let isAdmin = false;
         let requireProjectPassword = false;
         let refreshTimer = null;
-        let activeDashPage = 'uploads';
+        let activeDashPage = localStorage.getItem(DASH_PAGE_STORAGE_KEY) || 'uploads';
         let uploadQueue = [];
         let selectedZipFile = null;
         let autoSyncAfterFolderPick = false;
         let compactPreference = localStorage.getItem('syncCompactMode') || 'auto';
         let adminImages = [];
+        const slideshowState = {
+            open: false,
+            index: 0,
+            items: [],
+            timer: null,
+            showLabels: true,
+            shuffle: false,
+            autoplay: false,
+            intervalMs: 2200,
+            labelsByPath: new Map(),
+        };
         const imageSuffixes = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']);
 
         function shouldUseAutoCompactMode() {
@@ -570,11 +635,13 @@
 
         function setDashboardPage(page) {
             const allowed = new Set(['overview', 'activity', 'uploads', 'images', 'admin']);
-            let next = allowed.has(page) ? page : 'uploads';
+            const requested = allowed.has(page) ? page : 'uploads';
+            let next = requested;
             if (!isAdmin && (next === 'admin' || next === 'images')) {
-                next = 'uploads';
+                next = token ? requested : 'uploads';
             }
             activeDashPage = next;
+            localStorage.setItem(DASH_PAGE_STORAGE_KEY, activeDashPage);
 
             const views = Array.from(document.querySelectorAll('#dashboardPanel .page-view[data-page]'));
             for (const view of views) {
@@ -696,7 +763,7 @@
         function renderAdminImages(items) {
             adminImages = Array.isArray(items) ? items : [];
             if (!adminImages.length) {
-                imagesBody.innerHTML = '<tr><td colspan="4" class="muted">No images loaded.</td></tr>';
+                imagesBody.innerHTML = '<tr><td colspan="6" class="muted">No images loaded.</td></tr>';
                 imagesSummary.textContent = '0 images loaded.';
                 if (imagesSelectAll) imagesSelectAll.checked = false;
                 return;
@@ -706,11 +773,14 @@
                 <tr>
                     <td><input type="checkbox" data-image-index="${idx}" /></td>
                     <td class="mono">${item.path || '-'}</td>
+                    <td>${item.status || '-'}</td>
+                    <td>${item.presentInS3 ? 's3' : 'db'}</td>
                     <td>${bytesToHuman(item.sizeBytes || 0)}</td>
                     <td>${fmtDate(item.mtimeMs || 0)}</td>
                 </tr>
             `).join('');
-            imagesSummary.textContent = `${adminImages.length} images loaded.`;
+            const s3Only = adminImages.filter((item) => item.presentInS3 && !item.indexedInDb).length;
+            imagesSummary.textContent = `${adminImages.length} images loaded. s3-only=${s3Only}.`;
             if (imagesSelectAll) imagesSelectAll.checked = false;
         }
 
@@ -732,6 +802,218 @@
                 if (item && item.path) selected.push(String(item.path));
             }
             return selected;
+        }
+
+        function stopSlideshowAutoplay() {
+            if (slideshowState.timer) {
+                clearInterval(slideshowState.timer);
+                slideshowState.timer = null;
+            }
+        }
+
+        function maybeStartSlideshowAutoplay() {
+            stopSlideshowAutoplay();
+            if (!slideshowState.open || !slideshowState.autoplay || slideshowState.items.length <= 1) return;
+            const interval = Math.max(400, Number(slideshowState.intervalMs || 2200));
+            slideshowState.timer = setInterval(() => {
+                showSlideAt(slideshowState.index + 1).catch((error) => {
+                    stopSlideshowAutoplay();
+                    setMessage(error.message || String(error), true);
+                });
+            }, interval);
+        }
+
+        function getCurrentSlideItem() {
+            if (!slideshowState.items.length) return null;
+            const idx = Math.max(0, Math.min(slideshowState.index, slideshowState.items.length - 1));
+            return slideshowState.items[idx] || null;
+        }
+
+        function drawSlideLabels(labels) {
+            const canvas = slideOverlay;
+            const img = slideImage;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            const w = Number(img.clientWidth || 0);
+            const h = Number(img.clientHeight || 0);
+            if (!w || !h) return;
+
+            canvas.width = w;
+            canvas.height = h;
+            ctx.clearRect(0, 0, w, h);
+            ctx.lineWidth = 2;
+            ctx.font = '12px "IBM Plex Mono", monospace';
+
+            for (const item of labels || []) {
+                const pts = Array.isArray(item.points) ? item.points.map((v) => Number(v || 0)) : [];
+                if (pts.length < 8) continue;
+                const color = item.format === 'obb' ? '#ec6f08' : '#0d7662';
+                ctx.strokeStyle = color;
+                ctx.fillStyle = `${color}33`;
+                ctx.beginPath();
+                ctx.moveTo(pts[0] * w, pts[1] * h);
+                ctx.lineTo(pts[2] * w, pts[3] * h);
+                ctx.lineTo(pts[4] * w, pts[5] * h);
+                ctx.lineTo(pts[6] * w, pts[7] * h);
+                ctx.closePath();
+                ctx.stroke();
+                ctx.fill();
+
+                const classText = `c${Number(item.classId || 0)}`;
+                const tx = pts[0] * w;
+                const ty = Math.max(12, pts[1] * h - 4);
+                ctx.fillStyle = color;
+                ctx.fillText(classText, tx, ty);
+            }
+        }
+
+        async function fetchSlideLabels(path) {
+            if (!path) return [];
+            if (slideshowState.labelsByPath.has(path)) {
+                return slideshowState.labelsByPath.get(path) || [];
+            }
+            const payload = await api(`/api/admin/images/labels?path=${encodeURIComponent(path)}`);
+            const labels = Array.isArray(payload.labels) ? payload.labels : [];
+            slideshowState.labelsByPath.set(path, labels);
+            return labels;
+        }
+
+        async function refreshSlideOverlay() {
+            const current = getCurrentSlideItem();
+            const ctx = slideOverlay.getContext('2d');
+            if (ctx) {
+                ctx.clearRect(0, 0, slideOverlay.width, slideOverlay.height);
+            }
+            if (!current || !slideshowState.showLabels) return;
+            try {
+                const labels = await fetchSlideLabels(current.path);
+                drawSlideLabels(labels);
+            } catch (error) {
+                setMessage(`Label overlay failed: ${String(error.message || error)}`, true);
+            }
+        }
+
+        async function showSlideAt(nextIndex) {
+            if (!slideshowState.items.length) return;
+            const len = slideshowState.items.length;
+            const normalized = ((nextIndex % len) + len) % len;
+            slideshowState.index = normalized;
+            const current = slideshowState.items[normalized];
+            if (!current) return;
+
+            slideTitle.textContent = current.path || '-';
+            slideCounter.textContent = `${normalized + 1} / ${len}`;
+            slideStatusText.textContent = `status: ${current.status || '-'}`;
+            slideSourceText.textContent = 'source: loading...';
+
+            const payload = await api(`/api/admin/images/view?path=${encodeURIComponent(current.path)}`);
+            slideSourceText.textContent = `source: ${payload.source || '-'}`;
+
+            await new Promise((resolve, reject) => {
+                slideImage.onload = () => resolve();
+                slideImage.onerror = () => reject(new Error('Failed to load image for slideshow'));
+                slideImage.src = payload.url;
+            });
+
+            await refreshSlideOverlay();
+        }
+
+        async function setImageStatusForPath(path, status) {
+            const imageName = (path || '').split('/').pop();
+            if (!imageName) throw new Error('Invalid image path');
+            await api('/api/image-status', 'POST', { imageName, status });
+            for (const item of adminImages) {
+                if (item && item.path === path) {
+                    item.status = status;
+                }
+            }
+            for (const item of slideshowState.items) {
+                if (item && item.path === path) {
+                    item.status = status;
+                }
+            }
+            renderAdminImages(adminImages);
+            const current = getCurrentSlideItem();
+            if (current && current.path === path) {
+                slideStatusText.textContent = `status: ${status}`;
+            }
+        }
+
+        async function deleteCurrentSlideImage() {
+            const current = getCurrentSlideItem();
+            if (!current) return;
+            const yes = confirm(`Delete image ${current.path}?`);
+            if (!yes) return;
+            await api('/api/admin/images/delete', 'POST', {
+                paths: [current.path],
+                deleteLabels: !!imagesDeleteLabels.checked,
+            });
+
+            adminImages = adminImages.filter((item) => item.path !== current.path);
+            slideshowState.items = slideshowState.items.filter((item) => item.path !== current.path);
+            slideshowState.labelsByPath.delete(current.path);
+            renderAdminImages(adminImages);
+
+            if (!slideshowState.items.length) {
+                closeSlideshow();
+                return;
+            }
+
+            if (slideshowState.index >= slideshowState.items.length) {
+                slideshowState.index = slideshowState.items.length - 1;
+            }
+            await showSlideAt(slideshowState.index);
+        }
+
+        function closeSlideshow() {
+            slideshowState.open = false;
+            stopSlideshowAutoplay();
+            slideshowModal.classList.add('hidden');
+            slideshowModal.setAttribute('aria-hidden', 'true');
+            slideImage.src = '';
+            const ctx = slideOverlay.getContext('2d');
+            if (ctx) {
+                ctx.clearRect(0, 0, slideOverlay.width, slideOverlay.height);
+            }
+        }
+
+        async function openSlideshow() {
+            if (!adminImages.length) {
+                setMessage('No images loaded yet. Refresh Images first.', true);
+                return;
+            }
+
+            const selected = getSelectedAdminImagePaths();
+            const selectedSet = new Set(selected);
+            let baseItems = selected.length
+                ? adminImages.filter((item) => selectedSet.has(item.path))
+                : adminImages.slice();
+
+            slideshowState.shuffle = !!slideShuffle.checked;
+            slideshowState.showLabels = !!slideShowLabels.checked;
+            slideshowState.autoplay = !!slideAutoplay.checked;
+            slideshowState.intervalMs = Math.max(400, Number(slideInterval.value || 2200));
+            slideshowState.labelsByPath = new Map();
+
+            if (slideshowState.shuffle) {
+                baseItems = baseItems.slice();
+                for (let i = baseItems.length - 1; i > 0; i -= 1) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    const tmp = baseItems[i];
+                    baseItems[i] = baseItems[j];
+                    baseItems[j] = tmp;
+                }
+            }
+
+            slideshowState.items = baseItems;
+            slideshowState.index = 0;
+            slideshowState.open = true;
+
+            slideshowModal.classList.remove('hidden');
+            slideshowModal.setAttribute('aria-hidden', 'false');
+            await showSlideAt(0);
+            maybeStartSlideshowAutoplay();
         }
 
         function sanitizeRelativePath(value) {
@@ -1082,7 +1364,7 @@
                 isAdmin = !!status.isAdmin;
                 adminPanel.classList.toggle('hidden', false);
                 document.body.classList.toggle('is-admin', isAdmin);
-                if (!isAdmin && activeDashPage === 'admin') {
+                if (!isAdmin && (activeDashPage === 'admin' || activeDashPage === 'images')) {
                     activeDashPage = 'uploads';
                 }
                 setDashboardPage(activeDashPage);
@@ -1111,6 +1393,7 @@
                 if (token) await api('/api/auth/logout', 'POST', {});
             } catch (_) {
             }
+            closeSlideshow();
             token = '';
             role = '';
             isAdmin = false;
@@ -1287,6 +1570,27 @@
             }
         });
 
+        document.getElementById('reconcileStatusesBtn').addEventListener('click', async () => {
+            try {
+                const yes = confirm('Create missing image statuses for images found in DB/S3?');
+                if (!yes) return;
+                const result = await api('/api/admin/images/reconcile-status', 'POST', {
+                    defaultStatus: 'in_progress',
+                    removeOrphans: false,
+                });
+                setMessage(`Status sync done. added=${result.added || 0}, removed=${result.removed || 0}`);
+                await loadAdminImages();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('openSlideshowBtn').addEventListener('click', () => {
+            openSlideshow().catch((error) => {
+                setMessage(error.message || String(error), true);
+            });
+        });
+
         imagesSortBy.addEventListener('change', () => {
             loadAdminImages().catch((error) => setMessage(error.message || String(error), true));
         });
@@ -1336,6 +1640,108 @@
 
         document.getElementById('pickImageFilesBtn').addEventListener('click', () => {
             pickImageFilesInput.click();
+        });
+
+        document.getElementById('closeSlideshowBtn').addEventListener('click', closeSlideshow);
+        slideshowModal.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            if (target.getAttribute('data-close-slideshow') === '1') {
+                closeSlideshow();
+            }
+        });
+
+        document.getElementById('slidePrevBtn').addEventListener('click', () => {
+            showSlideAt(slideshowState.index - 1).catch((error) => setMessage(error.message || String(error), true));
+        });
+        document.getElementById('slideNextBtn').addEventListener('click', () => {
+            showSlideAt(slideshowState.index + 1).catch((error) => setMessage(error.message || String(error), true));
+        });
+        document.getElementById('slideMarkCompletedBtn').addEventListener('click', () => {
+            const current = getCurrentSlideItem();
+            if (!current) return;
+            setImageStatusForPath(current.path, 'completed').catch((error) => setMessage(error.message || String(error), true));
+        });
+        document.getElementById('slideMarkInProgressBtn').addEventListener('click', () => {
+            const current = getCurrentSlideItem();
+            if (!current) return;
+            setImageStatusForPath(current.path, 'in_progress').catch((error) => setMessage(error.message || String(error), true));
+        });
+        document.getElementById('slideDeleteBtn').addEventListener('click', () => {
+            deleteCurrentSlideImage().catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        slideShowLabels.addEventListener('change', () => {
+            slideshowState.showLabels = !!slideShowLabels.checked;
+            refreshSlideOverlay().catch((error) => setMessage(error.message || String(error), true));
+        });
+        slideShuffle.addEventListener('change', () => {
+            slideshowState.shuffle = !!slideShuffle.checked;
+        });
+        slideAutoplay.addEventListener('change', () => {
+            slideshowState.autoplay = !!slideAutoplay.checked;
+            maybeStartSlideshowAutoplay();
+        });
+        slideInterval.addEventListener('change', () => {
+            slideshowState.intervalMs = Math.max(400, Number(slideInterval.value || 2200));
+            maybeStartSlideshowAutoplay();
+        });
+
+        window.addEventListener('keydown', (event) => {
+            if (!slideshowState.open) return;
+            const target = event.target;
+            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+                return;
+            }
+            const key = String(event.key || '').toLowerCase();
+
+            if (key === 'escape') {
+                closeSlideshow();
+                event.preventDefault();
+                return;
+            }
+            if (key === 'arrowright' || key === ' ' || key === 'n') {
+                showSlideAt(slideshowState.index + 1).catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'arrowleft' || key === 'p') {
+                showSlideAt(slideshowState.index - 1).catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'c') {
+                const current = getCurrentSlideItem();
+                if (!current) return;
+                setImageStatusForPath(current.path, 'completed').catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'i') {
+                const current = getCurrentSlideItem();
+                if (!current) return;
+                setImageStatusForPath(current.path, 'in_progress').catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'delete') {
+                deleteCurrentSlideImage().catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'l') {
+                slideShowLabels.checked = !slideShowLabels.checked;
+                slideshowState.showLabels = !!slideShowLabels.checked;
+                refreshSlideOverlay().catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'a') {
+                slideAutoplay.checked = !slideAutoplay.checked;
+                slideshowState.autoplay = !!slideAutoplay.checked;
+                maybeStartSlideshowAutoplay();
+                event.preventDefault();
+            }
         });
 
         document.getElementById('pickImageFolderBtn').addEventListener('click', () => {
@@ -1449,7 +1855,12 @@
             }
         }
 
-        window.addEventListener('resize', applyCompactMode);
+        window.addEventListener('resize', () => {
+            applyCompactMode();
+            if (slideshowState.open) {
+                refreshSlideOverlay().catch(() => { });
+            }
+        });
 
         init();
     </script>

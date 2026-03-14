@@ -487,6 +487,10 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self._manual_refresh_cloud_images)
         cloud_menu.addAction(act)
 
+        self._act_cloud_sync_all_statuses = QAction("Sync All Local Statuses to Cloud DB (Admin)", self)
+        self._act_cloud_sync_all_statuses.triggered.connect(self._sync_all_local_statuses_to_cloud_db)
+        cloud_menu.addAction(self._act_cloud_sync_all_statuses)
+
         # ---- Equipe ----
         team_menu = mb.addMenu("&Equipe")
         self._team_menu = team_menu
@@ -1767,6 +1771,158 @@ class MainWindow(QMainWindow):
         stats = provider.cache_stats()
         self._lbl_hint.setText(f"Cloud cache cleared: {stats.get('cacheDir', '')}")
 
+    def _sync_all_local_statuses_to_cloud_db(self) -> None:
+        """Admin utility: push all local project image statuses to backend DB in chunked batches."""
+        if not self._is_cloud_project_workflow_enabled():
+            QMessageBox.information(self, "Cloud Status Sync", "This project is currently using local mode.")
+            return
+
+        agent = self._sync_agent
+        if agent is None:
+            self._start_project_sync_if_enabled()
+            agent = self._sync_agent
+        if agent is None:
+            QMessageBox.warning(
+                self,
+                "Cloud Status Sync",
+                "Cloud sync is not connected. Sign in first, then retry.",
+            )
+            return
+
+        if not self._is_cloud_admin_user():
+            QMessageBox.information(
+                self,
+                "Cloud Status Sync",
+                "Only admin/owner users can run bulk status sync.\n"
+                "Normal users can still sync statuses by editing/saving individual images.",
+            )
+            return
+
+        project = self._project_mgr.current_project
+        if project is None:
+            QMessageBox.information(self, "Cloud Status Sync", "Open a project first.")
+            return
+
+        valid_names = self._current_image_name_set()
+        statuses_to_sync: dict[str, str] = {}
+        for image_name, status in (project.image_completion or {}).items():
+            name = str(image_name or "").strip()
+            state = str(status or "").strip().lower()
+            if not name or name not in valid_names:
+                continue
+            if state not in {"in_progress", "completed", "yolo", "to_rotate"}:
+                continue
+            statuses_to_sync[name] = state
+
+        if not statuses_to_sync:
+            QMessageBox.information(
+                self,
+                "Cloud Status Sync",
+                "No local image statuses found to sync.",
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Cloud Status Sync",
+            (
+                f"Sync {len(statuses_to_sync)} local image status entr"
+                f"{'y' if len(statuses_to_sync) == 1 else 'ies'} to backend DB now?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        entries = list(statuses_to_sync.items())
+        chunk_size = 1000
+        total_items = len(entries)
+        total_chunks = max(1, math.ceil(total_items / chunk_size))
+
+        progress = QProgressDialog("Syncing image statuses to cloud DB...", "Cancel", 0, total_chunks, self)
+        progress.setWindowTitle("Cloud Status Sync")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
+        received = 0
+        upserted = 0
+        skipped = 0
+        synced_chunks = 0
+        canceled = False
+
+        try:
+            for chunk_idx in range(total_chunks):
+                if progress.wasCanceled():
+                    canceled = True
+                    break
+
+                start = chunk_idx * chunk_size
+                end = min(total_items, start + chunk_size)
+                chunk_map = dict(entries[start:end])
+
+                progress.setLabelText(
+                    f"Syncing chunk {chunk_idx + 1}/{total_chunks} ({end}/{total_items} statuses)..."
+                )
+                QApplication.processEvents()
+
+                try:
+                    result = agent.admin_sync_all_image_statuses(chunk_map)
+                except Exception as exc:  # noqa: BLE001
+                    QMessageBox.warning(
+                        self,
+                        "Cloud Status Sync",
+                        (
+                            "Bulk sync failed during chunk upload.\n\n"
+                            f"Chunk: {chunk_idx + 1}/{total_chunks}\n"
+                            f"Already synced chunks: {synced_chunks}\n"
+                            f"Error: {exc}"
+                        ),
+                    )
+                    return
+
+                received += int(result.get("received", 0) or 0)
+                upserted += int(result.get("upserted", 0) or 0)
+                skipped += int(result.get("skipped", 0) or 0)
+                synced_chunks += 1
+
+                progress.setValue(chunk_idx + 1)
+                QApplication.processEvents()
+        finally:
+            progress.close()
+
+        if canceled:
+            self._lbl_hint.setText(
+                f"Cloud status sync cancelled after {synced_chunks}/{total_chunks} chunks: upserted={upserted}, skipped={skipped}, received={received}"
+            )
+            QMessageBox.information(
+                self,
+                "Cloud Status Sync",
+                (
+                    "Bulk status sync was cancelled.\n\n"
+                    f"Chunks synced: {synced_chunks}/{total_chunks}\n"
+                    f"Received: {received}\n"
+                    f"Upserted: {upserted}\n"
+                    f"Skipped: {skipped}"
+                ),
+            )
+            return
+
+        self._lbl_hint.setText(
+            f"Cloud status bulk sync complete: upserted={upserted}, skipped={skipped}, received={received}"
+        )
+        QMessageBox.information(
+            self,
+            "Cloud Status Sync",
+            (
+                "Bulk status sync completed.\n\n"
+                f"Chunks synced: {synced_chunks}/{total_chunks}\n"
+                f"Received: {received}\n"
+                f"Upserted: {upserted}\n"
+                f"Skipped: {skipped}"
+            ),
+        )
+
     def _purge_all_local_cloud_data(self) -> None:
         project_folder = self._project_mgr.get_project_folder()
         if project_folder is None:
@@ -2499,6 +2655,9 @@ class MainWindow(QMainWindow):
 
         self._act_cloud_status.setIcon(icon)
         self._act_cloud_status.setText(status_text)
+
+        if hasattr(self, "_act_cloud_sync_all_statuses") and self._act_cloud_sync_all_statuses is not None:
+            self._act_cloud_sync_all_statuses.setEnabled(bool(connected and self._is_cloud_admin_user()))
 
         team_allowed = not self._is_cloud_project_workflow_enabled()
         if self._team_menu is not None:

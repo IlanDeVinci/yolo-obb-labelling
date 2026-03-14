@@ -27,7 +27,12 @@ body {
 body {
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
   color: var(--text);
-  background: linear-gradient(150deg, var(--bg-1) 0%, #edf4ee 45%, var(--bg-2) 100%);
+  background: linear-gradient(
+    150deg,
+    var(--bg-1) 0%,
+    #edf4ee 45%,
+    var(--bg-2) 100%
+  );
   overflow-x: hidden;
 }
 
@@ -55,7 +60,11 @@ body {
   height: 420px;
   right: -120px;
   top: -140px;
-  background: radial-gradient(circle at 30% 30%, rgba(13, 118, 98, 0.26), rgba(13, 118, 98, 0.02));
+  background: radial-gradient(
+    circle at 30% 30%,
+    rgba(13, 118, 98, 0.26),
+    rgba(13, 118, 98, 0.02)
+  );
 }
 
 .orb-b {
@@ -63,13 +72,18 @@ body {
   height: 360px;
   left: -140px;
   bottom: -120px;
-  background: radial-gradient(circle at 70% 40%, rgba(215, 143, 76, 0.2), rgba(215, 143, 76, 0.03));
+  background: radial-gradient(
+    circle at 70% 40%,
+    rgba(215, 143, 76, 0.2),
+    rgba(215, 143, 76, 0.03)
+  );
 }
 
 .grid-wash {
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(rgba(0, 0, 0, 0.025) 1px, transparent 1px),
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgba(0, 0, 0, 0.025) 1px, transparent 1px);
   background-size: 40px 40px;
   opacity: 0.35;
@@ -171,10 +185,17 @@ h4 {
 .panel-card {
   border: 1px solid rgba(211, 214, 205, 0.9);
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(249, 250, 245, 0.95) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(249, 250, 245, 0.95) 100%
+  );
   box-shadow: var(--shadow);
   backdrop-filter: blur(4px);
-  transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
+  transition:
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    border-color 180ms ease;
 }
 
 .glass-card:hover,
@@ -253,14 +274,23 @@ select:focus {
   padding: 10px 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 120ms ease, box-shadow 140ms ease, border-color 140ms ease, filter 140ms ease;
+  transition:
+    transform 120ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease,
+    filter 140ms ease;
 }
 
 .btn::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.32) 38%, transparent 70%);
+  background: linear-gradient(
+    120deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.32) 38%,
+    transparent 70%
+  );
   transform: translateX(-130%);
   transition: transform 320ms ease;
   pointer-events: none;
@@ -358,7 +388,12 @@ select:focus-visible {
   font-weight: 600;
   text-align: left;
   cursor: pointer;
-  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, transform 120ms ease, box-shadow 140ms ease;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 120ms ease,
+    box-shadow 140ms ease;
 }
 
 .nav-btn svg {
@@ -410,7 +445,10 @@ select:focus-visible {
   border-radius: 14px;
   background: var(--panel-soft);
   padding: 12px;
-  transition: transform 120ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition:
+    transform 120ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
 }
 
 .card-mini:hover {
@@ -442,7 +480,10 @@ select:focus-visible {
   padding: 12px;
   display: grid;
   gap: 10px;
-  transition: transform 120ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition:
+    transform 120ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
 }
 
 .sub-card:hover {
@@ -484,7 +525,11 @@ select:focus-visible {
   background: #f5fbf7;
   padding: 26px 14px;
   text-align: center;
-  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease, box-shadow 160ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease,
+    box-shadow 160ms ease;
 }
 
 .drop-zone.active {
@@ -583,6 +628,91 @@ th {
   border-color: #efc3c3;
   background: #fbeeee;
   color: #8c2828;
+}
+
+.slideshow-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+}
+
+.slideshow-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 24, 21, 0.62);
+}
+
+.slideshow-panel {
+  position: relative;
+  width: min(1180px, calc(100vw - 26px));
+  max-height: calc(100vh - 26px);
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid #d7ddd7;
+  background: #fbfdfc;
+  box-shadow: 0 34px 64px rgba(17, 28, 24, 0.36);
+  overflow: hidden;
+}
+
+.slideshow-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.slideshow-controls {
+  border: 1px solid #dae5de;
+  border-radius: 10px;
+  padding: 8px;
+  background: #f4faf7;
+}
+
+.slideshow-controls input[type="number"] {
+  width: 110px;
+}
+
+.slideshow-stage {
+  position: relative;
+  min-height: 340px;
+  max-height: min(68vh, 760px);
+  border-radius: 12px;
+  border: 1px solid #d8e2db;
+  background: #1a2320;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+#slideImage {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+#slideOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.slideshow-foot {
+  justify-content: center;
+}
+
+body.compact-mode .slideshow-panel {
+  gap: 8px;
+  padding: 10px;
+}
+
+body.compact-mode .slideshow-stage {
+  min-height: 280px;
 }
 
 /* Compact mode for smaller laptop displays and optional manual toggle */
@@ -769,6 +899,23 @@ body.is-admin .nav-btn.admin-only {
   body.compact-mode .cards {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
+
+  .slideshow-panel {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    padding: 10px;
+  }
+
+  .slideshow-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .slideshow-foot {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 560px) {
@@ -777,6 +924,14 @@ body.is-admin .nav-btn.admin-only {
   }
 
   .dash-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .slideshow-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .slideshow-foot {
     grid-template-columns: 1fr;
   }
 }
