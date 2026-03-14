@@ -1,8 +1,8 @@
 {
   "image_name": "IMG_1023.JPG",
-  "status": "yolo",
-  "status_updated_at": "2026-02-27T10:58:56+01:00",
+  "status": "completed",
+  "status_updated_at": "2026-03-14T02:10:25+01:00",
   "status_updated_by": "Ilan",
   "image_last_modified": "2026-02-27T10:42:55+01:00",
-  "sig": "3fa90735d516deab7b8bec1a965fad5a51e2aad9c652b51bbaead2523eec7bb1"
+  "sig": "12228a19e2fda72bd822f329e4807611186766a55a65a6f60bf0ee2ca30cd7a9"
 }

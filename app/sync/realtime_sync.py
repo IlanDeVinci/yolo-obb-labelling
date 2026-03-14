@@ -65,7 +65,7 @@ class RealtimeSyncAgent:
     ) -> None:
         self._project_root = project_root.resolve()
         self._config = config
-        self._server_url = config.server_url.rstrip("/")
+        self._server_url = self._normalize_server_url(config.server_url)
         self._poll_interval_s = max(0.5, float(config.poll_seconds or 1.2))
         self._status_callback = status_callback
 
@@ -84,6 +84,7 @@ class RealtimeSyncAgent:
         self._active_file: str | None = None
         self._pending_active_file: str | None = None
         self._inbound_apply_until: dict[Path, float] = {}
+        self._initial_remote_refresh_done = False
 
         self._status: dict[str, Any] = {
             "connected": False,
@@ -126,6 +127,7 @@ class RealtimeSyncAgent:
             except Exception:
                 pass
         self._token = ""
+        self._initial_remote_refresh_done = False
         self._set_status(connected=False, activeFile=None)
 
     def set_active_file(self, relative_path: str | None) -> None:
@@ -150,6 +152,18 @@ class RealtimeSyncAgent:
     def _sync_once(self) -> None:
         if not self._token:
             self._login()
+
+        if not self._initial_remote_refresh_done:
+            incoming = self._fetch_remote_changes()
+            changes = incoming.get("changes") if isinstance(incoming, dict) else []
+            if isinstance(changes, list) and changes:
+                applied_remote = self._apply_remote_changes(changes)
+                self._set_status(appliedRemote=self._status.get("appliedRemote", 0) + applied_remote)
+
+            self._cursor = max(self._cursor, int(incoming.get("latestSeq", self._cursor)))
+            self._save_cursor(self._cursor)
+            self._snapshot = self._build_snapshot()
+            self._initial_remote_refresh_done = True
 
         pending_active = None
         with self._lock:
@@ -176,8 +190,7 @@ class RealtimeSyncAgent:
                 rejected=self._status.get("rejected", 0) + len(result.get("rejected", [])),
             )
 
-        query = urllib.parse.urlencode({"since": str(self._cursor), "limit": "1200"})
-        incoming = self._request_json(f"/api/sync/changes?{query}")
+        incoming = self._fetch_remote_changes()
         changes = incoming.get("changes") if isinstance(incoming, dict) else []
         if isinstance(changes, list) and changes:
             applied_remote = self._apply_remote_changes(changes)
@@ -210,7 +223,12 @@ class RealtimeSyncAgent:
         if not token:
             raise RuntimeError("Sync login failed: missing token")
         self._token = token
+        self._initial_remote_refresh_done = False
         self._set_status(connected=True, projectId=self._config.project_id, username=self._config.username)
+
+    def _fetch_remote_changes(self) -> dict[str, Any]:
+        query = urllib.parse.urlencode({"since": str(self._cursor), "limit": "1200"})
+        return self._request_json(f"/api/sync/changes?{query}")
 
     def _activate_lock(self, path: str | None) -> None:
         payload = {"path": path}
@@ -371,13 +389,31 @@ class RealtimeSyncAgent:
             detail = ""
             try:
                 raw = error.read().decode("utf-8")
-                payload = json.loads(raw)
-                detail = str(payload.get("detail") or payload.get("error") or raw)
+                try:
+                    payload = json.loads(raw)
+                    detail = str(payload.get("detail") or payload.get("error") or raw)
+                except Exception:
+                    detail = raw.strip() or str(error)
             except Exception:
                 detail = str(error)
-            raise RuntimeError(f"HTTP {error.code}: {detail}") from error
+            raise RuntimeError(f"HTTP {error.code} on {endpoint}: {detail}") from error
         except urllib.error.URLError as error:
             raise RuntimeError(f"Request failed: {error}") from error
+
+    def _normalize_server_url(self, raw_url: str) -> str:
+        value = str(raw_url or "").strip()
+        if not value:
+            return ""
+
+        parsed = urllib.parse.urlparse(value)
+        if not parsed.scheme or not parsed.netloc:
+            raise RuntimeError("Invalid server URL. Use format: https://your-domain")
+
+        if parsed.scheme not in {"http", "https"}:
+            raise RuntimeError("Invalid server URL scheme. Use http or https")
+
+        # Keep only origin to avoid accidental '/api/...' path entries in settings.
+        return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
 
     def _load_cursor(self) -> int:
         if not self._cursor_file.exists():

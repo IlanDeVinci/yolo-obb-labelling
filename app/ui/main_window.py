@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
     QVBoxLayout,
+    QStyle,
 )
 
 from app.canvas.annotation_canvas import AnnotationCanvas
@@ -120,6 +121,10 @@ class MainWindow(QMainWindow):
         self._syncing_label_selection: bool = False
         self._sync_agent = None
         self._sync_status_cache: dict[str, object] = {}
+        self._cloud_menu = None
+        self._team_menu = None
+        self._act_cloud_status = None
+        self._team_actions: list[QAction] = []
 
         self._sync_status_timer = QTimer(self)
         self._sync_status_timer.setInterval(1000)
@@ -131,6 +136,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_status_bar()
         self._wire_signals()
+        self._refresh_cloud_menu_state(connected=False, error="")
 
         # Restore window geometry
         geom = self._settings.value("window/geometry")
@@ -222,14 +228,6 @@ class MainWindow(QMainWindow):
 
         act = QAction("&Parametres du Projet...", self)
         act.triggered.connect(self._project_settings)
-        proj_menu.addAction(act)
-
-        act = QAction("Cloud Sync Settings...", self)
-        act.triggered.connect(self._open_cloud_sync_settings)
-        proj_menu.addAction(act)
-
-        act = QAction("Cloud Sync Status...", self)
-        act.triggered.connect(self._show_cloud_sync_status)
         proj_menu.addAction(act)
 
         proj_menu.addSeparator()
@@ -418,33 +416,57 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self._canvas.fit_in_view)
         view_menu.addAction(act)
 
+        # ---- Cloud ----
+        cloud_menu = mb.addMenu("&Cloud")
+        self._cloud_menu = cloud_menu
+
+        self._act_cloud_status = QAction("Status: disconnected", self)
+        self._act_cloud_status.setEnabled(False)
+        cloud_menu.addAction(self._act_cloud_status)
+
+        cloud_menu.addSeparator()
+
+        act = QAction("Cloud Sync Settings...", self)
+        act.triggered.connect(self._open_cloud_sync_settings)
+        cloud_menu.addAction(act)
+
+        act = QAction("Cloud Sync Status...", self)
+        act.triggered.connect(self._show_cloud_sync_status)
+        cloud_menu.addAction(act)
+
         # ---- Equipe ----
         team_menu = mb.addMenu("&Equipe")
+        self._team_menu = team_menu
 
         act = QAction("&Choisir mon membre...", self)
         act.setShortcut(QKeySequence("Ctrl+M"))
         act.triggered.connect(self._choose_active_member)
         team_menu.addAction(act)
+        self._team_actions.append(act)
 
         act = QAction("&Gerer les membres...", self)
         act.setShortcut(QKeySequence("Ctrl+T"))
         act.triggered.connect(self._team_dialog)
         team_menu.addAction(act)
+        self._team_actions.append(act)
 
         team_menu.addSeparator()
 
         act = QAction("&Distribuer les images", self)
         act.triggered.connect(self._distribute_images)
         team_menu.addAction(act)
+        self._team_actions.append(act)
 
         act = QAction("&Reassign Selected Images...", self)
         act.setShortcut(QKeySequence("Ctrl+Shift+M"))
         act.triggered.connect(self._reassign_selected_images)
         team_menu.addAction(act)
+        self._team_actions.append(act)
 
         act = QAction("&Voir toutes les images", self)
         act.triggered.connect(self._show_all_images)
         team_menu.addAction(act)
+        self._team_actions.append(act)
 
         # ---- Help ----
         help_menu = mb.addMenu("&Help")
@@ -1128,6 +1150,7 @@ class MainWindow(QMainWindow):
             error = str(status.get("lastError", "")).strip()
             self._lbl_sync.setText("SYNC: off" if not error else "SYNC: error")
             self._lbl_sync.setStyleSheet("padding: 0 8px; color: #de7f7f;")
+            self._refresh_cloud_menu_state(connected=False, error=error)
             return
 
         users = int(status.get("onlineUsers", 0) or 0)
@@ -1135,6 +1158,40 @@ class MainWindow(QMainWindow):
         suffix = f" [{Path(active).name}]" if active else ""
         self._lbl_sync.setText(f"SYNC: live ({users} online){suffix}")
         self._lbl_sync.setStyleSheet("padding: 0 8px; color: #86cc9f;")
+        self._refresh_cloud_menu_state(connected=True, error="")
+
+    def _is_cloud_sync_enabled(self) -> bool:
+        return bool(self._cloud_sync_settings.get("enabled", False))
+
+    def _refresh_cloud_menu_state(self, *, connected: bool, error: str) -> None:
+        if self._act_cloud_status is None or self._cloud_menu is None:
+            return
+
+        # Keep top-level menu label stable so users always find it quickly.
+        self._cloud_menu.setTitle("&Cloud")
+
+        enabled = self._is_cloud_sync_enabled()
+        if connected:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+            status_text = "Status: connected"
+        elif enabled and error:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
+            compact_error = error if len(error) <= 60 else (error[:57] + "...")
+            status_text = f"Status: error ({compact_error})"
+        elif enabled:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+            status_text = "Status: connecting"
+        else:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
+            status_text = "Status: disabled"
+
+        self._act_cloud_status.setIcon(icon)
+        self._act_cloud_status.setText(status_text)
+
+        if self._team_menu is not None:
+            self._team_menu.menuAction().setEnabled(not enabled)
+        for action in self._team_actions:
+            action.setEnabled(not enabled)
 
     def _load_cloud_sync_settings(self) -> dict[str, object]:
         return {
@@ -1156,6 +1213,8 @@ class MainWindow(QMainWindow):
         self._settings.setValue("cloud_sync/username", str(values.get("username", "")))
         self._settings.setValue("cloud_sync/user_password", str(values.get("user_password", "")))
         self._settings.setValue("cloud_sync/poll_seconds", float(values.get("poll_seconds", 1.2) or 1.2))
+        self._refresh_cloud_menu_state(connected=False, error="")
+        self._apply_team_filter()
 
     def _open_cloud_sync_settings(self) -> None:
         dlg = CloudSyncSettingsDialog(self._cloud_sync_settings, self)
@@ -1379,11 +1438,12 @@ class MainWindow(QMainWindow):
 
     def _update_window_title(self) -> None:
         """Update window title with project name."""
+        cloud_suffix = " [Cloud]" if self._is_cloud_sync_enabled() else ""
         project = self._project_mgr.current_project
         if project:
-            self.setWindowTitle(f"{project.name} - YOLO Labeller")
+            self.setWindowTitle(f"{project.name} - YOLO Labeller{cloud_suffix}")
         else:
-            self.setWindowTitle("YOLO Labeller")
+            self.setWindowTitle(f"YOLO Labeller{cloud_suffix}")
 
     def _update_format_indicator(self) -> None:
         """Update the OBB/BBOX indicator in status bar."""
@@ -2025,6 +2085,9 @@ class MainWindow(QMainWindow):
 
     def _prompt_team_member_on_startup(self) -> None:
         """Ask the user to pick their team member when project opens at launch."""
+        if self._is_cloud_sync_enabled():
+            return
+
         project = self._project_mgr.current_project
         if not project or not project.team_members:
             return
@@ -2058,6 +2121,16 @@ class MainWindow(QMainWindow):
         """Filter images shown in browser by active team member."""
         project = self._project_mgr.current_project
         if not project:
+            return
+
+        if self._is_cloud_sync_enabled():
+            project.active_team_member = ""
+            self._image_mgr.load_split(self._all_images, self._image_mgr.split)
+            self._browser.set_images(self._all_images)
+            cloud_user = str(self._cloud_sync_settings.get("username", "")).strip()
+            self._lbl_team.setText(f"CLOUD:{cloud_user}" if cloud_user else "CLOUD")
+            self._update_window_title()
+            self._load_current_image()
             return
 
         member = project.active_team_member

@@ -7,3 +7,4 @@ projets/**/.local/
 **/datasets/*
 **/enrich_images/*
 projets/**/.sync/
+projets/**/image-status/
