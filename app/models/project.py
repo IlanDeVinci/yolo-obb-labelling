@@ -596,8 +596,9 @@ class ProjectManager:
                     pass
         return removed
 
-    def get_image_status_store_health(self) -> dict[str, object]:
+    def get_image_status_store_health(self, valid_image_names: set[str] | None = None) -> dict[str, object]:
         """Return basic health metrics for shared per-image status storage."""
+        known_names = {str(name).strip() for name in (valid_image_names or set()) if str(name).strip()}
         if not self._current_path:
             return {
                 "has_project": False,
@@ -606,6 +607,8 @@ class ProjectManager:
                 "valid_files": 0,
                 "malformed_files": 0,
                 "duplicate_images": 0,
+                "known_images": len(known_names),
+                "orphan_entries": 0,
             }
 
         status_dir = self.resolve_image_status_folder(self._current_project)
@@ -617,6 +620,8 @@ class ProjectManager:
                 "valid_files": 0,
                 "malformed_files": 0,
                 "duplicate_images": 0,
+                "known_images": len(known_names),
+                "orphan_entries": 0,
             }
         if not status_dir.exists():
             return {
@@ -626,6 +631,8 @@ class ProjectManager:
                 "valid_files": 0,
                 "malformed_files": 0,
                 "duplicate_images": 0,
+                "known_images": len(known_names),
+                "orphan_entries": 0,
             }
 
         total_files = 0
@@ -634,6 +641,7 @@ class ProjectManager:
         tampered_files = 0
         seen_images: set[str] = set()
         duplicate_images = 0
+        orphan_entries = 0
 
         for status_file in status_dir.glob("*.json"):
             total_files += 1
@@ -663,6 +671,8 @@ class ProjectManager:
                 duplicate_images += 1
             else:
                 seen_images.add(image_name)
+            if known_names and image_name not in known_names:
+                orphan_entries += 1
 
         return {
             "has_project": True,
@@ -672,6 +682,8 @@ class ProjectManager:
             "malformed_files": malformed_files,
             "tampered_files": tampered_files,
             "duplicate_images": duplicate_images,
+            "known_images": len(known_names),
+            "orphan_entries": orphan_entries,
         }
 
     def _migrate_local_completion_to_shared(self, project_folder: Path) -> None:

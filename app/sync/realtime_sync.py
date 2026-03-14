@@ -29,6 +29,8 @@ _DEFAULT_INCLUDE_EXTENSIONS = {
     ".webp",
 }
 
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+
 
 @dataclass
 class CloudSyncConfig:
@@ -95,6 +97,8 @@ class RealtimeSyncAgent:
             "connected": False,
             "projectId": config.project_id,
             "username": config.username,
+            "role": "",
+            "isAdmin": None,
             "activeFile": None,
             "cursor": self._cursor,
             "appliedLocal": 0,
@@ -222,6 +226,8 @@ class RealtimeSyncAgent:
             onlineUsers=int(status.get("onlineUsers", 0)),
             locks=list(status.get("locks", [])),
             recentBackups=list(status.get("recentBackups", [])),
+            role=str(status.get("role", "") or ""),
+            isAdmin=bool(status.get("isAdmin")) if status.get("isAdmin") is not None else None,
             imageAccessMode=self._image_access_mode,
             lastError="",
             lastSyncAt=int(time.time()),
@@ -241,7 +247,13 @@ class RealtimeSyncAgent:
         self._token = token
         self._initial_remote_refresh_done = False
         self._image_access_mode = "local"
-        self._set_status(connected=True, projectId=self._config.project_id, username=self._config.username)
+        self._set_status(
+            connected=True,
+            projectId=self._config.project_id,
+            username=self._config.username,
+            role=str(response.get("role", "") or ""),
+            isAdmin=bool(response.get("isAdmin")) if response.get("isAdmin") is not None else None,
+        )
 
     def _fetch_remote_changes(self) -> dict[str, Any]:
         query = urllib.parse.urlencode({"since": str(self._cursor), "limit": "1200"})
@@ -309,9 +321,7 @@ class RealtimeSyncAgent:
             rel_path = str(change.get("path", "")).strip().replace("\\", "/")
             if not rel_path:
                 continue
-            if self._image_access_mode == "cloud_only" and Path(rel_path).suffix.lower() in {
-                ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"
-            }:
+            if self._is_image_rel_path(rel_path):
                 continue
 
             target = (self._project_root / rel_path).resolve()
@@ -352,7 +362,6 @@ class RealtimeSyncAgent:
 
     def _build_snapshot(self) -> dict[str, dict[str, Any]]:
         snapshot: dict[str, dict[str, Any]] = {}
-        cloud_only = self._image_access_mode == "cloud_only"
         for path in self._project_root.rglob("*"):
             if not path.is_file():
                 continue
@@ -363,7 +372,7 @@ class RealtimeSyncAgent:
             suffix = path.suffix.lower()
             if suffix and suffix not in _DEFAULT_INCLUDE_EXTENSIONS:
                 continue
-            if cloud_only and suffix in {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}:
+            if suffix in _IMAGE_EXTENSIONS:
                 continue
 
             try:
@@ -388,6 +397,10 @@ class RealtimeSyncAgent:
         if "__pycache__" in parts:
             return True
         return False
+
+    def _is_image_rel_path(self, rel_path: str) -> bool:
+        suffix = Path(str(rel_path).strip().replace("\\", "/")).suffix.lower()
+        return suffix in _IMAGE_EXTENSIONS
 
     def _request_json(
         self,
@@ -512,6 +525,38 @@ class RealtimeSyncAgent:
             "/api/image-status",
             body={"imageName": str(image_name or ""), "status": str(status or "")},
         )
+
+    def submit_deletions(self, paths: list[str]) -> dict[str, Any]:
+        """Push explicit delete updates for project-relative paths."""
+        self._ensure_auth()
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw in paths:
+            rel = self._normalize_rel(str(raw or ""))
+            if not rel or rel in seen:
+                continue
+            seen.add(rel)
+            normalized.append(rel)
+
+        if not normalized:
+            return {"ok": True, "applied": 0, "latestSeq": self._cursor, "rejected": []}
+
+        now_ms = int(time.time() * 1000)
+        updates = [
+            {
+                "path": rel,
+                "deleted": True,
+                "mtimeMs": now_ms,
+                "sha1": "",
+                "contentBase64": "",
+            }
+            for rel in normalized
+        ]
+
+        result = self._request_json("/api/sync/upsert", body={"updates": updates})
+        self._cursor = max(self._cursor, int(result.get("latestSeq", self._cursor)))
+        self._save_cursor(self._cursor)
+        return result
 
     def _normalize_server_url(self, raw_url: str) -> str:
         value = str(raw_url or "").strip()

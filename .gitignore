@@ -10,6 +10,14 @@ projets/**/.sync/
 projets/**/image-status/
 projets/**/images/
 projets/**/dataset/
+projets/**/labels/**/BB/*.txt
+projets/**/labels/**/OBB/*.txt
+projets/**/labels/**/bb/*.txt
+projets/**/labels/**/obb/*.txt
+projets/**/labels/BB/*.txt
+projets/**/labels/OBB/*.txt
+projets/**/labels/bb/*.txt
+projets/**/labels/obb/*.txt
 **/cloud-image-cache/
 **/.cloud-image-cache/
 .env

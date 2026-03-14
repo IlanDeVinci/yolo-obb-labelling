@@ -84,6 +84,13 @@ def main() -> None:
 
     _install_qt_log_filter()
 
+    def _safe_excepthook(exc_type, exc, tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            return
+        sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = _safe_excepthook
+
     app = QApplication(sys.argv)
     app.setApplicationName("YOLO OBB Labeller")
     app.setOrganizationName("YoloOBBLabeller")
@@ -91,7 +98,11 @@ def main() -> None:
 
     window = MainWindow()
     window.show()
-    sys.exit(app.exec())
+    try:
+        sys.exit(app.exec())
+    except KeyboardInterrupt:
+        # Allow clean Ctrl+C termination when app is launched from terminal.
+        sys.exit(130)
 
 
 if __name__ == "__main__":

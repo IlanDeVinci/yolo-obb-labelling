@@ -1,6 +1,7 @@
 """Main application window."""
 from __future__ import annotations
 import hashlib
+import json
 import math
 import mimetypes
 import shutil
@@ -8,10 +9,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSettings, QTimer, QStandardPaths
-from PyQt6.QtGui import QAction, QKeySequence, QShortcut, QUndoStack
+from PyQt6.QtCore import Qt, QSettings, QTimer, QStandardPaths, QPoint
+from PyQt6.QtGui import QAction, QKeySequence, QShortcut, QUndoStack, QIcon, QPixmap, QPainter, QPen, QColor
 from PyQt6.QtWidgets import (
     QMainWindow,
+    QMenu,
     QSplitter,
     QFileDialog,
     QMessageBox,
@@ -20,9 +22,13 @@ from PyQt6.QtWidgets import (
     QStatusBar,
     QLabel,
     QApplication,
+    QToolBar,
+    QToolButton,
     QWidget,
     QVBoxLayout,
     QStyle,
+    QPushButton,
+    QLineEdit,
 )
 
 from app.canvas.annotation_canvas import AnnotationCanvas
@@ -53,7 +59,9 @@ from app.ui.dialogs.project_dialog import (
 from app.ui.dialogs.cloud_sync_dialog import (
     CloudSyncSettingsDialog,
     CloudSyncStatusDialog,
+    CloudLoginDialog,
 )
+from app.ui.dialogs.cloud_upload_dialog import CloudUploadDialog
 from app.inference.yolo_predictor import (
     YoloPredictor,
     labels_from_result,
@@ -64,6 +72,9 @@ from app.inference.yolo_predictor import (
 from app.utils.image_io import prepare_inference_source, cleanup_inference_source
 from app.sync.realtime_sync import CloudSyncConfig, RealtimeSyncAgent
 from app.sync.cloud_images import CloudImageProvider, LocalFilesystemImageProvider
+
+
+_PROJECT_CLOUD_BOOTSTRAP_FILE = ".cloud-sync.bootstrap.json"
 
 
 class MainWindow(QMainWindow):
@@ -109,6 +120,9 @@ class MainWindow(QMainWindow):
         # Persisted settings (app-level, not project-level)
         self._settings = QSettings("YoloLabeller", "App")
         self._cloud_sync_settings = self._load_cloud_sync_settings()
+        self._image_sort_mode: str = self._settings.value(
+            "images/sort_mode", "name_asc", type=str
+        )
 
         # Get use_obb from current project or default
         self._use_obb: bool = True  # Will be updated from project
@@ -133,6 +147,9 @@ class MainWindow(QMainWindow):
         self._team_menu = None
         self._act_cloud_status = None
         self._team_actions: list[QAction] = []
+        self._nav_toolbar: QToolBar | None = None
+        self._nav_signature: str = ""
+        self._lbl_login = None
 
         self._sync_status_timer = QTimer(self)
         self._sync_status_timer.setInterval(1000)
@@ -142,6 +159,8 @@ class MainWindow(QMainWindow):
         # Build UI
         self._build_ui()
         self._build_menus()
+        self.menuBar().setVisible(False)
+        self._build_navigation_toolbar()
         self._build_status_bar()
         self._wire_signals()
         self._refresh_cloud_menu_state(connected=False, error="")
@@ -222,6 +241,11 @@ class MainWindow(QMainWindow):
         act = QAction("&Importer des images...", self)
         act.setShortcut(QKeySequence("Ctrl+I"))
         act.triggered.connect(self._import_images)
+        proj_menu.addAction(act)
+
+        act = QAction("Delete Selected Images...", self)
+        act.setShortcut(QKeySequence("Shift+Delete"))
+        act.triggered.connect(self._delete_selected_images)
         proj_menu.addAction(act)
 
         act = QAction("Importer un &dossier d'images...", self)
@@ -454,6 +478,11 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self._sync_local_images_to_s3)
         cloud_menu.addAction(act)
 
+        self._act_cloud_upload = QAction("Upload New Images...", self)
+        self._act_cloud_upload.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
+        self._act_cloud_upload.triggered.connect(self._open_cloud_upload_center)
+        cloud_menu.addAction(self._act_cloud_upload)
+
         act = QAction("Refresh Cloud Images Now", self)
         act.triggered.connect(self._manual_refresh_cloud_images)
         cloud_menu.addAction(act)
@@ -532,6 +561,357 @@ class MainWindow(QMainWindow):
         )
         status_menu.addAction(self._act_set_to_rotate)
 
+    def _build_navigation_toolbar(self) -> None:
+        """Primary top navigation (single visible navbar)."""
+        toolbar = QToolBar("Main Navigation", self)
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+        self._nav_toolbar = toolbar
+        self._refresh_navigation_toolbar(force=True)
+
+    def _refresh_navigation_toolbar(self, *, force: bool = False) -> None:
+        toolbar = self._nav_toolbar
+        if toolbar is None:
+            return
+        toolbar.setVisible(True)
+
+        connected = bool((self._sync_status_cache or {}).get("connected", False))
+        mode = str(self._cloud_image_access_mode or "local")
+        cloud_configured = self._is_cloud_project_workflow_enabled()
+        is_cloud_ui = cloud_configured or (connected and mode in {"cloud_only", "hybrid"})
+        signature = f"{is_cloud_ui}:{mode}:{connected}:{cloud_configured}"
+        if not force and signature == self._nav_signature:
+            return
+        self._nav_signature = signature
+
+        toolbar.clear()
+
+        def add_menu_button(title: str, icon: QStyle.StandardPixmap, menu: QMenu, tooltip: str) -> None:
+            btn = QToolButton(self)
+            btn.setText(title)
+            btn.setIcon(self.style().standardIcon(icon))
+            btn.setToolTip(tooltip)
+            btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            btn.setMenu(menu)
+            toolbar.addWidget(btn)
+
+        # Project menu
+        project_menu = QMenu(self)
+        project_menu.addAction("New Project...", self._new_project)
+        project_menu.addAction("Open Project...", self._open_project)
+        project_menu.addAction("Save Current Labels", self._save_current)
+        project_menu.addAction("Project Settings...", self._project_settings)
+        project_menu.addAction("Open Project Folder", self._open_project_folder)
+        project_menu.addAction("Exit", self.close)
+        add_menu_button("Project", QStyle.StandardPixmap.SP_DirHomeIcon, project_menu, "Create, open, save, and configure projects")
+
+        # Images menu
+        data_menu = QMenu(self)
+        if is_cloud_ui:
+            data_menu.addAction("Delete Selected Images...", self._delete_selected_images)
+            data_menu.addAction("Upload New Images to Cloud...", self._open_cloud_upload_center)
+            data_menu.addAction("Refresh Cloud Image List", self._manual_refresh_cloud_images)
+            data_menu.addAction("Upload Existing Local Images", self._sync_local_images_to_s3)
+        else:
+            data_menu.addAction("Delete Selected Images...", self._delete_selected_images)
+            data_menu.addAction("Import Images...", self._import_images)
+            data_menu.addAction("Import Image Folder...", self._import_folder)
+            data_menu.addAction("Refresh Local Image List", self._manual_refresh_cloud_images)
+        sort_menu = data_menu.addMenu("Sort Images")
+        sort_menu.addAction("Name A-Z", lambda: self._set_image_sort_mode("name_asc"))
+        sort_menu.addAction("Name Z-A", lambda: self._set_image_sort_mode("name_desc"))
+        sort_menu.addSeparator()
+        sort_menu.addAction("Size Small-Large", lambda: self._set_image_sort_mode("size_asc"))
+        sort_menu.addAction("Size Large-Small", lambda: self._set_image_sort_mode("size_desc"))
+        sort_menu.addSeparator()
+        sort_menu.addAction("Newest First", lambda: self._set_image_sort_mode("mtime_desc"))
+        sort_menu.addAction("Oldest First", lambda: self._set_image_sort_mode("mtime_asc"))
+        data_menu.addAction("Build Dataset from Labels...", self._build_dataset)
+        data_menu.addAction("Open Dataset YAML...", self._open_yaml)
+        add_menu_button("Images", QStyle.StandardPixmap.SP_FileDialogContentsView, data_menu, "Import, upload, and refresh image sources")
+
+        # Annotate menu (<= 7 actions) + advanced submenu
+        annotate_menu = QMenu(self)
+        annotate_menu.addAction("Switch to Draw Mode", lambda: self._canvas.set_mode(AnnotationCanvas.MODE_DRAW))
+        annotate_menu.addAction("Switch to Select Mode", lambda: self._canvas.set_mode(AnnotationCanvas.MODE_SELECT))
+        annotate_menu.addAction("Toggle OBB/BBox Mode", self._toggle_label_mode)
+        annotate_menu.addAction("Convert Labels to OBB", lambda: self._convert_labels_to_mode(True))
+        annotate_menu.addAction("Convert Labels to BBox", lambda: self._convert_labels_to_mode(False))
+        annotate_menu.addAction("Delete Selected Labels", self._canvas._delete_selected)
+
+        geometry_menu = annotate_menu.addMenu("More Geometry Tools")
+        geometry_menu.addAction("Flip Selected Orientation", self._flip_selected_orientation)
+        geometry_menu.addAction("Cycle OBB Corners (CW)", self._cycle_selected_corners_cw)
+        geometry_menu.addAction("Cycle OBB Corners (CCW)", self._cycle_selected_corners_ccw)
+        geometry_menu.addAction("Rotate Selected -15°", lambda: self._rotate_selected_labels(-15.0))
+        geometry_menu.addAction("Rotate Selected +15°", lambda: self._rotate_selected_labels(15.0))
+        geometry_menu.addAction("Scale Selected +10%", lambda: self._scale_selected_labels(1.10))
+        geometry_menu.addAction("Scale Selected -10%", lambda: self._scale_selected_labels(0.90))
+        add_menu_button("Annotate", QStyle.StandardPixmap.SP_DialogApplyButton, annotate_menu, "Annotation and geometry controls")
+
+        # AI menu
+        ai_menu = QMenu(self)
+        ai_menu.addAction("Load Model...", self._load_model)
+        ai_menu.addAction("Run Model on Current Image", self._run_on_current)
+        ai_menu.addAction("Run Model on All Images", self._run_on_all)
+        add_menu_button("AI", QStyle.StandardPixmap.SP_ComputerIcon, ai_menu, "Model loading and inference actions")
+
+        # Cloud/local specific collaboration menu (<= 6 actions)
+        if is_cloud_ui:
+            collab_menu = QMenu(self)
+            collab_menu.addAction("Sign In to Cloud Sync...", lambda: self._prompt_cloud_login_for_sync(force=True))
+            if self._can_open_cloud_settings():
+                collab_menu.addAction("Cloud Sync Settings...", self._open_cloud_sync_settings)
+                collab_menu.addAction("Regenerate Project Cloud Bootstrap", self._regenerate_project_cloud_bootstrap)
+            else:
+                collab_menu.addAction("Cloud Account Login...", self._open_cloud_user_login_dialog)
+            collab_menu.addAction("Cloud Sync Status...", self._show_cloud_sync_status)
+            collab_menu.addAction("Clear Cloud Cache", self._clear_cloud_image_cache)
+            collab_menu.addAction("Purge Local Cloud Data", self._purge_all_local_cloud_data)
+            collab_menu.addAction("Status Store Health", self._show_status_store_health)
+            add_menu_button("Cloud", QStyle.StandardPixmap.SP_DriveNetIcon, collab_menu, "Cloud sync and cache management")
+        else:
+            local_menu = QMenu(self)
+            if self._can_open_cloud_settings():
+                local_menu.addAction("Cloud Sync Settings...", self._open_cloud_sync_settings)
+            else:
+                local_menu.addAction("Cloud Account Login...", self._open_cloud_user_login_dialog)
+            local_menu.addAction("Status Store Health", self._show_status_store_health)
+            add_menu_button("Local", QStyle.StandardPixmap.SP_DriveHDIcon, local_menu, "Local project mode tools")
+
+        # Team menu is local-only; cloud identity comes from authenticated login.
+        if not is_cloud_ui:
+            team_menu = QMenu(self)
+            team_menu.addAction("Choose Active Member...", self._choose_active_member)
+            team_menu.addAction("Manage Team Members...", self._team_dialog)
+            team_menu.addAction("Distribute Images Across Team", self._distribute_images)
+            team_menu.addAction("Reassign Selected Images...", self._reassign_selected_images)
+            add_menu_button("Team", QStyle.StandardPixmap.SP_ComputerIcon, team_menu, "Team assignment and collaboration")
+
+        # Help menu
+        help_menu = QMenu(self)
+        help_menu.addAction("Toolbar Icon Guide", self._show_toolbar_icon_legend)
+        help_menu.addAction("Keyboard Shortcuts", self._show_shortcuts)
+        help_menu.addAction("Status Store Health", self._show_status_store_health)
+        add_menu_button("Help", QStyle.StandardPixmap.SP_DialogHelpButton, help_menu, "Guides, shortcuts, and troubleshooting")
+
+    def _show_toolbar_icon_legend(self) -> None:
+        connected = bool((self._sync_status_cache or {}).get("connected", False))
+        mode = str(self._cloud_image_access_mode or "local")
+        cloud_mode = self._is_cloud_project_workflow_enabled() or (connected and mode in {"cloud_only", "hybrid"})
+        cloud_label = "Cloud" if cloud_mode else "Local"
+
+        text = (
+            "Toolbar sections\n\n"
+            "Project: create/open/save project and project settings.\n"
+            "Images: import/upload images and refresh image list.\n"
+            "Annotate: drawing modes, label conversion, and geometry tools.\n"
+            "AI: load model and run predictions.\n"
+            f"{cloud_label}: sync/account tools for current workflow mode.\n"
+            "Help: guides, shortcuts, and troubleshooting.\n"
+            "Bottom bar indicators: SYNC, IMAGES, LOGIN.\n"
+            "Bottom bar actions: status, zoom, fit.\n\n"
+            "Tip: Click the LOGIN indicator in the status bar to sign in again."
+        )
+        QMessageBox.information(self, "Toolbar Guide", text)
+
+    def _ensure_navigation_visible(self) -> None:
+        if self._nav_toolbar is not None:
+            self._nav_toolbar.setVisible(True)
+            self._refresh_navigation_toolbar(force=True)
+        self._lbl_hint.setText("Main navigation restored.")
+
+    def _icon_check(self) -> QIcon:
+        return self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+
+    def _icon_pencil(self) -> QIcon:
+        themed = QIcon.fromTheme("document-edit")
+        if not themed.isNull():
+            return themed
+
+        pix = QPixmap(18, 18)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#d4a24c"))
+        p.drawPolygon([
+            pix.rect().topLeft() + QPoint(4, 12),
+            pix.rect().topLeft() + QPoint(11, 5),
+            pix.rect().topLeft() + QPoint(14, 8),
+            pix.rect().topLeft() + QPoint(7, 15),
+        ])
+        p.setBrush(QColor("#e8d7b8"))
+        p.drawPolygon([
+            pix.rect().topLeft() + QPoint(11, 5),
+            pix.rect().topLeft() + QPoint(13, 3),
+            pix.rect().topLeft() + QPoint(16, 6),
+            pix.rect().topLeft() + QPoint(14, 8),
+        ])
+        p.end()
+        return QIcon(pix)
+
+    def _icon_magnifier(self, plus: bool) -> QIcon:
+        pix = QPixmap(18, 18)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        pen = QPen(QColor("#d9e7f5"))
+        pen.setWidth(2)
+        p.setPen(pen)
+        p.drawEllipse(2, 2, 10, 10)
+        p.drawLine(10, 10, 16, 16)
+
+        pen2 = QPen(QColor("#d9e7f5"))
+        pen2.setWidth(2)
+        p.setPen(pen2)
+        p.drawLine(5, 7, 9, 7)
+        if plus:
+            p.drawLine(7, 5, 7, 9)
+        p.end()
+        return QIcon(pix)
+
+    def _zoom_in(self) -> None:
+        self._canvas.zoom_in()
+
+    def _zoom_out(self) -> None:
+        self._canvas.zoom_out()
+
+    def _fit_current_image(self) -> None:
+        self._canvas.fit_in_view()
+
+    def _is_cloud_project_workflow_enabled(self) -> bool:
+        if not self._is_cloud_sync_enabled():
+            return False
+        server = str(self._cloud_sync_settings.get("server_url", "")).strip()
+        project_id = str(self._cloud_sync_settings.get("project_id", "")).strip()
+        return bool(server and project_id)
+
+    def _ensure_project_password_for_sync(self) -> bool:
+        if not self._is_cloud_project_workflow_enabled():
+            return True
+
+        current = str(self._cloud_sync_settings.get("project_password", "")).strip()
+        if current:
+            return True
+
+        password, ok = QInputDialog.getText(
+            self,
+            "Project Password Required",
+            "Enter the project password for cloud sync:",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok:
+            self._lbl_hint.setText("Cloud sync cancelled: project password required")
+            return False
+
+        project_password = str(password or "")
+        if not project_password:
+            QMessageBox.warning(self, "Cloud Sync", "Project password is required.")
+            return False
+
+        self._cloud_sync_settings["project_password"] = project_password
+        self._settings.setValue("cloud_sync/project_password", project_password)
+        return True
+
+    def _is_cloud_admin_user(self) -> bool:
+        status = self._sync_status_cache or {}
+        role = str(status.get("role", "") or "").strip().lower()
+        is_admin = status.get("isAdmin")
+        if isinstance(is_admin, bool):
+            return is_admin
+        if role:
+            return role in {"owner", "admin"}
+        return False
+
+    def _can_open_cloud_settings(self) -> bool:
+        # If project cloud config isn't established yet, someone must set it up.
+        if not self._is_cloud_project_workflow_enabled():
+            return True
+
+        # For configured cloud projects, require a connected admin role to edit
+        # project-level credentials and advanced sync knobs.
+        connected = bool((self._sync_status_cache or {}).get("connected", False))
+        if not connected:
+            return False
+        return self._is_cloud_admin_user()
+
+    def _open_cloud_settings_entrypoint(self) -> None:
+        if self._can_open_cloud_settings():
+            self._open_cloud_sync_settings()
+            return
+        self._open_cloud_user_login_dialog()
+
+    def _open_cloud_user_login_dialog(self) -> None:
+        if not self._is_cloud_project_workflow_enabled():
+            QMessageBox.information(
+                self,
+                "Cloud Login",
+                "Cloud project settings are not configured yet. Ask an admin to configure this project first.",
+            )
+            return
+
+        if not self._prompt_cloud_login_for_sync(force=True):
+            return
+
+        self._start_project_sync_if_enabled()
+        self._lbl_hint.setText("Cloud login updated. Sync reconnecting...")
+
+    def _regenerate_project_cloud_bootstrap(self) -> None:
+        project_folder = self._project_mgr.get_project_folder()
+        if project_folder is None:
+            QMessageBox.information(self, "Cloud Bootstrap", "Open a project first.")
+            return
+        self._write_project_cloud_bootstrap(project_folder)
+        bootstrap_path = self._project_cloud_bootstrap_path(project_folder)
+        if bootstrap_path.exists():
+            self._lbl_hint.setText(f"Project cloud bootstrap updated: {bootstrap_path.name}")
+        else:
+            QMessageBox.information(
+                self,
+                "Cloud Bootstrap",
+                "Bootstrap was not written. Configure Server URL and Project ID first.",
+            )
+
+    def _prompt_cloud_login_for_sync(self, *, force: bool = False) -> bool:
+        if not self._is_cloud_project_workflow_enabled():
+            return True
+
+        current_username = str(self._cloud_sync_settings.get("username", "")).strip()
+        current_password = str(self._cloud_sync_settings.get("user_password", ""))
+        remember_saved = bool(self._cloud_sync_settings.get("remember_password", False))
+        if not force and remember_saved and current_username and current_password:
+            return True
+
+        dlg = CloudLoginDialog(username=current_username, remember=remember_saved, parent=self)
+        if dlg.exec() != CloudLoginDialog.DialogCode.Accepted:
+            self._lbl_hint.setText("Cloud sync cancelled: user login required")
+            return False
+
+        values = dlg.values()
+        username = str(values.get("username", "")).strip()
+        password = str(values.get("password", ""))
+        remember = bool(values.get("remember", False))
+
+        if not username or not password:
+            QMessageBox.warning(self, "Cloud Login", "Username and password are required for cloud sync.")
+            return False
+
+        self._cloud_sync_settings["username"] = username
+        self._cloud_sync_settings["user_password"] = password
+        self._cloud_sync_settings["remember_password"] = remember
+        self._settings.setValue("cloud_sync/username", username)
+        if remember:
+            self._settings.setValue("cloud_sync/user_password", password)
+        else:
+            self._settings.setValue("cloud_sync/user_password", "")
+        self._settings.setValue("cloud_sync/remember_password", remember)
+        return True
+
     def _build_status_bar(self) -> None:
         sb = QStatusBar()
         self.setStatusBar(sb)
@@ -566,13 +946,80 @@ class MainWindow(QMainWindow):
         self._lbl_hint = QLabel("")
         sb.addWidget(self._lbl_hint)
 
+        def _style_action_button(btn: QPushButton) -> None:
+            btn.setAutoDefault(False)
+            btn.setMinimumHeight(24)
+            btn.setFixedWidth(28)
+            btn.setIconSize(QPixmap(16, 16).size())
+            btn.setStyleSheet(
+                "QPushButton { padding: 2px 4px; font-weight: 600; }"
+                "QPushButton:hover { background: #334455; }"
+            )
+
         self._lbl_sync = QLabel("SYNC: off")
         self._lbl_sync.setStyleSheet("padding: 0 8px; color: #de7f7f;")
+        self._lbl_sync.setToolTip("Clickable indicator: cloud sync connection state. Click to open Cloud Sync Status.")
+        self._lbl_sync.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._lbl_sync.mousePressEvent = lambda e: self._show_cloud_sync_status()
         sb.addPermanentWidget(self._lbl_sync)
 
         self._lbl_cloud_mode = QLabel("IMAGES: local")
         self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #7b9db8;")
+        self._lbl_cloud_mode.setToolTip("Clickable indicator: image source mode. Click for cloud login/settings.")
+        self._lbl_cloud_mode.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._lbl_cloud_mode.mousePressEvent = lambda e: self._open_cloud_settings_entrypoint()
         sb.addPermanentWidget(self._lbl_cloud_mode)
+
+        self._lbl_login = QLabel("LOGIN: local")
+        self._lbl_login.setStyleSheet("padding: 0 8px; color: #8fa6b8;")
+        self._lbl_login.setToolTip("Clickable indicator: cloud login state. Click to sign in again.")
+        self._lbl_login.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._lbl_login.mousePressEvent = lambda e: self._on_login_indicator_clicked()
+        sb.addPermanentWidget(self._lbl_login)
+
+        # Bottom quick actions: status + zoom + nav recovery.
+        btn_in_progress = QPushButton("")
+        btn_in_progress.setIcon(self._icon_pencil())
+        btn_in_progress.setToolTip("Set selected/current image(s) to In Progress")
+        _style_action_button(btn_in_progress)
+        btn_in_progress.clicked.connect(lambda: self._set_selected_images_completion("in_progress"))
+        sb.addPermanentWidget(btn_in_progress)
+
+        btn_completed = QPushButton("")
+        btn_completed.setIcon(self._icon_check())
+        btn_completed.setToolTip("Set selected/current image(s) to Completed")
+        _style_action_button(btn_completed)
+        btn_completed.clicked.connect(lambda: self._set_selected_images_completion("completed"))
+        sb.addPermanentWidget(btn_completed)
+
+        btn_zoom_out = QPushButton("")
+        btn_zoom_out.setIcon(self._icon_magnifier(False))
+        btn_zoom_out.setToolTip("Zoom out")
+        _style_action_button(btn_zoom_out)
+        btn_zoom_out.clicked.connect(self._zoom_out)
+        sb.addPermanentWidget(btn_zoom_out)
+
+        btn_zoom_in = QPushButton("")
+        btn_zoom_in.setIcon(self._icon_magnifier(True))
+        btn_zoom_in.setToolTip("Zoom in")
+        _style_action_button(btn_zoom_in)
+        btn_zoom_in.clicked.connect(self._zoom_in)
+        sb.addPermanentWidget(btn_zoom_in)
+
+        btn_fit = QPushButton("")
+        btn_fit.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton))
+        btn_fit.setToolTip("Fit current image to view")
+        _style_action_button(btn_fit)
+        btn_fit.clicked.connect(self._fit_current_image)
+        sb.addPermanentWidget(btn_fit)
+
+    def _on_login_indicator_clicked(self) -> None:
+        if not self._is_cloud_project_workflow_enabled():
+            QMessageBox.information(self, "Login", "This project is currently using local mode.")
+            return
+        if not self._prompt_cloud_login_for_sync(force=True):
+            return
+        self._start_project_sync_if_enabled()
 
     # ------------------------------------------------------------------
     # Signal wiring
@@ -592,6 +1039,8 @@ class MainWindow(QMainWindow):
 
         # Image browser
         self._browser.image_selected.connect(self._navigate_to_image)
+        self._browser.delete_images_requested.connect(self._delete_selected_images)
+        self._browser.sort_mode_requested.connect(self._set_image_sort_mode)
 
         # Label list <-> canvas selection sync
         self._label_list.labels_selection_changed.connect(self._on_label_list_selection_changed)
@@ -608,6 +1057,9 @@ class MainWindow(QMainWindow):
             s = QShortcut(QKeySequence(str(i)), self)
             idx = i
             s.activated.connect(lambda _idx=idx: self._class_panel.select_class(_idx))
+
+        restore_nav_shortcut = QShortcut(QKeySequence("Ctrl+Alt+N"), self)
+        restore_nav_shortcut.activated.connect(self._ensure_navigation_visible)
 
     # ------------------------------------------------------------------
     # Navigation
@@ -704,6 +1156,19 @@ class MainWindow(QMainWindow):
             raise
         finally:
             progress.close()
+
+    def _project_relative_path_for_sync(self, path: Path) -> str:
+        project_folder = self._project_mgr.get_project_folder()
+        if project_folder is None:
+            return ""
+        try:
+            rel = path.relative_to(project_folder.resolve())
+        except Exception:
+            try:
+                rel = path.resolve().relative_to(project_folder.resolve())
+            except Exception:
+                return ""
+        return str(rel).replace("\\", "/").strip()
 
     def _schedule_cloud_prefetch(self, current_virtual: Path) -> None:
         provider = self._image_provider
@@ -836,6 +1301,10 @@ class MainWindow(QMainWindow):
             self._model_conf = project.model_confidence
             self._model_class_filter = list(project.model_class_filter)
 
+            project_folder = self._project_mgr.get_project_folder()
+            if project_folder is not None:
+                self._apply_project_cloud_bootstrap(project_folder)
+
             self._apply_project_to_ui(project)
             self._start_project_sync_if_enabled()
             self._lbl_hint.setText(f"Projet '{project.name}' restaure")
@@ -932,6 +1401,99 @@ class MainWindow(QMainWindow):
         if normalized != project.image_completion:
             project.image_completion = normalized
 
+    def _image_sort_label(self, mode: str | None = None) -> str:
+        selected = str(mode or self._image_sort_mode or "name_asc")
+        labels = {
+            "name_asc": "Name A-Z",
+            "name_desc": "Name Z-A",
+            "size_asc": "Size Small-Large",
+            "size_desc": "Size Large-Small",
+            "mtime_desc": "Newest First",
+            "mtime_asc": "Oldest First",
+        }
+        return labels.get(selected, "Name A-Z")
+
+    def _sorted_image_paths(
+        self,
+        images: list[Path],
+        *,
+        cloud_meta: dict[str, tuple[int, int]] | None = None,
+    ) -> list[Path]:
+        mode = str(self._image_sort_mode or "name_asc")
+        lowered_name = lambda p: p.name.lower()  # noqa: E731
+
+        if mode in {"name_asc", "name_desc"}:
+            return sorted(images, key=lowered_name, reverse=(mode == "name_desc"))
+
+        meta = cloud_meta or {}
+
+        def size_for(path: Path) -> int:
+            rel = self._project_relative_path_for_sync(path)
+            if rel and rel in meta:
+                return int(meta[rel][0])
+            try:
+                return int(path.stat().st_size)
+            except OSError:
+                return -1
+
+        def mtime_for(path: Path) -> int:
+            rel = self._project_relative_path_for_sync(path)
+            if rel and rel in meta:
+                return int(meta[rel][1])
+            try:
+                return int(path.stat().st_mtime * 1000)
+            except OSError:
+                return 0
+
+        if mode in {"size_asc", "size_desc"}:
+            return sorted(
+                images,
+                key=lambda p: (size_for(p), lowered_name(p)),
+                reverse=(mode == "size_desc"),
+            )
+
+        if mode in {"mtime_asc", "mtime_desc"}:
+            return sorted(
+                images,
+                key=lambda p: (mtime_for(p), lowered_name(p)),
+                reverse=(mode == "mtime_desc"),
+            )
+
+        return sorted(images, key=lowered_name)
+
+    def _set_image_sort_mode(self, mode: str) -> None:
+        valid = {"name_asc", "name_desc", "size_asc", "size_desc", "mtime_asc", "mtime_desc"}
+        selected = str(mode or "").strip().lower()
+        if selected not in valid:
+            return
+        self._image_sort_mode = selected
+        self._settings.setValue("images/sort_mode", selected)
+        self._manual_refresh_cloud_images()
+        self._lbl_hint.setText(f"Image sort: {self._image_sort_label(selected)}")
+
+    def _prune_local_orphan_status_entries(self, known_images: list[Path]) -> int:
+        """Delete local shared status files that no longer have a matching image."""
+        if self._is_strict_cloud_remote_mode():
+            return 0
+
+        project = self._project_mgr.current_project
+        if project is None:
+            return 0
+
+        known_names = {img.name for img in known_images if img is not None}
+        try:
+            removed = int(self._project_mgr.prune_shared_image_completion(known_names) or 0)
+        except Exception:
+            return 0
+
+        if removed > 0:
+            project.image_completion = {
+                name: status
+                for name, status in project.image_completion.items()
+                if name in known_names
+            }
+        return removed
+
     def _load_folder_into_ui(self, folder: Path) -> None:
         """Load a folder into the UI without creating a new project."""
         existing_classes = self._class_panel.class_names()
@@ -941,9 +1503,10 @@ class MainWindow(QMainWindow):
             self._canvas.set_class_names(existing_classes)
             self._label_list.set_class_names(existing_classes)
         self._dataset.load_from_folder(folder, existing_classes)
-        self._all_images = list(self._dataset.train_images)
+        self._all_images = self._sorted_image_paths(list(self._dataset.train_images))
         self._image_mgr.load_split(self._all_images, "")
         self._normalize_project_completion_states()
+        self._prune_local_orphan_status_entries(self._all_images)
         self._browser.set_images(self._image_mgr.images)
         self._load_current_image()
 
@@ -956,9 +1519,14 @@ class MainWindow(QMainWindow):
             return
 
         current_virtual = self._image_mgr.current_image
+        entries = provider.manifest_entries()
         virtual_images = provider.manifest_virtual_paths()
+        cloud_meta = {
+            str(entry.path).replace("\\", "/"): (int(entry.size), int(entry.last_modified))
+            for entry in entries
+        }
         previous_count = len(self._all_images)
-        self._all_images = list(virtual_images)
+        self._all_images = self._sorted_image_paths(list(virtual_images), cloud_meta=cloud_meta)
         self._image_mgr.load_split(self._all_images, "")
         self._normalize_project_completion_states()
         self._browser.set_images(self._image_mgr.images)
@@ -969,7 +1537,9 @@ class MainWindow(QMainWindow):
         if self._image_mgr.total > 0:
             self._load_current_image()
         if not silent or len(self._all_images) != previous_count:
-            self._lbl_hint.setText(f"Cloud manifest loaded: {len(self._all_images)} image(s)")
+            self._lbl_hint.setText(
+                f"Cloud manifest loaded: {len(self._all_images)} image(s), sort={self._image_sort_label()}"
+            )
 
     def _manual_refresh_cloud_images(self) -> None:
         if self._label_mgr.is_dirty:
@@ -995,6 +1565,84 @@ class MainWindow(QMainWindow):
 
         self._refresh_local_dataset_image_list(silent=False)
 
+    def _label_sidecar_paths_for_image(self, image_path: Path) -> list[Path]:
+        obb_path, bb_path, legacy_path = LabelManager._derive_label_path_triplet(image_path)
+        return [legacy_path, bb_path, obb_path]
+
+    def _delete_selected_images(self, selected_override: list[Path] | None = None) -> None:
+        project = self._project_mgr.current_project
+        if project is None:
+            QMessageBox.information(self, "No project", "Create or open a project first.")
+            return
+
+        selected = list(selected_override or [])
+        if not selected:
+            selected = self._browser.selected_images()
+        if not selected:
+            current = self._image_mgr.current_image
+            if current is not None:
+                selected = [current]
+        if not selected:
+            QMessageBox.information(self, "Delete Images", "Select at least one image.")
+            return
+
+        current = self._image_mgr.current_image
+        if current is not None and current in selected and not self._maybe_save_before_leaving():
+            return
+
+        count = len(selected)
+        reply = QMessageBox.question(
+            self,
+            "Delete Images",
+            (
+                f"Delete {count} image(s)?\n\n"
+                "This also deletes matching label files (legacy, BB, OBB) when present."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        sync_delete_paths: set[str] = set()
+        deleted_local = 0
+        failed_local = 0
+
+        for image_path in selected:
+            targets = [image_path, *self._label_sidecar_paths_for_image(image_path)]
+            for target in targets:
+                rel = self._project_relative_path_for_sync(target)
+                if rel:
+                    sync_delete_paths.add(rel)
+                try:
+                    if target.exists() and target.is_file():
+                        target.unlink()
+                        deleted_local += 1
+                except OSError:
+                    failed_local += 1
+
+        sync_applied = 0
+        agent = self._sync_agent
+        if agent is not None and sync_delete_paths and self._is_cloud_project_workflow_enabled():
+            try:
+                result = agent.submit_deletions(sorted(sync_delete_paths))
+                sync_applied = int(result.get("applied", 0) or 0)
+            except Exception as exc:  # noqa: BLE001
+                QMessageBox.warning(
+                    self,
+                    "Cloud Delete",
+                    f"Local delete completed, but cloud delete sync failed:\n{exc}",
+                )
+
+        if self._cloud_image_access_mode == "cloud_only":
+            self._manual_refresh_cloud_images()
+        else:
+            self._refresh_local_dataset_image_list(silent=False)
+
+        self._lbl_hint.setText(
+            f"Deleted {count} image(s), local files removed={deleted_local}, sync deletes applied={sync_applied}, failures={failed_local}"
+        )
+
     def _refresh_local_dataset_image_list(self, *, silent: bool = True) -> None:
         project = self._project_mgr.current_project
         if project is None:
@@ -1010,9 +1658,10 @@ class MainWindow(QMainWindow):
         if not existing_classes:
             existing_classes = ["object"]
         self._dataset.load_from_folder(dataset_folder, existing_classes)
-        self._all_images = list(self._dataset.train_images)
+        self._all_images = self._sorted_image_paths(list(self._dataset.train_images))
         self._image_mgr.load_split(self._all_images, "")
         self._normalize_project_completion_states()
+        removed_status_files = self._prune_local_orphan_status_entries(self._all_images)
         self._browser.set_images(self._image_mgr.images)
 
         if current_virtual is not None and current_virtual in self._all_images:
@@ -1021,8 +1670,11 @@ class MainWindow(QMainWindow):
         if self._image_mgr.total > 0:
             self._load_current_image()
 
-        if not silent or len(self._all_images) != previous_count:
-            self._lbl_hint.setText(f"Image list refreshed: {len(self._all_images)} image(s)")
+        if not silent or len(self._all_images) != previous_count or removed_status_files > 0:
+            suffix = ""
+            if removed_status_files > 0:
+                suffix = f" (status cleaned: {removed_status_files})"
+            self._lbl_hint.setText(f"Image list refreshed: {len(self._all_images)} image(s){suffix}")
 
     def _refresh_remote_images_if_needed(self, status: dict[str, object], mode: str) -> None:
         if self._label_mgr.is_dirty:
@@ -1081,15 +1733,30 @@ class MainWindow(QMainWindow):
 
         raw = payload.get("statuses") if isinstance(payload, dict) else {}
         mapped: dict[str, str] = {}
+        known_image_names = self._current_image_name_set()
+        ignored_orphan_statuses = 0
         if isinstance(raw, dict):
             for key, value in raw.items():
                 image_name = str(key or "").strip()
                 value_norm = str(value or "").strip().lower()
+                if not image_name or value_norm not in {"in_progress", "completed", "yolo", "to_rotate"}:
+                    continue
+                if known_image_names and image_name not in known_image_names:
+                    ignored_orphan_statuses += 1
+                    continue
                 if image_name and value_norm in {"in_progress", "completed", "yolo", "to_rotate"}:
                     mapped[image_name] = value_norm
 
         project.image_completion = mapped
         self._browser.set_images(self._image_mgr.images)
+        if ignored_orphan_statuses:
+            self._lbl_hint.setText(
+                f"Ignored {ignored_orphan_statuses} stale cloud status entr{'y' if ignored_orphan_statuses == 1 else 'ies'}"
+            )
+
+    def _current_image_name_set(self) -> set[str]:
+        images = self._all_images if self._all_images else self._image_mgr.images
+        return {img.name for img in images if isinstance(img, Path)}
 
     def _clear_cloud_image_cache(self) -> None:
         provider = self._cloud_image_provider
@@ -1298,6 +1965,54 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    def _open_cloud_upload_center(self) -> None:
+        agent = self._sync_agent
+        if agent is None:
+            self._start_project_sync_if_enabled()
+            agent = self._sync_agent
+        if agent is None:
+            QMessageBox.warning(
+                self,
+                "Cloud Upload",
+                "Cloud sync is not connected. Open Cloud Sync Settings and sign in first.",
+            )
+            return
+
+        existing_paths: set[str] = set()
+        try:
+            manifest_payload = agent.get_image_manifest()
+            manifest_items = manifest_payload.get("manifest") if isinstance(manifest_payload, dict) else []
+            if isinstance(manifest_items, list):
+                for item in manifest_items:
+                    if not isinstance(item, dict):
+                        continue
+                    rel = str(item.get("path") or "").strip().replace("\\", "/")
+                    if rel:
+                        existing_paths.add(rel)
+        except Exception:
+            # The dialog still works if manifest is temporarily unavailable.
+            existing_paths = set()
+
+        dlg = CloudUploadDialog(
+            sync_agent=agent,
+            existing_paths=existing_paths,
+            default_prefix="images",
+            parent=self,
+        )
+
+        def _on_completed(summary: dict[str, int]) -> None:
+            uploaded = int(summary.get("uploaded", 0) or 0)
+            skipped = int(summary.get("skipped", 0) or 0)
+            failed = int(summary.get("failed", 0) or 0)
+            self._lbl_hint.setText(
+                f"Cloud upload: {uploaded} uploaded, {skipped} skipped, {failed} failed"
+            )
+            if uploaded > 0:
+                self._manual_refresh_cloud_images()
+
+        dlg.uploads_completed.connect(_on_completed)
+        dlg.exec()
+
     # ------------------------------------------------------------------
     # Project actions
     # ------------------------------------------------------------------
@@ -1327,6 +2042,10 @@ class MainWindow(QMainWindow):
             # Set the images folder as dataset folder
             project.dataset_folder = "images"
             self._project_mgr.save_current()
+
+            # If cloud fields are already configured on this machine, write
+            # project bootstrap so teammates can pull and connect quickly.
+            self._write_project_cloud_bootstrap(project_folder)
 
             # Open the project folder in explorer
             self._open_in_explorer(project_folder)
@@ -1517,6 +2236,9 @@ class MainWindow(QMainWindow):
 
         self._settings.setValue("recent/project_file", str(dlg.selected_path))
         self._stop_project_sync()
+        project_folder = self._project_mgr.get_project_folder()
+        if project_folder is not None and self._apply_project_cloud_bootstrap(project_folder):
+            self._lbl_hint.setText("Loaded cloud bootstrap from project")
         self._apply_project_to_ui(project)
         self._start_project_sync_if_enabled()
         self._lbl_hint.setText(f"Projet '{project.name}' ouvert")
@@ -1531,6 +2253,25 @@ class MainWindow(QMainWindow):
         self._stop_project_sync()
         self._last_seen_remote_seq = -1
         self._last_seen_status_seq = -1
+
+        if self._is_cloud_project_workflow_enabled():
+            if not self._ensure_project_password_for_sync():
+                self._sync_status_cache = {
+                    "connected": False,
+                    "lastError": "Project password is required before sync can start.",
+                }
+                self._refresh_sync_indicator()
+                return
+
+        if self._is_cloud_project_workflow_enabled():
+            if not self._prompt_cloud_login_for_sync(force=False):
+                self._sync_status_cache = {
+                    "connected": False,
+                    "lastError": "Cloud login is required before sync can start.",
+                }
+                self._refresh_sync_indicator()
+                return
+
         config = CloudSyncConfig(
             enabled=bool(self._cloud_sync_settings.get("enabled", False)),
             server_url=str(self._cloud_sync_settings.get("server_url", "")),
@@ -1547,7 +2288,7 @@ class MainWindow(QMainWindow):
         if not config.is_valid():
             self._sync_status_cache = {
                 "connected": False,
-                "lastError": "Cloud sync is not configured. Open Cloud Sync Settings to fill all fields.",
+                "lastError": "Cloud sync is not configured. Open Cloud Sync Settings to fill Server URL and Project ID, then enter project password when prompted.",
             }
             self._refresh_sync_indicator()
             return
@@ -1676,7 +2417,15 @@ class MainWindow(QMainWindow):
             self._lbl_sync.setStyleSheet("padding: 0 8px; color: #de7f7f;")
             self._lbl_cloud_mode.setText("IMAGES: local")
             self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #7b9db8;")
+            if self._lbl_login is not None:
+                if self._is_cloud_project_workflow_enabled():
+                    self._lbl_login.setText("LOGIN: required" if not error else "LOGIN: failed")
+                    self._lbl_login.setStyleSheet("padding: 0 8px; color: #de7f7f; font-weight: bold;")
+                else:
+                    self._lbl_login.setText("LOGIN: local")
+                    self._lbl_login.setStyleSheet("padding: 0 8px; color: #8fa6b8;")
             self._refresh_cloud_menu_state(connected=False, error=error)
+            self._refresh_navigation_toolbar()
             return
 
         users = int(status.get("onlineUsers", 0) or 0)
@@ -1684,6 +2433,10 @@ class MainWindow(QMainWindow):
         suffix = f" [{Path(active).name}]" if active else ""
         self._lbl_sync.setText(f"SYNC: live ({users} online){suffix}")
         self._lbl_sync.setStyleSheet("padding: 0 8px; color: #86cc9f;")
+        if self._lbl_login is not None:
+            username = str(status.get("username", "") or self._cloud_sync_settings.get("username", "")).strip()
+            self._lbl_login.setText(f"LOGIN: {username}" if username else "LOGIN: signed in")
+            self._lbl_login.setStyleSheet("padding: 0 8px; color: #86cc9f; font-weight: bold;")
         mode = str(status.get("imageAccessMode") or self._cloud_image_access_mode or "local")
         previous_mode = self._cloud_image_access_mode
         self._cloud_image_access_mode = mode
@@ -1717,6 +2470,7 @@ class MainWindow(QMainWindow):
         self._refresh_remote_images_if_needed(status, mode)
         self._refresh_remote_completion_if_needed(status, mode)
         self._refresh_cloud_menu_state(connected=True, error="")
+        self._refresh_navigation_toolbar()
 
     def _is_cloud_sync_enabled(self) -> bool:
         return bool(self._cloud_sync_settings.get("enabled", False))
@@ -1746,10 +2500,11 @@ class MainWindow(QMainWindow):
         self._act_cloud_status.setIcon(icon)
         self._act_cloud_status.setText(status_text)
 
+        team_allowed = not self._is_cloud_project_workflow_enabled()
         if self._team_menu is not None:
-            self._team_menu.menuAction().setEnabled(True)
+            self._team_menu.menuAction().setEnabled(team_allowed)
         for action in self._team_actions:
-            action.setEnabled(True)
+            action.setEnabled(team_allowed)
 
     def _load_cloud_sync_settings(self) -> dict[str, object]:
         default_cache_root = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
@@ -1760,6 +2515,7 @@ class MainWindow(QMainWindow):
             "project_password": self._settings.value("cloud_sync/project_password", "", type=str),
             "username": self._settings.value("cloud_sync/username", "", type=str),
             "user_password": self._settings.value("cloud_sync/user_password", "", type=str),
+            "remember_password": self._settings.value("cloud_sync/remember_password", False, type=bool),
             "poll_seconds": self._settings.value("cloud_sync/poll_seconds", 1.2, type=float),
             "image_cache_dir": self._settings.value(
                 "cloud_sync/image_cache_dir",
@@ -1772,22 +2528,112 @@ class MainWindow(QMainWindow):
         }
 
     def _save_cloud_sync_settings(self, values: dict[str, object]) -> None:
+        prev_remember = bool(self._cloud_sync_settings.get("remember_password", False))
         self._cloud_sync_settings = dict(values)
+        self._cloud_sync_settings.setdefault("remember_password", prev_remember)
         self._settings.setValue("cloud_sync/enabled", bool(values.get("enabled", False)))
         self._settings.setValue("cloud_sync/server_url", str(values.get("server_url", "")))
         self._settings.setValue("cloud_sync/project_id", str(values.get("project_id", "")))
         self._settings.setValue("cloud_sync/project_password", str(values.get("project_password", "")))
         self._settings.setValue("cloud_sync/username", str(values.get("username", "")))
         self._settings.setValue("cloud_sync/user_password", str(values.get("user_password", "")))
+        self._settings.setValue(
+            "cloud_sync/remember_password",
+            bool(values.get("remember_password", prev_remember)),
+        )
         self._settings.setValue("cloud_sync/poll_seconds", float(values.get("poll_seconds", 1.2) or 1.2))
         self._settings.setValue("cloud_sync/image_cache_dir", str(values.get("image_cache_dir", "")))
         self._settings.setValue("cloud_sync/image_cache_max_mb", int(values.get("image_cache_max_mb", 2048) or 2048))
         self._settings.setValue("cloud_sync/image_cache_ttl_hours", int(values.get("image_cache_ttl_hours", 24) or 24))
         self._settings.setValue("cloud_sync/image_prefetch_count", int(values.get("image_prefetch_count", 8) or 8))
+
+        # Keep a project-scoped bootstrap file in sync so teammates can pull and
+        # connect without touching dangerous cloud settings.
+        project_folder = self._project_mgr.get_project_folder()
+        if project_folder is not None:
+            self._write_project_cloud_bootstrap(project_folder)
+
         self._refresh_cloud_menu_state(connected=False, error="")
         self._apply_team_filter()
 
+    def _bootstrap_project_cloud_fields(self) -> dict[str, object]:
+        return {
+            "enabled": bool(self._cloud_sync_settings.get("enabled", False)),
+            "server_url": str(self._cloud_sync_settings.get("server_url", "")).strip(),
+            "project_id": str(self._cloud_sync_settings.get("project_id", "")).strip(),
+            "poll_seconds": float(self._cloud_sync_settings.get("poll_seconds", 1.2) or 1.2),
+        }
+
+    def _project_cloud_bootstrap_path(self, project_folder: Path) -> Path:
+        return project_folder / _PROJECT_CLOUD_BOOTSTRAP_FILE
+
+    def _read_project_cloud_bootstrap(self, project_folder: Path) -> dict[str, object] | None:
+        path = self._project_cloud_bootstrap_path(project_folder)
+        if not path.exists() or not path.is_file():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+        cloud = payload.get("cloudSync") if isinstance(payload, dict) else None
+        if not isinstance(cloud, dict):
+            return None
+
+        return {
+            "enabled": bool(cloud.get("enabled", False)),
+            "server_url": str(cloud.get("server_url", "")).strip(),
+            "project_id": str(cloud.get("project_id", "")).strip(),
+            "poll_seconds": float(cloud.get("poll_seconds", 1.2) or 1.2),
+        }
+
+    def _apply_project_cloud_bootstrap(self, project_folder: Path) -> bool:
+        data = self._read_project_cloud_bootstrap(project_folder)
+        if not data:
+            return False
+
+        merged = dict(self._cloud_sync_settings)
+        merged.update(data)
+
+        changed = any(merged.get(k) != self._cloud_sync_settings.get(k) for k in data.keys())
+        if not changed:
+            return False
+
+        self._save_cloud_sync_settings(merged)
+        return True
+
+    def _write_project_cloud_bootstrap(self, project_folder: Path) -> None:
+        fields = self._bootstrap_project_cloud_fields()
+        server = str(fields.get("server_url", "")).strip()
+        project_id = str(fields.get("project_id", "")).strip()
+
+        # Only write bootstrap when project-level connection fields are complete.
+        if not (server and project_id):
+            return
+
+        payload = {
+            "schemaVersion": 1,
+            "note": "Project cloud bootstrap (shared via git). User login stays local per machine.",
+            "cloudSync": fields,
+        }
+
+        path = self._project_cloud_bootstrap_path(project_folder)
+        try:
+            path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+        except Exception:
+            pass
+
     def _open_cloud_sync_settings(self) -> None:
+        if not self._can_open_cloud_settings():
+            QMessageBox.information(
+                self,
+                "Cloud Sync Settings",
+                "Only project admins can edit cloud project credentials and advanced sync settings.\n"
+                "Use Cloud Account Login to sign in with your own user instead.",
+            )
+            self._open_cloud_user_login_dialog()
+            return
+
         dlg = CloudSyncSettingsDialog(self._cloud_sync_settings, self)
         if dlg.exec() != CloudSyncSettingsDialog.DialogCode.Accepted:
             return
@@ -2514,6 +3360,14 @@ class MainWindow(QMainWindow):
 
     def _choose_active_member(self) -> None:
         """Quickly choose active team member used for filtering images."""
+        if self._is_cloud_project_workflow_enabled():
+            QMessageBox.information(
+                self,
+                "Cloud Project",
+                "Team-member selection is disabled in cloud projects. Identity comes from cloud login.",
+            )
+            return
+
         project = self._project_mgr.current_project
         if not project:
             QMessageBox.information(
@@ -2552,6 +3406,14 @@ class MainWindow(QMainWindow):
 
     def _reassign_selected_images(self) -> None:
         """Reassign selected images (or current image) to another team member."""
+        if self._is_cloud_project_workflow_enabled():
+            QMessageBox.information(
+                self,
+                "Cloud Project",
+                "Team reassignment is disabled in cloud projects. Use cloud user accounts instead.",
+            )
+            return
+
         project = self._project_mgr.current_project
         if not project:
             QMessageBox.information(
@@ -2618,6 +3480,14 @@ class MainWindow(QMainWindow):
 
     def _team_dialog(self) -> None:
         """Open the team members management dialog."""
+        if self._is_cloud_project_workflow_enabled():
+            QMessageBox.information(
+                self,
+                "Cloud Project",
+                "Team management is disabled in cloud projects. Use cloud accounts and permissions.",
+            )
+            return
+
         project = self._project_mgr.current_project
         if not project:
             QMessageBox.information(
@@ -2632,6 +3502,14 @@ class MainWindow(QMainWindow):
 
     def _distribute_images(self) -> None:
         """Distribute images among team members."""
+        if self._is_cloud_project_workflow_enabled():
+            QMessageBox.information(
+                self,
+                "Cloud Project",
+                "Image distribution by local team member is disabled in cloud projects.",
+            )
+            return
+
         project = self._project_mgr.current_project
         if not project:
             QMessageBox.information(
@@ -3330,7 +4208,8 @@ Status menu — Set selected images as To Rotate<br>
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
 
     def _show_status_store_health(self) -> None:
-        health = self._project_mgr.get_image_status_store_health()
+        known_image_names = self._current_image_name_set()
+        health = self._project_mgr.get_image_status_store_health(known_image_names)
         if not bool(health.get("has_project")):
             QMessageBox.information(
                 self,
@@ -3345,6 +4224,31 @@ Status menu — Set selected images as To Rotate<br>
         malformed_files = int(health.get("malformed_files", 0))
         tampered_files = int(health.get("tampered_files", 0))
         duplicate_images = int(health.get("duplicate_images", 0))
+        orphan_entries = int(health.get("orphan_entries", 0))
+        known_images = int(health.get("known_images", len(known_image_names)))
+        cloud_section = ""
+
+        if self._sync_agent is not None and self._cloud_image_access_mode == "cloud_only":
+            try:
+                payload = self._sync_agent.get_image_status_map()
+                statuses = payload.get("statuses") if isinstance(payload, dict) else {}
+                cloud_total = len(statuses) if isinstance(statuses, dict) else 0
+                cloud_matched = 0
+                if isinstance(statuses, dict):
+                    for image_name, state in statuses.items():
+                        state_norm = str(state or "").strip().lower()
+                        if state_norm in {"in_progress", "completed", "yolo", "to_rotate"} and str(image_name) in known_image_names:
+                            cloud_matched += 1
+                cloud_orphan = max(0, cloud_total - cloud_matched)
+                cloud_section = (
+                    "\n\nCloud status map\n"
+                    f"Known images in current list: {known_images}\n"
+                    f"Cloud status entries: {cloud_total}\n"
+                    f"Matched to current images: {cloud_matched}\n"
+                    f"Stale/orphan cloud statuses: {cloud_orphan}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                cloud_section = f"\n\nCloud status map\nUnable to load cloud statuses: {exc}"
 
         message = (
             "Shared image-status store health\n\n"
@@ -3353,9 +4257,24 @@ Status menu — Set selected images as To Rotate<br>
             f"Valid files: {valid_files}\n"
             f"Malformed files: {malformed_files}\n"
             f"Tampered files: {tampered_files}\n"
-            f"Duplicate image entries: {duplicate_images}"
+            f"Duplicate image entries: {duplicate_images}\n"
+            f"Known images in current list: {known_images}\n"
+            f"Orphan local status entries: {orphan_entries}"
+            + cloud_section
         )
-        QMessageBox.information(self, "Status Store Health", message)
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Status Store Health")
+        box.setText(message)
+        prune_button = None
+        if orphan_entries > 0:
+            prune_button = box.addButton("Prune Local Orphans", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+
+        if prune_button is not None and box.clickedButton() is prune_button:
+            removed = self._project_mgr.prune_shared_image_completion(known_image_names)
+            self._lbl_hint.setText(f"Pruned {removed} orphan local status file(s)")
 
     # ------------------------------------------------------------------
     # Close

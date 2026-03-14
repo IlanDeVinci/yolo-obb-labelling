@@ -3,6 +3,7 @@
   "created_at": "2026-02-25T11:25:22.397350",
   "modified_at": "2026-02-25T14:46:42.867574",
   "dataset_folder": "images",
+  "image_status_folder": "image-status",
   "yaml_path": "",
   "class_names": [
     "card"

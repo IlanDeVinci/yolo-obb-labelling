@@ -299,6 +299,11 @@ class CloudImageProvider:
             entries = list(self._manifest)
         return [self._project_root / entry.path for entry in entries]
 
+    def manifest_entries(self) -> list[ImageManifestEntry]:
+        """Return a copy of the latest manifest entries for UI sorting/inspection."""
+        with self._lock:
+            return list(self._manifest)
+
     def resolve_for_open(
         self,
         virtual_path: Path,

@@ -18,6 +18,54 @@ from PyQt6.QtWidgets import (
 )
 
 
+class CloudLoginDialog(QDialog):
+    """Lightweight login prompt used when entering cloud sync workflows."""
+
+    def __init__(self, *, username: str = "", remember: bool = True, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Cloud Login")
+        self.setMinimumWidth(420)
+
+        layout = QVBoxLayout(self)
+
+        title = QLabel("Sign in to cloud sync")
+        title.setStyleSheet("font-weight: 700;")
+        layout.addWidget(title)
+
+        hint = QLabel(
+            "Use your personal cloud account credentials. "
+            "Project credentials are configured separately in Cloud Sync Settings."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        form = QFormLayout()
+        self._username = QLineEdit(username)
+        self._password = QLineEdit("")
+        self._password.setEchoMode(QLineEdit.EchoMode.Password)
+        form.addRow("Username", self._username)
+        form.addRow("Password", self._password)
+        layout.addLayout(form)
+
+        self._remember = QCheckBox("Remember password on this device")
+        self._remember.setChecked(bool(remember))
+        layout.addWidget(self._remember)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def values(self) -> dict[str, object]:
+        return {
+            "username": self._username.text().strip(),
+            "password": self._password.text(),
+            "remember": self._remember.isChecked(),
+        }
+
+
 class CloudSyncSettingsDialog(QDialog):
     def __init__(self, initial: dict[str, object], parent=None):
         super().__init__(parent)

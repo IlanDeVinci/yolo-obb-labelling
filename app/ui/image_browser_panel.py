@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QAbstractItemView,
+    QMenu,
 )
 
 from app.models.label_manager import LabelManager
@@ -21,6 +22,8 @@ class ImageBrowserPanel(QWidget):
     """Shows the image list; emits image_selected(Path) when user clicks."""
 
     image_selected = pyqtSignal(object)   # Path
+    delete_images_requested = pyqtSignal(object)  # list[Path]
+    sort_mode_requested = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -43,6 +46,8 @@ class ImageBrowserPanel(QWidget):
         )
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list.currentRowChanged.connect(self._on_row_changed)
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._on_context_menu_requested)
         layout.addWidget(self._list)
 
     # ------------------------------------------------------------------
@@ -121,3 +126,32 @@ class ImageBrowserPanel(QWidget):
     def _on_row_changed(self, row: int) -> None:
         if 0 <= row < len(self._images):
             self.image_selected.emit(self._images[row])
+
+    def _on_context_menu_requested(self, pos) -> None:
+        menu = QMenu(self)
+
+        selected = self.selected_images()
+        current_row = self._list.currentRow()
+        current_path = self._images[current_row] if 0 <= current_row < len(self._images) else None
+
+        if selected:
+            delete_selected = menu.addAction(f"Delete {len(selected)} Selected Image(s)...")
+            delete_selected.triggered.connect(lambda: self.delete_images_requested.emit(list(selected)))
+        elif current_path is not None:
+            delete_current = menu.addAction(f"Delete {current_path.name}...")
+            delete_current.triggered.connect(lambda: self.delete_images_requested.emit([current_path]))
+
+        sort_menu = menu.addMenu("Sort Images")
+        sort_items = [
+            ("Name A-Z", "name_asc"),
+            ("Name Z-A", "name_desc"),
+            ("Size Small-Large", "size_asc"),
+            ("Size Large-Small", "size_desc"),
+            ("Newest First", "mtime_desc"),
+            ("Oldest First", "mtime_asc"),
+        ]
+        for label, mode in sort_items:
+            action = sort_menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, m=mode: self.sort_mode_requested.emit(m))
+
+        menu.exec(self._list.mapToGlobal(pos))

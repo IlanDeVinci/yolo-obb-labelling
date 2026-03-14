@@ -18,6 +18,8 @@ from app.canvas.drawing_controller import DrawingController
 from app.utils.image_io import load_qpixmap, decode_failure_hint
 
 _ZOOM_FACTOR = 1.15
+_MIN_ZOOM = 0.05
+_MAX_ZOOM = 25.0
 
 
 class AnnotationCanvas(QGraphicsView):
@@ -55,6 +57,7 @@ class AnnotationCanvas(QGraphicsView):
         self._img_w: float = 1.0
         self._img_h: float = 1.0
         self._user_zoomed: bool = False   # True after any manual wheel/key zoom
+        self._wheel_zoom_accum: float = 0.0
         self._use_obb: bool = use_obb     # True = OBB mode, False = BBox mode
         self._show_class_names: bool = True
         self._accentuate_boxes: bool = False
@@ -113,7 +116,22 @@ class AnnotationCanvas(QGraphicsView):
     def fit_in_view(self) -> None:
         if self._image_item:
             self._user_zoomed = False
+            self._wheel_zoom_accum = 0.0
             self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def zoom_in(self) -> None:
+        if self._image_item is None:
+            return
+        self._user_zoomed = True
+        center = self.viewport().rect().center()
+        self._zoom_at_viewport_pos(center, _ZOOM_FACTOR)
+
+    def zoom_out(self) -> None:
+        if self._image_item is None:
+            return
+        self._user_zoomed = True
+        center = self.viewport().rect().center()
+        self._zoom_at_viewport_pos(center, 1.0 / _ZOOM_FACTOR)
 
     # ------------------------------------------------------------------
     # Label management
@@ -400,10 +418,10 @@ class AnnotationCanvas(QGraphicsView):
             self.fit_in_view()
 
         elif key in (Qt.Key.Key_Equal, Qt.Key.Key_Plus):
-            self.scale(_ZOOM_FACTOR, _ZOOM_FACTOR)
+            self.zoom_in()
 
         elif key == Qt.Key.Key_Minus:
-            self.scale(1.0 / _ZOOM_FACTOR, 1.0 / _ZOOM_FACTOR)
+            self.zoom_out()
 
         elif key == Qt.Key.Key_0 and mod == Qt.KeyboardModifier.ControlModifier:
             self.resetTransform()
@@ -428,22 +446,58 @@ class AnnotationCanvas(QGraphicsView):
     # ------------------------------------------------------------------
 
     def wheelEvent(self, event: QWheelEvent) -> None:
+        if self._image_item is None:
+            event.ignore()
+            return
+
+        angle_y = event.angleDelta().y()
+        steps = 0
+
+        if angle_y:
+            steps = int(angle_y / 120)
+            if steps == 0:
+                steps = 1 if angle_y > 0 else -1
+        else:
+            pixel_y = event.pixelDelta().y()
+            if not pixel_y:
+                event.accept()
+                return
+            # Smooth high-resolution trackpad deltas into wheel-like zoom steps.
+            self._wheel_zoom_accum += pixel_y / 40.0
+            steps = int(self._wheel_zoom_accum)
+            if steps == 0:
+                event.accept()
+                return
+            self._wheel_zoom_accum -= steps
+
+        factor = (_ZOOM_FACTOR ** steps) if steps > 0 else ((1.0 / _ZOOM_FACTOR) ** (-steps))
         self._user_zoomed = True
-        factor = _ZOOM_FACTOR if event.angleDelta().y() > 0 else 1.0 / _ZOOM_FACTOR
+        self._zoom_at_viewport_pos(event.position().toPoint(), factor)
+        event.accept()
 
-        # Pin the scene point currently under the cursor.
-        # Using NoAnchor + manual translate is more reliable than AnchorUnderMouse
-        # because the latter fights with scrollbar geometry changes, causing jumps.
-        cursor_vp = event.position().toPoint()
+    def _zoom_at_viewport_pos(self, cursor_vp: QPoint, factor: float) -> None:
+        if self._image_item is None:
+            return
+
+        current_scale = self.transform().m11()
+        if current_scale <= 0.0:
+            return
+
+        target_scale = current_scale * factor
+        if target_scale < _MIN_ZOOM:
+            factor = _MIN_ZOOM / current_scale
+        elif target_scale > _MAX_ZOOM:
+            factor = _MAX_ZOOM / current_scale
+
+        if abs(factor - 1.0) < 1e-6:
+            return
+
+        # Keep the same scene point pinned under the cursor while scaling.
         old_scene_pos = self.mapToScene(cursor_vp)
-
-        self.scale(factor, factor)  # NoAnchor: no automatic adjustment
-
-        # Translate to keep the same scene point under the cursor
+        self.scale(factor, factor)
         new_scene_pos = self.mapToScene(cursor_vp)
         delta = new_scene_pos - old_scene_pos
         self.translate(delta.x(), delta.y())
-        event.accept()
 
     # ------------------------------------------------------------------
     # Delete selected

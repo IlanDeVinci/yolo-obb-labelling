@@ -149,6 +149,11 @@ class ProjectStoragePayload(BaseModel):
     storageMode: str = Field(pattern="^(auto|db|s3)$")
 
 
+class AdminImageDeletePayload(BaseModel):
+    paths: list[str] = Field(default_factory=list)
+    deleteLabels: bool = True
+
+
 @dataclass
 class SessionContext:
     token: str
@@ -607,6 +612,64 @@ def _db_file_exists(project_id: str, path: str) -> bool:
     return not bool(row["deleted"])
 
 
+def _estimate_b64_size_bytes(content_b64: str) -> int:
+    raw = str(content_b64 or "")
+    if not raw:
+        return 0
+    pad = 0
+    if raw.endswith("=="):
+        pad = 2
+    elif raw.endswith("="):
+        pad = 1
+    return max(0, (len(raw) * 3) // 4 - pad)
+
+
+def _label_paths_for_image(image_path: str) -> list[str]:
+    normalized = str(image_path or "").strip().replace("\\", "/")
+    parts = [p for p in normalized.split("/") if p]
+    if not parts:
+        return []
+
+    filename = parts[-1]
+    stem = Path(filename).stem
+    if not stem:
+        return []
+
+    label_name = f"{stem}.txt"
+    for idx, part in enumerate(parts):
+        if part.lower() == "images":
+            prefix = parts[:idx]
+            suffix = parts[idx + 1:-1]
+            label_root = [*prefix, "labels", *suffix]
+            return [
+                "/".join([*label_root, label_name]),
+                "/".join([*label_root, "BB", label_name]),
+                "/".join([*label_root, "OBB", label_name]),
+            ]
+
+    return [f"labels/{label_name}", f"labels/BB/{label_name}", f"labels/OBB/{label_name}"]
+
+
+def _record_deleted_file(project_id: str, *, username: str, source_token: str, path: str, mtime_ms: int) -> None:
+    _CONN.execute(
+        """
+        INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
+        VALUES (?, ?, 1, ?, '', '', ?)
+        ON CONFLICT(project_id, path) DO UPDATE SET
+          deleted=1,
+          mtime_ms=excluded.mtime_ms,
+          sha1='',
+          content_base64='',
+          updated_at=excluded.updated_at
+        """,
+        (project_id, path, mtime_ms, mtime_ms),
+    )
+    _CONN.execute(
+        "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 1, ?, '', '', ?)",
+        (project_id, username, source_token, path, mtime_ms, mtime_ms),
+    )
+
+
 def _cleanup_stale_sessions() -> None:
     cutoff = _now_ms() - SESSION_TTL_SECONDS * 1000
     with _db_lock:
@@ -720,6 +783,7 @@ def public_info() -> dict[str, Any]:
         "cloudfrontBaseUrl": CLOUDFRONT_BASE_URL,
         "signedUrlTtlSeconds": SIGNED_URL_TTL_SECONDS,
         "sessionTtlSeconds": SESSION_TTL_SECONDS,
+        "backupDir": str(BACKUP_DIR),
         "backupRetentionDays": BACKUP_RETENTION_DAYS,
     }
 
@@ -1567,6 +1631,183 @@ async def admin_upload_zip(
     }
 
 
+@app.get("/api/admin/images")
+def admin_list_images(
+    sortBy: str = "path",
+    order: str = "asc",
+    limit: int = 5000,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    sort_key = str(sortBy or "path").strip().lower()
+    sort_key = sort_key if sort_key in {"path", "size", "mtime"} else "path"
+    sort_order = str(order or "asc").strip().lower()
+    sort_order = sort_order if sort_order in {"asc", "desc"} else "asc"
+    safe_limit = max(1, min(int(limit or 5000), 20000))
+
+    rows = _CONN.execute(
+        "SELECT path, mtime_ms, updated_at, content_base64 FROM files WHERE project_id = ? AND deleted = 0 ORDER BY path ASC",
+        (session.project_id,),
+    ).fetchall()
+
+    s3_meta: dict[str, tuple[int, int]] = {}
+    try:
+        if _project_uses_s3_images(session.project_id):
+            manifest = _s3_list_project_images(session.project_id)
+            s3_meta = {
+                str(item.get("path") or ""): (int(item.get("size") or 0), int(item.get("lastModified") or 0))
+                for item in manifest
+                if str(item.get("path") or "")
+            }
+    except Exception:
+        s3_meta = {}
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        path = str(row["path"] or "")
+        if not path or not _is_image_path(path):
+            continue
+
+        size_bytes, modified_ms = s3_meta.get(path, (0, int(row["mtime_ms"] or 0)))
+        if size_bytes <= 0:
+            size_bytes = _estimate_b64_size_bytes(str(row["content_base64"] or ""))
+
+        items.append(
+            {
+                "path": path,
+                "name": Path(path).name,
+                "sizeBytes": int(size_bytes),
+                "mtimeMs": int(modified_ms),
+                "updatedAt": int(row["updated_at"] or 0),
+            }
+        )
+
+    if sort_key == "size":
+        items.sort(key=lambda v: (int(v["sizeBytes"]), str(v["path"]).lower()), reverse=(sort_order == "desc"))
+    elif sort_key == "mtime":
+        items.sort(key=lambda v: (int(v["mtimeMs"]), str(v["path"]).lower()), reverse=(sort_order == "desc"))
+    else:
+        items.sort(key=lambda v: str(v["path"]).lower(), reverse=(sort_order == "desc"))
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "sortBy": sort_key,
+        "order": sort_order,
+        "count": len(items),
+        "items": items[:safe_limit],
+    }
+
+
+@app.post("/api/admin/images/delete")
+def admin_delete_images(
+    payload: AdminImageDeletePayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    requested_paths = payload.paths or []
+    if not requested_paths:
+        raise HTTPException(status_code=400, detail="paths is required")
+
+    delete_labels = bool(payload.deleteLabels)
+    unique_images: list[str] = []
+    seen: set[str] = set()
+    for raw in requested_paths:
+        path = _normalize_path(str(raw or ""))
+        if not _is_image_path(path):
+            raise HTTPException(status_code=400, detail=f"Not an image path: {path}")
+        if path in seen:
+            continue
+        seen.add(path)
+        unique_images.append(path)
+
+    use_s3_for_image = _project_uses_s3_images(session.project_id)
+    failed_s3: list[dict[str, str]] = []
+    affected: set[str] = set()
+
+    with _db_lock:
+        now = _now_ms()
+        for image_path in unique_images:
+            if use_s3_for_image:
+                try:
+                    _s3_delete_image(session.project_id, image_path)
+                except (BotoCoreError, ClientError, Exception) as exc:
+                    failed_s3.append({"path": image_path, "error": str(exc)})
+                    continue
+
+            delete_paths = [image_path]
+            if delete_labels:
+                delete_paths.extend(_label_paths_for_image(image_path))
+
+            for path in delete_paths:
+                if path in affected:
+                    continue
+                affected.add(path)
+                _record_deleted_file(
+                    session.project_id,
+                    username=session.username,
+                    source_token=session.token,
+                    path=path,
+                    mtime_ms=now,
+                )
+
+            _CONN.execute(
+                "DELETE FROM image_status WHERE project_id = ? AND image_name = ?",
+                (session.project_id, Path(image_path).name),
+            )
+
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "requested": len(unique_images),
+        "deletedImageCount": len(unique_images) - len(failed_s3),
+        "deletedFileRecords": len(affected),
+        "deleteLabels": delete_labels,
+        "failedS3": failed_s3,
+    }
+
+
+@app.post("/api/admin/labels/purge-mode-files")
+def admin_purge_mode_label_files(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
+    rows = _CONN.execute(
+        "SELECT path FROM files WHERE project_id = ? AND deleted = 0",
+        (session.project_id,),
+    ).fetchall()
+
+    to_delete: list[str] = []
+    for row in rows:
+        path = str(row["path"] or "")
+        lower = path.lower()
+        if not lower.endswith(".txt"):
+            continue
+        if "/labels/" not in lower:
+            continue
+        if "/bb/" not in lower and "/obb/" not in lower:
+            continue
+        to_delete.append(path)
+
+    if not to_delete:
+        return {"ok": True, "projectId": session.project_id, "purged": 0}
+
+    with _db_lock:
+        now = _now_ms()
+        for path in to_delete:
+            _record_deleted_file(
+                session.project_id,
+                username=session.username,
+                source_token=session.token,
+                path=path,
+                mtime_ms=now,
+            )
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "purged": len(to_delete),
+    }
+
+
 # -------------------------
 # Locks + sync
 # -------------------------
@@ -1740,6 +1981,13 @@ def sync_upsert(
                     now,
                 ),
             )
+            if item.deleted and is_image:
+                image_name = Path(path).name.strip()
+                if image_name:
+                    _CONN.execute(
+                        "DELETE FROM image_status WHERE project_id = ? AND image_name = ?",
+                        (session.project_id, image_name),
+                    )
             applied += 1
 
         _CONN.commit()
@@ -1856,6 +2104,9 @@ def sync_status(session: SessionContext = Depends(_auth_from_header)) -> dict[st
         "username": session.username,
         "role": session.role,
         "isAdmin": session.is_admin,
+        "dailyBackupEnabled": True,
+        "backupDir": str(BACKUP_DIR),
+        "backupRetentionDays": BACKUP_RETENTION_DAYS,
         "imageAccessMode": _get_project_image_access_mode(session.project_id),
         "activeFile": session.active_file,
         "onlineUsers": int(users_online_row["c"] if users_online_row else 0),
