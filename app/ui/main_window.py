@@ -668,6 +668,15 @@ class MainWindow(QMainWindow):
         if provider is None:
             raise RuntimeError("Image provider is unavailable")
 
+        # Hybrid mode should always open local image files when they exist.
+        # This prevents CloudFront/S3 fetch attempts for legacy local-only images.
+        if self._cloud_image_access_mode == "hybrid":
+            try:
+                if virtual_path.exists() and virtual_path.is_file():
+                    return virtual_path
+            except Exception:
+                pass
+
         progress = QProgressDialog("Downloading image...", None, 0, 100, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
@@ -685,6 +694,14 @@ class MainWindow(QMainWindow):
         try:
             local_path = provider.resolve_for_open(virtual_path, progress_callback=on_progress)
             return local_path
+        except Exception:
+            if self._cloud_image_access_mode == "hybrid":
+                try:
+                    if virtual_path.exists() and virtual_path.is_file():
+                        return virtual_path
+                except Exception:
+                    pass
+            raise
         finally:
             progress.close()
 
@@ -1827,7 +1844,9 @@ class MainWindow(QMainWindow):
                 self._load_folder_into_ui(dataset_folder)
 
             self._update_window_title()
-            self._project_mgr.save_current()
+            if self._should_write_project_json():
+                self._project_mgr.save_current()
+            self._project_mgr.save_user_state()
 
     def _save_current(self) -> None:
         """Save labels and project state."""
@@ -1862,7 +1881,8 @@ class MainWindow(QMainWindow):
             project.current_index = self._image_mgr.current_index
             project.class_names = self._class_panel.class_names()
             project.use_obb = self._use_obb
-            self._project_mgr.save_current()
+            if self._should_write_project_json():
+                self._project_mgr.save_current()
             self._project_mgr.save_user_state()
             self._lbl_hint.setText("Sauvegarde effectuee")
         else:
@@ -1875,7 +1895,8 @@ class MainWindow(QMainWindow):
             project.current_index = self._image_mgr.current_index
             project.class_names = self._class_panel.class_names()
             project.use_obb = self._use_obb
-            self._project_mgr.save_current()
+            if self._should_write_project_json():
+                self._project_mgr.save_current()
             self._project_mgr.save_user_state()
 
     def _get_image_completion_status(self, image_path: Path) -> str:
@@ -2029,6 +2050,10 @@ class MainWindow(QMainWindow):
     def _schedule_project_autosave(self) -> None:
         """Schedule a project auto-save."""
         self._project_autosave_timer.start()
+
+    def _should_write_project_json(self) -> bool:
+        # In strict cloud-only mode, avoid routine rewrites of tracked project json files.
+        return not self._is_strict_cloud_remote_mode()
 
     def _update_window_title(self) -> None:
         """Update window title with project name."""

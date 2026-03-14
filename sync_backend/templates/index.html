@@ -67,7 +67,14 @@
 
                 <div class="cards" id="summaryCards"></div>
 
-                <div class="panel-flat">
+                <nav class="dash-nav" id="dashNav">
+                    <button type="button" class="secondary nav-btn" data-page="overview">Overview</button>
+                    <button type="button" class="secondary nav-btn" data-page="activity">Activity</button>
+                    <button type="button" class="secondary nav-btn" data-page="uploads">Uploads</button>
+                    <button type="button" class="secondary nav-btn admin-only" data-page="admin">Admin</button>
+                </nav>
+
+                <div class="panel-flat" data-page="activity">
                     <h3>Recent Modifications</h3>
                     <table>
                         <thead>
@@ -87,17 +94,17 @@
                     </table>
                 </div>
 
-                <div class="panel-flat">
+                <div class="panel-flat" data-page="overview">
                     <h3>Account</h3>
                     <div class="row">
                         <button id="deleteSelfBtn" class="danger" type="button">Delete My User</button>
                     </div>
                 </div>
 
-                <div id="adminPanel" class="panel-flat hidden">
-                    <h3>Admin</h3>
+                <div id="adminPanel" class="panel-flat hidden" data-page="uploads">
+                    <h3>Project Workspace</h3>
 
-                    <div class="grid-2">
+                    <div class="grid-2 admin-only" data-page="admin">
                         <div class="stack">
                             <h4>Create User</h4>
                             <label>Username<input id="newUser" placeholder="new username" /></label>
@@ -130,8 +137,8 @@
                         </div>
                     </div>
 
-                    <h4>Users</h4>
-                    <table>
+                    <h4 class="admin-only" data-page="admin">Users</h4>
+                    <table class="admin-only" data-page="admin">
                         <thead>
                             <tr>
                                 <th>Username</th>
@@ -148,8 +155,8 @@
                         </tbody>
                     </table>
 
-                    <h4>Project Image Upload</h4>
-                    <div class="stack uploader-shell">
+                    <h4 data-page="uploads">Project Image Upload</h4>
+                    <div class="stack uploader-shell" data-page="uploads">
                         <p class="muted small">Drag and drop image files or folders here, then upload into this project.
                         </p>
                         <p id="uploadProjectBadge" class="project-badge">Uploading into: (not connected)</p>
@@ -238,6 +245,7 @@
         const summaryCards = document.getElementById('summaryCards');
         const changesBody = document.getElementById('changesBody');
         const usersBody = document.getElementById('usersBody');
+        const dashNav = document.getElementById('dashNav');
         const uploadDropZone = document.getElementById('uploadDropZone');
         const uploadQueueBody = document.getElementById('uploadQueueBody');
         const uploadSummary = document.getElementById('uploadSummary');
@@ -261,6 +269,7 @@
         let isAdmin = false;
         let requireProjectPassword = false;
         let refreshTimer = null;
+        let activeDashPage = 'uploads';
         let uploadQueue = [];
         let selectedZipFile = null;
         let autoSyncAfterFolderPick = false;
@@ -280,6 +289,26 @@
         function setLoggedInState(loggedIn) {
             authPanel.classList.toggle('hidden', loggedIn);
             dashboardPanel.classList.toggle('hidden', !loggedIn);
+        }
+
+        function setDashboardPage(page) {
+            const allowed = new Set(['overview', 'activity', 'uploads', 'admin']);
+            let next = allowed.has(page) ? page : 'uploads';
+            if (!isAdmin && next === 'admin') {
+                next = 'uploads';
+            }
+            activeDashPage = next;
+
+            const sections = Array.from(document.querySelectorAll('#dashboardPanel [data-page]'));
+            for (const section of sections) {
+                const target = String(section.getAttribute('data-page') || '').trim();
+                const isNavButton = section.classList.contains('nav-btn');
+                if (isNavButton) {
+                    section.classList.toggle('active', target === next);
+                    continue;
+                }
+                section.classList.toggle('hidden', target !== next);
+            }
         }
 
         function refreshUploadProjectBadge() {
@@ -451,8 +480,8 @@
                 resetConflictReport();
                 return { existing: 0, changedSize: 0, changedHash: 0 };
             }
-            if (!token || !isAdmin) {
-                setMessage('Admin login is required to analyze conflicts.', true);
+            if (!token) {
+                setMessage('Login is required to analyze conflicts.', true);
                 return { existing: 0, changedSize: 0, changedHash: 0 };
             }
 
@@ -601,8 +630,8 @@
                 setMessage('Upload queue is empty.', true);
                 return;
             }
-            if (!token || !isAdmin) {
-                setMessage('Admin login is required to upload images.', true);
+            if (!token) {
+                setMessage('Login is required to upload images.', true);
                 return;
             }
             if (!currentProjectId) {
@@ -658,8 +687,8 @@
         }
 
         async function syncEntireLocalFolder() {
-            if (!token || !isAdmin) {
-                setMessage('Admin login is required to sync local folder.', true);
+            if (!token) {
+                setMessage('Login is required to sync local folder.', true);
                 return;
             }
             autoSyncAfterFolderPick = true;
@@ -671,8 +700,8 @@
                 setMessage('Pick a zip archive first.', true);
                 return;
             }
-            if (!token || !isAdmin) {
-                setMessage('Admin login is required to upload zip archives.', true);
+            if (!token) {
+                setMessage('Login is required to upload zip archives.', true);
                 return;
             }
             if (!currentProjectId) {
@@ -732,7 +761,12 @@
 
                 role = status.role || summary.role || '';
                 isAdmin = !!status.isAdmin;
-                adminPanel.classList.toggle('hidden', !isAdmin);
+                adminPanel.classList.toggle('hidden', false);
+                document.body.classList.toggle('is-admin', isAdmin);
+                if (!isAdmin && activeDashPage === 'admin') {
+                    activeDashPage = 'uploads';
+                }
+                setDashboardPage(activeDashPage);
 
                 renderSummary(summary, status);
                 renderChanges(changes.changes || []);
@@ -760,6 +794,7 @@
             token = '';
             role = '';
             isAdmin = false;
+            document.body.classList.remove('is-admin');
             currentUser = '';
             currentProjectId = '';
             refreshUploadProjectBadge();
@@ -836,6 +871,14 @@
 
         document.getElementById('refreshBtn').addEventListener('click', () => refreshAll(false));
         document.getElementById('logoutBtn').addEventListener('click', () => handleLogout());
+
+        dashNav.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!target || !(target instanceof HTMLElement)) return;
+            if (!target.matches('button[data-page]')) return;
+            const page = target.getAttribute('data-page') || 'uploads';
+            setDashboardPage(page);
+        });
 
         document.getElementById('createUserBtn').addEventListener('click', async () => {
             try {
@@ -1003,6 +1046,7 @@
         async function init() {
             setLoggedInState(false);
             refreshUploadProjectBadge();
+            setDashboardPage(activeDashPage);
             try {
                 const info = await api('/api/public/info');
                 requireProjectPassword = !!info.requireProjectPassword;

@@ -1190,9 +1190,6 @@ def get_signed_image_write_url(
     payload: SignedWritePayload,
     session: SessionContext = Depends(_auth_from_header),
 ) -> dict[str, Any]:
-    if session.role not in {"owner", "admin"}:
-        raise HTTPException(status_code=403, detail="Only admin/owner can request image upload URLs")
-
     _ensure_s3_image_mode(session)
     normalized = _normalize_path(payload.path)
     if not _is_image_path(normalized):
@@ -1340,7 +1337,7 @@ async def admin_upload_image(
     path: str = Form(""),
     expected_project_id: str = Form(""),
     overwrite: str = Form("0"),
-    session: SessionContext = Depends(_admin_only),
+    session: SessionContext = Depends(_auth_from_header),
 ) -> dict[str, Any]:
     expected = str(expected_project_id or "").strip()
     if expected and expected != session.project_id:
@@ -1417,7 +1414,7 @@ async def admin_upload_zip(
     target_prefix: str = Form(""),
     expected_project_id: str = Form(""),
     overwrite: str = Form("0"),
-    session: SessionContext = Depends(_admin_only),
+    session: SessionContext = Depends(_auth_from_header),
 ) -> dict[str, Any]:
     expected = str(expected_project_id or "").strip()
     if expected and expected != session.project_id:

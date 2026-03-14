@@ -102,6 +102,29 @@ h4 {
   margin: 14px 0;
 }
 
+.dash-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 14px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f7faff;
+}
+
+.nav-btn {
+  border: 1px solid #d0ddeb;
+  background: #eef4fb;
+  color: #26405e;
+}
+
+.nav-btn.active {
+  background: linear-gradient(130deg, var(--accent), var(--accent-2));
+  color: #fff;
+  border-color: transparent;
+}
+
 .card-mini {
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -271,6 +294,26 @@ th {
 
 .msg.err {
   color: var(--danger);
+}
+
+.admin-only {
+  display: none;
+}
+
+body.is-admin .admin-only {
+  display: block;
+}
+
+body.is-admin .grid-2.admin-only {
+  display: grid;
+}
+
+body.is-admin table.admin-only {
+  display: table;
+}
+
+body.is-admin .dash-nav .admin-only {
+  display: inline-flex;
 }
 
 @media (max-width: 980px) {
