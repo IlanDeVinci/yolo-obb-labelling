@@ -1,0 +1,21 @@
+services:
+  yolo-sync-backend:
+    build: .
+    container_name: yolo-sync-backend
+    expose:
+      - "8095"
+    environment:
+      - SYNC_DB_PATH=/data/sync.db
+      - SYNC_BACKUP_DIR=/data/backups
+      - SYNC_SESSION_TTL_SECONDS=45
+      - SYNC_BACKUP_RETENTION_DAYS=14
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    networks:
+      - default
+      - proxy_net
+
+networks:
+  proxy_net:
+    external: true

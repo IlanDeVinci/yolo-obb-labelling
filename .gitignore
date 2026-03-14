@@ -6,3 +6,4 @@ projets/**/.local/
 /detection_models
 **/datasets/*
 **/enrich_images/*
+projets/**/.sync/

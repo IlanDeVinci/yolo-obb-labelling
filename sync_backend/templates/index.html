@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>YOLO Sync Backend</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+
+<body>
+    <main class="page">
+        <section class="card">
+            <h1>YOLO Sync Backend</h1>
+            <p class="muted">Project auth, per-file locks, change feed, and backups.</p>
+
+            <div id="bootstrapBox" class="stack hidden">
+                <h2>Bootstrap First Project</h2>
+                <input id="bootProject" placeholder="Project ID" />
+                <input id="bootProjectPassword" placeholder="Project Password" type="password" />
+                <input id="bootUser" placeholder="Admin Username" />
+                <input id="bootPass" placeholder="Admin Password" type="password" />
+                <button id="bootBtn">Create Project + Admin</button>
+            </div>
+
+            <div class="stack">
+                <h2>Login</h2>
+                <input id="projectId" placeholder="Project ID" />
+                <input id="projectPassword" placeholder="Project Password" type="password" />
+                <input id="username" placeholder="Username" />
+                <input id="password" placeholder="Password" type="password" />
+                <button id="loginBtn">Login</button>
+                <button id="logoutBtn" class="secondary">Logout</button>
+            </div>
+
+            <div class="stack">
+                <h2>Status</h2>
+                <button id="statusBtn" class="secondary">Refresh Status</button>
+                <pre id="statusOut">Not connected.</pre>
+            </div>
+
+            <div id="adminBox" class="stack hidden">
+                <h2>Admin</h2>
+                <input id="newUser" placeholder="New Username" />
+                <input id="newPass" placeholder="New Password" type="password" />
+                <label class="inline"><input id="newIsAdmin" type="checkbox" /> Admin user</label>
+                <button id="createUserBtn">Create User</button>
+                <button id="listUsersBtn" class="secondary">List Users</button>
+                <button id="backupBtn" class="secondary">Run Backup Now</button>
+                <pre id="adminOut">No admin actions yet.</pre>
+            </div>
+
+            <p id="msg" class="msg"></p>
+        </section>
+    </main>
+
+    <script>
+        const msg = document.getElementById('msg');
+        const statusOut = document.getElementById('statusOut');
+        const adminOut = document.getElementById('adminOut');
+        const adminBox = document.getElementById('adminBox');
+        const bootstrapBox = document.getElementById('bootstrapBox');
+
+        let token = localStorage.getItem('syncToken') || '';
+        let isAdmin = false;
+
+        function setMessage(text, isError = false) {
+            msg.textContent = text || '';
+            msg.className = isError ? 'msg err' : 'msg';
+        }
+
+        async function api(path, method = 'GET', body = null) {
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(path, {
+                method,
+                headers,
+                body: body ? JSON.stringify(body) : null,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const detail = data.detail || data.error || `HTTP ${res.status}`;
+                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            }
+            return data;
+        }
+
+        async function init() {
+            try {
+                const info = await api('/api/public/info');
+                bootstrapBox.classList.toggle('hidden', info.hasProjects);
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+            if (token) refreshStatus();
+        }
+
+        async function refreshStatus() {
+            try {
+                const data = await api('/api/sync/status');
+                statusOut.textContent = JSON.stringify(data, null, 2);
+            } catch (e) {
+                statusOut.textContent = `Status error: ${e.message}`;
+            }
+        }
+
+        document.getElementById('bootBtn').addEventListener('click', async () => {
+            try {
+                const payload = {
+                    projectId: document.getElementById('bootProject').value.trim(),
+                    projectPassword: document.getElementById('bootProjectPassword').value,
+                    username: document.getElementById('bootUser').value.trim(),
+                    password: document.getElementById('bootPass').value,
+                };
+                const data = await api('/api/admin/bootstrap', 'POST', payload);
+                setMessage(`Bootstrap complete for ${data.projectId}`);
+                bootstrapBox.classList.add('hidden');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('loginBtn').addEventListener('click', async () => {
+            try {
+                const payload = {
+                    projectId: document.getElementById('projectId').value.trim(),
+                    projectPassword: document.getElementById('projectPassword').value,
+                    username: document.getElementById('username').value.trim(),
+                    password: document.getElementById('password').value,
+                };
+                const data = await api('/api/auth/login', 'POST', payload);
+                token = data.token;
+                isAdmin = !!data.isAdmin;
+                localStorage.setItem('syncToken', token);
+                adminBox.classList.toggle('hidden', !isAdmin);
+                setMessage(`Logged in as ${data.username}`);
+                refreshStatus();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('logoutBtn').addEventListener('click', async () => {
+            try {
+                if (token) await api('/api/auth/logout', 'POST');
+            } catch (e) {
+                console.warn(e);
+            }
+            token = '';
+            isAdmin = false;
+            localStorage.removeItem('syncToken');
+            adminBox.classList.add('hidden');
+            setMessage('Logged out.');
+            statusOut.textContent = 'Not connected.';
+        });
+
+        document.getElementById('statusBtn').addEventListener('click', refreshStatus);
+
+        document.getElementById('createUserBtn').addEventListener('click', async () => {
+            try {
+                const payload = {
+                    username: document.getElementById('newUser').value.trim(),
+                    password: document.getElementById('newPass').value,
+                    isAdmin: !!document.getElementById('newIsAdmin').checked,
+                };
+                const data = await api('/api/admin/users', 'POST', payload);
+                adminOut.textContent = JSON.stringify(data, null, 2);
+                setMessage('User created');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('listUsersBtn').addEventListener('click', async () => {
+            try {
+                const data = await api('/api/admin/users');
+                adminOut.textContent = JSON.stringify(data, null, 2);
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('backupBtn').addEventListener('click', async () => {
+            try {
+                const data = await api('/api/admin/backup-now', 'POST');
+                adminOut.textContent = JSON.stringify(data, null, 2);
+                setMessage('Backup created');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        init();
+    </script>
+</body>
+
+</html>

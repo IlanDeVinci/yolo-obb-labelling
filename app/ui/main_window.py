@@ -47,6 +47,10 @@ from app.ui.dialogs.project_dialog import (
     TeamManagerDialog,
     ProjectSettingsDialog,
 )
+from app.ui.dialogs.cloud_sync_dialog import (
+    CloudSyncSettingsDialog,
+    CloudSyncStatusDialog,
+)
 from app.inference.yolo_predictor import (
     YoloPredictor,
     labels_from_result,
@@ -55,6 +59,7 @@ from app.inference.yolo_predictor import (
     is_inference_available,
 )
 from app.utils.image_io import prepare_inference_source, cleanup_inference_source
+from app.sync.realtime_sync import CloudSyncConfig, RealtimeSyncAgent
 
 
 class MainWindow(QMainWindow):
@@ -99,6 +104,7 @@ class MainWindow(QMainWindow):
 
         # Persisted settings (app-level, not project-level)
         self._settings = QSettings("YoloLabeller", "App")
+        self._cloud_sync_settings = self._load_cloud_sync_settings()
 
         # Get use_obb from current project or default
         self._use_obb: bool = True  # Will be updated from project
@@ -112,6 +118,13 @@ class MainWindow(QMainWindow):
         self._model_conf: float = 0.7
         self._model_class_filter: list[int] = []
         self._syncing_label_selection: bool = False
+        self._sync_agent = None
+        self._sync_status_cache: dict[str, object] = {}
+
+        self._sync_status_timer = QTimer(self)
+        self._sync_status_timer.setInterval(1000)
+        self._sync_status_timer.timeout.connect(self._refresh_sync_indicator)
+        self._sync_status_timer.start()
 
         # Build UI
         self._build_ui()
@@ -209,6 +222,14 @@ class MainWindow(QMainWindow):
 
         act = QAction("&Parametres du Projet...", self)
         act.triggered.connect(self._project_settings)
+        proj_menu.addAction(act)
+
+        act = QAction("Cloud Sync Settings...", self)
+        act.triggered.connect(self._open_cloud_sync_settings)
+        proj_menu.addAction(act)
+
+        act = QAction("Cloud Sync Status...", self)
+        act.triggered.connect(self._show_cloud_sync_status)
         proj_menu.addAction(act)
 
         proj_menu.addSeparator()
@@ -499,6 +520,10 @@ class MainWindow(QMainWindow):
         self._lbl_hint = QLabel("")
         sb.addWidget(self._lbl_hint)
 
+        self._lbl_sync = QLabel("SYNC: off")
+        self._lbl_sync.setStyleSheet("padding: 0 8px; color: #de7f7f;")
+        sb.addPermanentWidget(self._lbl_sync)
+
     # ------------------------------------------------------------------
     # Signal wiring
     # ------------------------------------------------------------------
@@ -559,6 +584,7 @@ class MainWindow(QMainWindow):
     def _load_current_image(self) -> None:
         path = self._image_mgr.current_image
         if path is None:
+            self._update_sync_active_file_lock()
             return
 
         # Stop any pending autosave for the previous image
@@ -578,6 +604,7 @@ class MainWindow(QMainWindow):
 
         # Persist the new index
         self._schedule_project_autosave()
+        self._update_sync_active_file_lock()
 
     def _maybe_save_before_leaving(self) -> bool:
         """Prompt to save if dirty. Returns False if user cancelled."""
@@ -704,6 +731,7 @@ class MainWindow(QMainWindow):
             self._model_class_filter = list(project.model_class_filter)
 
             self._apply_project_to_ui(project)
+            self._start_project_sync_if_enabled()
             self._lbl_hint.setText(f"Projet '{project.name}' restaure")
             QTimer.singleShot(0, self._prompt_team_member_on_startup)
         except Exception:  # noqa: BLE001 — never crash on auto-restore
@@ -827,6 +855,7 @@ class MainWindow(QMainWindow):
             return
 
         project = self._project_mgr.create_project(dlg.project_name)
+        self._stop_project_sync()
         self._update_window_title()
         self._settings.setValue("recent/project_file", str(self._project_mgr.current_path))
 
@@ -847,6 +876,7 @@ class MainWindow(QMainWindow):
 
             # Load the (empty) images folder
             self._load_folder_into_ui(images_folder)
+            self._start_project_sync_if_enabled()
 
         self._lbl_hint.setText(f"Projet '{project.name}' cree - ajoutez des images via Projet > Importer des images")
 
@@ -1029,9 +1059,132 @@ class MainWindow(QMainWindow):
         self._update_model_indicator()
 
         self._settings.setValue("recent/project_file", str(dlg.selected_path))
+        self._stop_project_sync()
         self._apply_project_to_ui(project)
+        self._start_project_sync_if_enabled()
         self._lbl_hint.setText(f"Projet '{project.name}' ouvert")
         QTimer.singleShot(0, self._prompt_team_member_on_startup)
+
+    def _start_project_sync_if_enabled(self) -> None:
+        """Start background project sync using GUI cloud settings."""
+        project_folder = self._project_mgr.get_project_folder()
+        if not project_folder:
+            return
+
+        self._stop_project_sync()
+        config = CloudSyncConfig(
+            enabled=bool(self._cloud_sync_settings.get("enabled", False)),
+            server_url=str(self._cloud_sync_settings.get("server_url", "")),
+            project_id=str(self._cloud_sync_settings.get("project_id", "")),
+            project_password=str(self._cloud_sync_settings.get("project_password", "")),
+            username=str(self._cloud_sync_settings.get("username", "")),
+            user_password=str(self._cloud_sync_settings.get("user_password", "")),
+            poll_seconds=float(self._cloud_sync_settings.get("poll_seconds", 1.2) or 1.2),
+        )
+        if not config.is_valid():
+            self._sync_status_cache = {
+                "connected": False,
+                "lastError": "Cloud sync is not configured.",
+            }
+            self._refresh_sync_indicator()
+            return
+
+        try:
+            agent = RealtimeSyncAgent(
+                project_root=project_folder,
+                config=config,
+                status_callback=self._on_sync_status_update,
+            )
+            agent.start()
+            self._sync_agent = agent
+            self._update_sync_active_file_lock()
+            self._lbl_hint.setText("Cloud sync started")
+        except Exception as exc:  # noqa: BLE001
+            self._sync_agent = None
+            self._sync_status_cache = {
+                "connected": False,
+                "lastError": str(exc),
+            }
+            self._refresh_sync_indicator()
+            self._lbl_hint.setText(f"Sync unavailable: {exc}")
+
+    def _stop_project_sync(self) -> None:
+        agent = self._sync_agent
+        self._sync_agent = None
+        if agent is None:
+            return
+        try:
+            agent.stop()
+        except Exception:
+            pass
+
+    def _on_sync_status_update(self, status: dict[str, object]) -> None:
+        self._sync_status_cache = dict(status)
+
+    def _refresh_sync_indicator(self) -> None:
+        status = self._sync_status_cache or {}
+        connected = bool(status.get("connected", False))
+        if not connected:
+            error = str(status.get("lastError", "")).strip()
+            self._lbl_sync.setText("SYNC: off" if not error else "SYNC: error")
+            self._lbl_sync.setStyleSheet("padding: 0 8px; color: #de7f7f;")
+            return
+
+        users = int(status.get("onlineUsers", 0) or 0)
+        active = str(status.get("activeFile", "")).strip()
+        suffix = f" [{Path(active).name}]" if active else ""
+        self._lbl_sync.setText(f"SYNC: live ({users} online){suffix}")
+        self._lbl_sync.setStyleSheet("padding: 0 8px; color: #86cc9f;")
+
+    def _load_cloud_sync_settings(self) -> dict[str, object]:
+        return {
+            "enabled": self._settings.value("cloud_sync/enabled", False, type=bool),
+            "server_url": self._settings.value("cloud_sync/server_url", "", type=str),
+            "project_id": self._settings.value("cloud_sync/project_id", "", type=str),
+            "project_password": self._settings.value("cloud_sync/project_password", "", type=str),
+            "username": self._settings.value("cloud_sync/username", "", type=str),
+            "user_password": self._settings.value("cloud_sync/user_password", "", type=str),
+            "poll_seconds": self._settings.value("cloud_sync/poll_seconds", 1.2, type=float),
+        }
+
+    def _save_cloud_sync_settings(self, values: dict[str, object]) -> None:
+        self._cloud_sync_settings = dict(values)
+        self._settings.setValue("cloud_sync/enabled", bool(values.get("enabled", False)))
+        self._settings.setValue("cloud_sync/server_url", str(values.get("server_url", "")))
+        self._settings.setValue("cloud_sync/project_id", str(values.get("project_id", "")))
+        self._settings.setValue("cloud_sync/project_password", str(values.get("project_password", "")))
+        self._settings.setValue("cloud_sync/username", str(values.get("username", "")))
+        self._settings.setValue("cloud_sync/user_password", str(values.get("user_password", "")))
+        self._settings.setValue("cloud_sync/poll_seconds", float(values.get("poll_seconds", 1.2) or 1.2))
+
+    def _open_cloud_sync_settings(self) -> None:
+        dlg = CloudSyncSettingsDialog(self._cloud_sync_settings, self)
+        if dlg.exec() != CloudSyncSettingsDialog.DialogCode.Accepted:
+            return
+        self._save_cloud_sync_settings(dlg.values())
+        self._start_project_sync_if_enabled()
+
+    def _show_cloud_sync_status(self) -> None:
+        dlg = CloudSyncStatusDialog(lambda: dict(self._sync_status_cache), self)
+        dlg.exec()
+
+    def _update_sync_active_file_lock(self) -> None:
+        agent = self._sync_agent
+        if agent is None:
+            return
+
+        project_folder = self._project_mgr.get_project_folder()
+        label_path = self._label_mgr.label_path
+        if not project_folder or not label_path:
+            agent.set_active_file(None)
+            return
+
+        try:
+            rel = label_path.resolve().relative_to(project_folder.resolve())
+        except Exception:
+            agent.set_active_file(None)
+            return
+        agent.set_active_file(rel.as_posix())
 
     def _project_settings(self) -> None:
         """Open project settings dialog."""
@@ -2510,6 +2663,7 @@ Status menu — Set selected images as To Rotate<br>
 
     def closeEvent(self, event) -> None:
         self._autosave_timer.stop()
+        self._stop_project_sync()
         if self._label_mgr.is_dirty:
             reply = QMessageBox.question(
                 self,

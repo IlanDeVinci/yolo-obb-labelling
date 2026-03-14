@@ -36,6 +36,40 @@ Then run:
 .\run_app.bat
 ```
 
+## Realtime team sync (no git workflow)
+
+The app now supports background project-folder sync via a standalone backend in this repository.
+
+1. Start backend:
+
+```bash
+cd sync_backend
+docker compose up -d --build
+```
+
+1. Open backend UI at `http://YOUR_SERVER:8095/`.
+1. Bootstrap one project with:
+
+- `Project ID` + `Project Password`
+- Admin `Username` + `Password`
+
+1. Create one user account per collaborator.
+1. In desktop app, open `Projet > Cloud Sync Settings...` and enter:
+
+- same `Server URL`
+- same `Project ID` + `Project Password`
+- each collaborator's own `Username` + `User Password`
+
+When a project is open, sync starts automatically if settings are enabled.
+
+Notes:
+
+- Label files require explicit active lock ownership.
+- One active file lock per user session.
+- Locks auto-release when user disconnects/session times out.
+- The `.sync/` folder stores local cursor state.
+- Backend creates daily DB backups automatically.
+
 ## Inference dependencies
 
 Inference uses `ultralytics` + `torch` (CPU wheels by default in this project).
