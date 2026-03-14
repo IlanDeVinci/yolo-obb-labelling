@@ -119,6 +119,10 @@ class CloudSyncStatusDialog(QDialog):
         toolbar.addStretch(1)
         layout.addLayout(toolbar)
 
+        self._summary = QLabel("")
+        self._summary.setWordWrap(True)
+        layout.addWidget(self._summary)
+
         self._text = QPlainTextEdit()
         self._text.setReadOnly(True)
         layout.addWidget(self._text, stretch=1)
@@ -132,4 +136,40 @@ class CloudSyncStatusDialog(QDialog):
 
     def refresh(self) -> None:
         status = self._status_provider() if self._status_provider else {}
+        self._summary.setText(self._build_summary(status))
         self._text.setPlainText(json.dumps(status, indent=2, ensure_ascii=False))
+
+    def _build_summary(self, status: dict[str, object]) -> str:
+        connected = bool(status.get("connected", False))
+        project_id = str(status.get("projectId", "") or "-")
+        username = str(status.get("username", "") or "-")
+        image_mode = str(status.get("imageAccessMode", "") or "local")
+        online = int(status.get("onlineUsers", 0) or 0)
+        last_error = str(status.get("lastError", "") or "").strip()
+
+        if connected:
+            return (
+                "Connection: Connected\n"
+                f"Project: {project_id}\n"
+                f"User: {username}\n"
+                f"Image mode: {image_mode}\n"
+                f"Online users: {online}\n"
+                "\n"
+                "You are synced. If images do not load, check the image mode and backend S3 setup."
+            )
+
+        checklist = (
+            "Connection: Not connected\n"
+            f"Project: {project_id}\n"
+            f"User: {username}\n"
+            "\n"
+            "Quick checklist:\n"
+            "1) Open Cloud Sync Settings\n"
+            "2) Verify Server URL\n"
+            "3) Verify Project ID + Project Password\n"
+            "4) Verify Username + User Password\n"
+            "5) Confirm backend is running and reachable"
+        )
+        if last_error:
+            checklist += f"\n\nLast error: {last_error}"
+        return checklist

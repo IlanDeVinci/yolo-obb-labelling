@@ -954,12 +954,21 @@ class MainWindow(QMainWindow):
         if agent is None:
             last_error = str((self._sync_status_cache or {}).get("lastError", "")).strip()
             reason = f"\n\nLast error: {last_error}" if last_error else ""
-            QMessageBox.information(
-                self,
-                "Cloud Sync",
-                "Cloud sync is not active. Check Cloud Sync Settings and connection first."
-                + reason,
+            prompt = QMessageBox(self)
+            prompt.setIcon(QMessageBox.Icon.Warning)
+            prompt.setWindowTitle("Cloud Sync")
+            prompt.setText(
+                "Cloud sync is not active. Open settings and verify:\n"
+                "1) Server URL\n"
+                "2) Project ID + Project Password\n"
+                "3) Username + User Password"
+                + reason
             )
+            btn_settings = prompt.addButton("Open Cloud Sync Settings", QMessageBox.ButtonRole.AcceptRole)
+            prompt.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            prompt.exec()
+            if prompt.clickedButton() is btn_settings:
+                self._open_cloud_sync_settings()
             return
 
         project = self._project_mgr.current_project
@@ -980,7 +989,7 @@ class MainWindow(QMainWindow):
             return
 
         confirm = QMessageBox.question(
-            self,
+                self,
             "Upload Local Images",
             f"Upload local images to S3?\n\nFound {len(local_images)} image(s). Existing cloud paths are skipped.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -992,7 +1001,16 @@ class MainWindow(QMainWindow):
             agent.get_project_summary()
             manifest_payload = agent.get_image_manifest()
         except Exception as exc:
-            QMessageBox.warning(self, "Cloud Sync", f"Cannot load cloud manifest: {exc}")
+            QMessageBox.warning(
+                self,
+                "Cloud Sync",
+                "Cannot load cloud manifest.\n\n"
+                "Checklist:\n"
+                "- Backend is online\n"
+                "- Project image mode is hybrid/cloud_only\n"
+                "- Credentials match the selected cloud project\n\n"
+                f"Technical detail: {exc}",
+            )
             return
 
         manifest_items = manifest_payload.get("manifest") if isinstance(manifest_payload, dict) else []
@@ -1315,7 +1333,7 @@ class MainWindow(QMainWindow):
         if not config.is_valid():
             self._sync_status_cache = {
                 "connected": False,
-                "lastError": "Cloud sync is not configured.",
+                "lastError": "Cloud sync is not configured. Open Cloud Sync Settings to fill all fields.",
             }
             self._refresh_sync_indicator()
             return
@@ -1393,7 +1411,15 @@ class MainWindow(QMainWindow):
             cache_max_mb=int(config.image_cache_max_mb),
             cache_ttl_hours=int(config.image_cache_ttl_hours),
         )
-        provider.refresh_manifest()
+        try:
+            provider.refresh_manifest()
+        except Exception as exc:  # noqa: BLE001
+            # Keep sync online even if cloud image manifest is temporarily unavailable.
+            self._cloud_image_provider = None
+            self._image_provider = LocalFilesystemImageProvider()
+            self._lbl_hint.setText(f"Cloud images unavailable, using local files: {exc}")
+            return
+
         self._cloud_image_provider = provider
         self._image_provider = provider
         if self._cloud_image_access_mode == "cloud_only":
@@ -1412,7 +1438,7 @@ class MainWindow(QMainWindow):
         connected = bool(status.get("connected", False))
         if not connected:
             error = str(status.get("lastError", "")).strip()
-            self._lbl_sync.setText("SYNC: off" if not error else "SYNC: error")
+            self._lbl_sync.setText("SYNC: setup required" if not error else "SYNC: error")
             self._lbl_sync.setStyleSheet("padding: 0 8px; color: #de7f7f;")
             self._lbl_cloud_mode.setText("IMAGES: local")
             self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #7b9db8;")
@@ -1472,13 +1498,13 @@ class MainWindow(QMainWindow):
         elif enabled and error:
             icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
             compact_error = error if len(error) <= 60 else (error[:57] + "...")
-            status_text = f"Status: error ({compact_error})"
+            status_text = f"Status: error - open settings ({compact_error})"
         elif enabled:
             icon = self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
             status_text = "Status: connecting"
         else:
             icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
-            status_text = "Status: disabled"
+            status_text = "Status: disabled (configure in Cloud Sync Settings)"
 
         self._act_cloud_status.setIcon(icon)
         self._act_cloud_status.setText(status_text)

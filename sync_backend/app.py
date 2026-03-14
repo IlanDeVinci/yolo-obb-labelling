@@ -1118,17 +1118,27 @@ def set_project_image_access(
 @app.get("/api/images/manifest")
 def list_image_manifest(session: SessionContext = Depends(_auth_from_header)) -> dict[str, Any]:
     _ensure_s3_image_mode(session)
-    items = _s3_list_project_images(session.project_id)
+    try:
+        items = _s3_list_project_images(session.project_id)
+    except (BotoCoreError, ClientError, Exception) as exc:
+        raise HTTPException(status_code=502, detail=f"Unable to list S3 image manifest: {exc}") from exc
+
     if items:
-        rows = _CONN.execute(
-            "SELECT path, sha1 FROM files WHERE project_id = ? AND deleted = 0",
-            (session.project_id,),
-        ).fetchall()
-        sha1_by_path = {
-            str(row["path"]): str(row["sha1"] or "")
-            for row in rows
-            if row["path"] is not None
-        }
+        sha1_by_path: dict[str, str] = {}
+        try:
+            rows = _CONN.execute(
+                "SELECT path, sha1 FROM files WHERE project_id = ? AND deleted = 0",
+                (session.project_id,),
+            ).fetchall()
+            sha1_by_path = {
+                str(row["path"]): str(row["sha1"] or "")
+                for row in rows
+                if row["path"] is not None
+            }
+        except sqlite3.Error:
+            # Keep manifest available even if local metadata lookup fails.
+            sha1_by_path = {}
+
         for item in items:
             item["sha1"] = sha1_by_path.get(str(item["path"]), "")
 
