@@ -162,8 +162,7 @@ Admin users can upload image files/folders directly from the backend web UI:
 - Optional overwrite toggle
 - For very large batches, use "Bulk Zip Upload (Server-Side)"
 
-Uploads are duplicate-safe by default (`skip if exists`) and each uploaded image is recorded in sync change history.
-Both single-file and zip upload endpoints enforce the active authenticated project; dashboard sends `expected_project_id` and backend rejects if session/project changed.
+Uploads are duplicate-safe by default (`skip if exists`) and each uploaded image is recorded in sync change history. Both single-file and zip upload endpoints enforce the active authenticated project; dashboard sends `expected_project_id` and backend rejects if session/project changed.
 
 ## Lock behavior
 
