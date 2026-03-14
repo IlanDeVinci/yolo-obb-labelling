@@ -147,6 +147,79 @@
                             </tr>
                         </tbody>
                     </table>
+
+                    <h4>Project Image Upload</h4>
+                    <div class="stack uploader-shell">
+                        <p class="muted small">Drag and drop image files or folders here, then upload into this project.
+                        </p>
+                        <p id="uploadProjectBadge" class="project-badge">Uploading into: (not connected)</p>
+                        <div id="uploadDropZone" class="drop-zone">
+                            <p>Drop images or folders here</p>
+                            <p class="muted small">Accepted: .jpg .jpeg .png .bmp .tiff .tif .webp</p>
+                        </div>
+                        <div class="row">
+                            <button id="pickImageFilesBtn" type="button" class="secondary">Pick Files</button>
+                            <button id="pickImageFolderBtn" type="button" class="secondary">Pick Folder</button>
+                            <button id="syncProjectFolderBtn" type="button" class="secondary">Sync Entire Local
+                                Folder</button>
+                            <button id="analyzeConflictsBtn" type="button" class="secondary">Analyze Conflicts</button>
+                            <label class="inline"><input id="uploadOverwrite" type="checkbox" /> Overwrite
+                                existing</label>
+                        </div>
+                        <label>Target Prefix (inside project)
+                            <input id="uploadTargetPrefix" placeholder="images" value="images" />
+                        </label>
+                        <div class="row">
+                            <button id="startUploadBtn" type="button">Upload Selected</button>
+                            <button id="clearUploadQueueBtn" type="button" class="secondary">Clear Queue</button>
+                        </div>
+                        <p id="uploadSummary" class="muted small">Queue empty.</p>
+                        <p id="conflictSummary" class="muted small">Conflict report: not generated.</p>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Existing</th>
+                                    <th>Changed Size</th>
+                                    <th>Changed Hash</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td id="conflictExisting">0</td>
+                                    <td id="conflictChangedSize">0</td>
+                                    <td id="conflictChangedHash">0</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>File</th>
+                                    <th>Size</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="uploadQueueBody">
+                                <tr>
+                                    <td colspan="3" class="muted">No files queued.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <input id="pickImageFilesInput" type="file" class="hidden" multiple
+                            accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" />
+                        <input id="pickImageFolderInput" type="file" class="hidden" multiple webkitdirectory
+                            directory />
+
+                        <h4>Bulk Zip Upload (Server-Side)</h4>
+                        <p class="muted small">Use a single zip for huge batches. Server extracts images and records
+                            sync changes.</p>
+                        <div class="row">
+                            <button id="pickZipBtn" type="button" class="secondary">Pick Zip</button>
+                            <button id="uploadZipBtn" type="button">Upload Zip</button>
+                            <span id="zipSelectedName" class="muted small">No zip selected.</span>
+                        </div>
+                        <input id="pickZipInput" type="file" class="hidden" accept=".zip,application/zip" />
+                    </div>
                 </div>
             </section>
 
@@ -165,16 +238,33 @@
         const summaryCards = document.getElementById('summaryCards');
         const changesBody = document.getElementById('changesBody');
         const usersBody = document.getElementById('usersBody');
+        const uploadDropZone = document.getElementById('uploadDropZone');
+        const uploadQueueBody = document.getElementById('uploadQueueBody');
+        const uploadSummary = document.getElementById('uploadSummary');
+        const uploadProjectBadge = document.getElementById('uploadProjectBadge');
+        const pickImageFilesInput = document.getElementById('pickImageFilesInput');
+        const pickImageFolderInput = document.getElementById('pickImageFolderInput');
+        const pickZipInput = document.getElementById('pickZipInput');
+        const zipSelectedName = document.getElementById('zipSelectedName');
+        const conflictSummary = document.getElementById('conflictSummary');
+        const conflictExisting = document.getElementById('conflictExisting');
+        const conflictChangedSize = document.getElementById('conflictChangedSize');
+        const conflictChangedHash = document.getElementById('conflictChangedHash');
         const projectIdSelect = document.getElementById('projectIdSelect');
         const projectPasswordWrap = document.getElementById('projectPasswordWrap');
         const loginHint = document.getElementById('loginHint');
 
         let token = localStorage.getItem('syncToken') || '';
         let currentUser = localStorage.getItem('syncUsername') || '';
+        let currentProjectId = '';
         let role = '';
         let isAdmin = false;
         let requireProjectPassword = false;
         let refreshTimer = null;
+        let uploadQueue = [];
+        let selectedZipFile = null;
+        let autoSyncAfterFolderPick = false;
+        const imageSuffixes = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']);
 
         function setMessage(text, isError = false) {
             msg.textContent = text || '';
@@ -190,6 +280,17 @@
         function setLoggedInState(loggedIn) {
             authPanel.classList.toggle('hidden', loggedIn);
             dashboardPanel.classList.toggle('hidden', !loggedIn);
+        }
+
+        function refreshUploadProjectBadge() {
+            const name = String(currentProjectId || '').trim();
+            if (name) {
+                uploadProjectBadge.textContent = `Uploading into: ${name}`;
+                uploadProjectBadge.classList.remove('warn');
+                return;
+            }
+            uploadProjectBadge.textContent = 'Uploading into: (not connected)';
+            uploadProjectBadge.classList.add('warn');
         }
 
         function clearTimer() {
@@ -285,6 +386,326 @@
             }).join('');
         }
 
+        function sanitizeRelativePath(value) {
+            const normalized = String(value || '').replace(/\\/g, '/').trim().replace(/^\/+/, '');
+            const parts = normalized.split('/').filter(Boolean);
+            if (!parts.length) return '';
+            for (const part of parts) {
+                if (part === '.' || part === '..') return '';
+            }
+            return parts.join('/');
+        }
+
+        function toQueuePath(prefix, relative) {
+            const p = sanitizeRelativePath(prefix || '');
+            const r = sanitizeRelativePath(relative || '');
+            if (!r) return '';
+            return p ? `${p}/${r}` : r;
+        }
+
+        function bytesToHuman(value) {
+            const n = Number(value || 0);
+            if (!Number.isFinite(n) || n <= 0) return '0 B';
+            if (n < 1024) return `${n} B`;
+            if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+            return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+        }
+
+        function renderUploadQueue() {
+            if (!uploadQueue.length) {
+                uploadQueueBody.innerHTML = '<tr><td colspan="3" class="muted">No files queued.</td></tr>';
+                uploadSummary.textContent = 'Queue empty.';
+                return;
+            }
+            uploadQueueBody.innerHTML = uploadQueue.map((item, idx) => `
+                <tr>
+                    <td class="mono">${item.targetPath}</td>
+                    <td>${bytesToHuman(item.file.size)}</td>
+                    <td>${item.status || (item.conflict ? `queued (${item.conflict})` : 'queued')}</td>
+                </tr>
+            `).join('');
+            uploadSummary.textContent = `${uploadQueue.length} file(s) queued.`;
+        }
+
+        function resetConflictReport() {
+            conflictExisting.textContent = '0';
+            conflictChangedSize.textContent = '0';
+            conflictChangedHash.textContent = '0';
+            conflictSummary.textContent = 'Conflict report: not generated.';
+            for (const item of uploadQueue) {
+                item.conflict = '';
+            }
+        }
+
+        async function sha1HexForFile(file) {
+            const buf = await file.arrayBuffer();
+            const digest = await crypto.subtle.digest('SHA-1', buf);
+            return Array.from(new Uint8Array(digest))
+                .map((v) => v.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        async function analyzeConflicts() {
+            if (!uploadQueue.length) {
+                setMessage('Upload queue is empty.', true);
+                resetConflictReport();
+                return { existing: 0, changedSize: 0, changedHash: 0 };
+            }
+            if (!token || !isAdmin) {
+                setMessage('Admin login is required to analyze conflicts.', true);
+                return { existing: 0, changedSize: 0, changedHash: 0 };
+            }
+
+            const payload = await api('/api/images/manifest');
+            const remoteByPath = new Map();
+            for (const item of payload.manifest || []) {
+                remoteByPath.set(String(item.path || ''), {
+                    size: Number(item.size || 0),
+                    sha1: String(item.sha1 || '').toLowerCase(),
+                });
+            }
+
+            let existing = 0;
+            let changedSize = 0;
+            let changedHash = 0;
+
+            for (const item of uploadQueue) {
+                item.conflict = '';
+                const remote = remoteByPath.get(item.targetPath);
+                if (!remote) continue;
+                existing += 1;
+
+                if (remote.size !== Number(item.file.size || 0)) {
+                    changedSize += 1;
+                    item.conflict = 'changed-size';
+                    continue;
+                }
+
+                if (!remote.sha1) {
+                    item.conflict = 'existing';
+                    continue;
+                }
+
+                try {
+                    const localSha1 = await sha1HexForFile(item.file);
+                    if (localSha1.toLowerCase() !== remote.sha1) {
+                        changedHash += 1;
+                        item.conflict = 'changed-hash';
+                    } else {
+                        item.conflict = 'existing';
+                    }
+                } catch (_) {
+                    item.conflict = 'existing';
+                }
+            }
+
+            conflictExisting.textContent = String(existing);
+            conflictChangedSize.textContent = String(changedSize);
+            conflictChangedHash.textContent = String(changedHash);
+            conflictSummary.textContent = `Conflict report ready. existing=${existing}, changed-size=${changedSize}, changed-hash=${changedHash}`;
+            renderUploadQueue();
+            return { existing, changedSize, changedHash };
+        }
+
+        function addFilesToQueue(entries) {
+            const seen = new Set(uploadQueue.map(item => item.targetPath));
+            let added = 0;
+            for (const entry of entries) {
+                const file = entry.file;
+                const relative = sanitizeRelativePath(entry.relativePath || file.name || '');
+                if (!relative) continue;
+                const suffix = `.${relative.split('.').pop().toLowerCase()}`;
+                if (!imageSuffixes.has(suffix)) continue;
+
+                const prefix = document.getElementById('uploadTargetPrefix').value.trim();
+                const targetPath = toQueuePath(prefix, relative);
+                if (!targetPath || seen.has(targetPath)) continue;
+
+                uploadQueue.push({ file, relativePath: relative, targetPath, status: 'queued' });
+                seen.add(targetPath);
+                added += 1;
+            }
+            renderUploadQueue();
+            resetConflictReport();
+            if (added > 0) setMessage(`Added ${added} file(s) to upload queue.`);
+        }
+
+        function remapQueuePathsFromPrefix() {
+            const prefix = document.getElementById('uploadTargetPrefix').value.trim();
+            uploadQueue = uploadQueue.map(item => ({
+                ...item,
+                targetPath: toQueuePath(prefix, item.relativePath),
+            })).filter(item => !!item.targetPath);
+            resetConflictReport();
+            renderUploadQueue();
+        }
+
+        async function walkDroppedEntry(entry, parentPath = '') {
+            if (!entry) return [];
+            if (entry.isFile) {
+                const file = await new Promise((resolve, reject) => {
+                    entry.file(resolve, reject);
+                });
+                return [{ file, relativePath: sanitizeRelativePath(`${parentPath}${entry.name}`) }];
+            }
+
+            if (!entry.isDirectory) return [];
+            const reader = entry.createReader();
+            const items = [];
+            while (true) {
+                const chunk = await new Promise((resolve, reject) => {
+                    reader.readEntries(resolve, reject);
+                });
+                if (!chunk.length) break;
+                items.push(...chunk);
+            }
+
+            const out = [];
+            for (const child of items) {
+                const nested = await walkDroppedEntry(child, `${parentPath}${entry.name}/`);
+                out.push(...nested);
+            }
+            return out;
+        }
+
+        async function handleDrop(event) {
+            event.preventDefault();
+            uploadDropZone.classList.remove('active');
+
+            const items = Array.from(event.dataTransfer?.items || []);
+            const fromEntries = [];
+            for (const item of items) {
+                const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                if (!entry) continue;
+                try {
+                    const walked = await walkDroppedEntry(entry, '');
+                    fromEntries.push(...walked);
+                } catch (_) {
+                }
+            }
+
+            if (fromEntries.length) {
+                addFilesToQueue(fromEntries);
+                return;
+            }
+
+            const rawFiles = Array.from(event.dataTransfer?.files || []);
+            addFilesToQueue(rawFiles.map(file => ({
+                file,
+                relativePath: file.webkitRelativePath || file.name,
+            })));
+        }
+
+        async function startUploadQueue() {
+            if (!uploadQueue.length) {
+                setMessage('Upload queue is empty.', true);
+                return;
+            }
+            if (!token || !isAdmin) {
+                setMessage('Admin login is required to upload images.', true);
+                return;
+            }
+            if (!currentProjectId) {
+                setMessage('Active project is unknown. Refresh first.', true);
+                return;
+            }
+
+            const overwrite = !!document.getElementById('uploadOverwrite').checked;
+            let uploaded = 0;
+            let skipped = 0;
+            let failed = 0;
+
+            for (let i = 0; i < uploadQueue.length; i += 1) {
+                const item = uploadQueue[i];
+                item.status = 'uploading...';
+                renderUploadQueue();
+                const body = new FormData();
+                body.append('file', item.file, item.file.name);
+                body.append('path', item.targetPath);
+                body.append('expected_project_id', currentProjectId);
+                body.append('overwrite', overwrite ? '1' : '0');
+                try {
+                    const res = await fetch('/api/admin/images/upload', {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${token}` },
+                        body,
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        const detail = data.detail || data.error || `HTTP ${res.status}`;
+                        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                    }
+
+                    if (data.uploaded) {
+                        uploaded += 1;
+                        item.status = 'uploaded';
+                    } else if (data.skipped) {
+                        skipped += 1;
+                        item.status = 'skipped (exists)';
+                    } else {
+                        failed += 1;
+                        item.status = 'failed';
+                    }
+                } catch (error) {
+                    failed += 1;
+                    item.status = `failed: ${String(error.message || error)}`;
+                }
+                renderUploadQueue();
+            }
+
+            setMessage(`Upload finished. Uploaded: ${uploaded}, skipped: ${skipped}, failed: ${failed}`, failed > 0);
+            await refreshAll(true);
+        }
+
+        async function syncEntireLocalFolder() {
+            if (!token || !isAdmin) {
+                setMessage('Admin login is required to sync local folder.', true);
+                return;
+            }
+            autoSyncAfterFolderPick = true;
+            pickImageFolderInput.click();
+        }
+
+        async function uploadZipArchive() {
+            if (!selectedZipFile) {
+                setMessage('Pick a zip archive first.', true);
+                return;
+            }
+            if (!token || !isAdmin) {
+                setMessage('Admin login is required to upload zip archives.', true);
+                return;
+            }
+            if (!currentProjectId) {
+                setMessage('Active project is unknown. Refresh first.', true);
+                return;
+            }
+
+            const overwrite = !!document.getElementById('uploadOverwrite').checked;
+            const prefix = document.getElementById('uploadTargetPrefix').value.trim();
+            const body = new FormData();
+            body.append('archive', selectedZipFile, selectedZipFile.name);
+            body.append('target_prefix', prefix);
+            body.append('expected_project_id', currentProjectId);
+            body.append('overwrite', overwrite ? '1' : '0');
+
+            const res = await fetch('/api/admin/images/upload-zip', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+                body,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const detail = data.detail || data.error || `HTTP ${res.status}`;
+                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            }
+
+            setMessage(
+                `Zip upload finished. uploaded=${data.uploaded || 0}, skipped=${data.skippedExisting || 0}, overwritten=${data.overwritten || 0}, failed=${data.failed || 0}, ignored-non-images=${data.ignoredNonImages || 0}`,
+                Number(data.failed || 0) > 0,
+            );
+            await refreshAll(true);
+        }
+
         async function loadProjectOptions() {
             const u = document.getElementById('username').value.trim();
             const p = document.getElementById('password').value;
@@ -305,6 +726,9 @@
                     api('/api/project/summary'),
                     api('/api/project/recent-changes?limit=30'),
                 ]);
+
+                currentProjectId = String(status.projectId || summary.projectId || '');
+                refreshUploadProjectBadge();
 
                 role = status.role || summary.role || '';
                 isAdmin = !!status.isAdmin;
@@ -337,6 +761,8 @@
             role = '';
             isAdmin = false;
             currentUser = '';
+            currentProjectId = '';
+            refreshUploadProjectBadge();
             localStorage.removeItem('syncToken');
             localStorage.removeItem('syncUsername');
             clearTimer();
@@ -487,8 +913,96 @@
             }
         });
 
+        document.getElementById('pickImageFilesBtn').addEventListener('click', () => {
+            pickImageFilesInput.click();
+        });
+
+        document.getElementById('pickImageFolderBtn').addEventListener('click', () => {
+            pickImageFolderInput.click();
+        });
+
+        document.getElementById('syncProjectFolderBtn').addEventListener('click', () => {
+            syncEntireLocalFolder().catch((error) => {
+                setMessage(`Sync preparation failed: ${String(error.message || error)}`, true);
+            });
+        });
+
+        document.getElementById('analyzeConflictsBtn').addEventListener('click', () => {
+            analyzeConflicts().catch((error) => {
+                setMessage(`Conflict analysis failed: ${String(error.message || error)}`, true);
+            });
+        });
+
+        pickImageFilesInput.addEventListener('change', () => {
+            const files = Array.from(pickImageFilesInput.files || []);
+            addFilesToQueue(files.map(file => ({ file, relativePath: file.name })));
+            pickImageFilesInput.value = '';
+        });
+
+        pickImageFolderInput.addEventListener('change', () => {
+            const files = Array.from(pickImageFolderInput.files || []);
+            addFilesToQueue(files.map(file => ({
+                file,
+                relativePath: file.webkitRelativePath || file.name,
+            })));
+            pickImageFolderInput.value = '';
+
+            if (autoSyncAfterFolderPick) {
+                autoSyncAfterFolderPick = false;
+                analyzeConflicts()
+                    .then(() => startUploadQueue())
+                    .catch((error) => {
+                        setMessage(`Sync failed: ${String(error.message || error)}`, true);
+                    });
+            }
+        });
+
+        document.getElementById('pickZipBtn').addEventListener('click', () => {
+            pickZipInput.click();
+        });
+
+        pickZipInput.addEventListener('change', () => {
+            selectedZipFile = (pickZipInput.files && pickZipInput.files[0]) ? pickZipInput.files[0] : null;
+            zipSelectedName.textContent = selectedZipFile ? selectedZipFile.name : 'No zip selected.';
+            pickZipInput.value = '';
+        });
+
+        document.getElementById('uploadZipBtn').addEventListener('click', () => {
+            uploadZipArchive().catch((error) => {
+                setMessage(`Zip upload failed: ${String(error.message || error)}`, true);
+            });
+        });
+
+        uploadDropZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            uploadDropZone.classList.add('active');
+        });
+
+        uploadDropZone.addEventListener('dragleave', () => {
+            uploadDropZone.classList.remove('active');
+        });
+
+        uploadDropZone.addEventListener('drop', (event) => {
+            handleDrop(event).catch((error) => {
+                setMessage(`Drop parsing failed: ${String(error.message || error)}`, true);
+            });
+        });
+
+        document.getElementById('uploadTargetPrefix').addEventListener('change', remapQueuePathsFromPrefix);
+        document.getElementById('startUploadBtn').addEventListener('click', () => {
+            startUploadQueue().catch((error) => {
+                setMessage(`Upload failed: ${String(error.message || error)}`, true);
+            });
+        });
+        document.getElementById('clearUploadQueueBtn').addEventListener('click', () => {
+            uploadQueue = [];
+            resetConflictReport();
+            renderUploadQueue();
+        });
+
         async function init() {
             setLoggedInState(false);
+            refreshUploadProjectBadge();
             try {
                 const info = await api('/api/public/info');
                 requireProjectPassword = !!info.requireProjectPassword;

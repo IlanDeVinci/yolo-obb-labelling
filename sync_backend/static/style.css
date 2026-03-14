@@ -191,6 +191,50 @@ button.danger {
   padding: 6px 9px;
 }
 
+.uploader-shell {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: #fbfdff;
+}
+
+.project-badge {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #b8d7ea;
+  border-radius: 8px;
+  background: #eef7ff;
+  color: #1d4f72;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.project-badge.warn {
+  border-color: #e2c18a;
+  background: #fff7ea;
+  color: #8a530f;
+}
+
+.drop-zone {
+  border: 2px dashed #9ec0da;
+  border-radius: 10px;
+  padding: 22px 14px;
+  text-align: center;
+  background: #f4f9ff;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.drop-zone p {
+  margin: 4px 0;
+}
+
+.drop-zone.active {
+  border-color: #2f8ec6;
+  background: #e9f5ff;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

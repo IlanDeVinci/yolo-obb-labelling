@@ -12,12 +12,14 @@ import shutil
 import sqlite3
 import threading
 import time
+import tempfile
 import urllib.parse
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -42,6 +44,7 @@ BACKUP_DIR = Path(os.environ.get("SYNC_BACKUP_DIR", "./data/backups")).resolve()
 SESSION_TTL_SECONDS = max(20, int(os.environ.get("SYNC_SESSION_TTL_SECONDS", "45")))
 BACKUP_RETENTION_DAYS = max(2, int(os.environ.get("SYNC_BACKUP_RETENTION_DAYS", "14")))
 MAX_FILE_BYTES = max(64 * 1024, int(os.environ.get("SYNC_MAX_FILE_BYTES", str(8 * 1024 * 1024))))
+MAX_ZIP_UPLOAD_BYTES = max(1024 * 1024, int(os.environ.get("SYNC_MAX_ZIP_UPLOAD_BYTES", str(512 * 1024 * 1024))))
 BOOTSTRAP_TOKEN = os.environ.get("SYNC_BOOTSTRAP_TOKEN", "").strip()
 REQUIRE_PROJECT_PASSWORD = str(os.environ.get("SYNC_REQUIRE_PROJECT_PASSWORD", "0")).strip().lower() in {"1", "true", "yes", "on"}
 S3_BUCKET = os.environ.get("SYNC_S3_BUCKET", "").strip()
@@ -181,6 +184,19 @@ def _requires_explicit_lock(path: str) -> bool:
 
 def _is_image_path(path: str) -> bool:
     return Path(path).suffix.lower() in IMAGE_SUFFIXES
+
+
+def _sanitize_archive_member_path(value: str) -> str:
+    normalized = str(value or "").replace("\\", "/").strip().lstrip("/")
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Invalid archive member path")
+    parts = [part for part in normalized.split("/") if part]
+    if not parts:
+        raise HTTPException(status_code=400, detail="Invalid archive member path")
+    for part in parts:
+        if part in {".", ".."}:
+            raise HTTPException(status_code=400, detail="Invalid archive member path")
+    return "/".join(parts)
 
 
 def _is_s3_enabled() -> bool:
@@ -552,6 +568,30 @@ def _image_read_url(project_id: str, path: str, *, expires_seconds: int) -> str:
         encoded = urllib.parse.quote(key, safe="/._-")
         return f"{CLOUDFRONT_BASE_URL}/{encoded}"
     return _s3_signed_get_url(project_id, path, expires_seconds=expires_seconds)
+
+
+def _s3_image_exists(project_id: str, path: str) -> bool:
+    client = _get_s3_client()
+    if client is None:
+        return False
+    key = _s3_object_key(project_id, path)
+    try:
+        client.head_object(Bucket=S3_BUCKET, Key=key)
+        return True
+    except ClientError:
+        return False
+    except BotoCoreError:
+        return False
+
+
+def _db_file_exists(project_id: str, path: str) -> bool:
+    row = _CONN.execute(
+        "SELECT deleted FROM files WHERE project_id = ? AND path = ?",
+        (project_id, path),
+    ).fetchone()
+    if row is None:
+        return False
+    return not bool(row["deleted"])
 
 
 def _cleanup_stale_sessions() -> None:
@@ -1079,6 +1119,19 @@ def set_project_image_access(
 def list_image_manifest(session: SessionContext = Depends(_auth_from_header)) -> dict[str, Any]:
     _ensure_s3_image_mode(session)
     items = _s3_list_project_images(session.project_id)
+    if items:
+        rows = _CONN.execute(
+            "SELECT path, sha1 FROM files WHERE project_id = ? AND deleted = 0",
+            (session.project_id,),
+        ).fetchall()
+        sha1_by_path = {
+            str(row["path"]): str(row["sha1"] or "")
+            for row in rows
+            if row["path"] is not None
+        }
+        for item in items:
+            item["sha1"] = sha1_by_path.get(str(item["path"]), "")
+
     return {
         "ok": True,
         "projectId": session.project_id,
@@ -1183,6 +1236,242 @@ def request_prefetch_batch(
         "startIndex": start_index,
         "count": len(items),
         "items": items,
+    }
+
+
+@app.post("/api/admin/images/upload")
+async def admin_upload_image(
+    file: UploadFile = File(...),
+    path: str = Form(""),
+    expected_project_id: str = Form(""),
+    overwrite: str = Form("0"),
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    expected = str(expected_project_id or "").strip()
+    if expected and expected != session.project_id:
+        raise HTTPException(status_code=409, detail="Active project changed. Refresh and retry upload.")
+
+    requested_path = str(path or "").strip()
+    candidate_path = requested_path or str(file.filename or "").strip()
+    normalized = _normalize_path(candidate_path)
+    if not _is_image_path(normalized):
+        raise HTTPException(status_code=400, detail="Only image files are accepted")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(raw) > MAX_FILE_BYTES:
+        raise HTTPException(status_code=400, detail=f"File exceeds max size {MAX_FILE_BYTES}")
+
+    allow_overwrite = str(overwrite).strip().lower() in {"1", "true", "yes", "on"}
+    use_s3_for_image = _project_uses_s3_images(session.project_id)
+
+    if use_s3_for_image:
+        exists = _s3_image_exists(session.project_id, normalized)
+    else:
+        exists = _db_file_exists(session.project_id, normalized)
+
+    if exists and not allow_overwrite:
+        return {"ok": True, "path": normalized, "uploaded": False, "skipped": True, "reason": "exists"}
+
+    sha1 = hashlib.sha1(raw).hexdigest()
+    content_b64 = ""
+    if use_s3_for_image:
+        try:
+            _s3_put_image(session.project_id, normalized, raw)
+        except (BotoCoreError, ClientError, Exception) as exc:
+            raise HTTPException(status_code=500, detail=f"S3 upload failed: {exc}") from exc
+    else:
+        content_b64 = base64.b64encode(raw).decode("ascii")
+
+    with _db_lock:
+        now = _now_ms()
+        _CONN.execute(
+            """
+            INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
+            VALUES (?, ?, 0, ?, ?, ?, ?)
+            ON CONFLICT(project_id, path) DO UPDATE SET
+              deleted=0,
+              mtime_ms=excluded.mtime_ms,
+              sha1=excluded.sha1,
+              content_base64=excluded.content_base64,
+              updated_at=excluded.updated_at
+            """,
+            (session.project_id, normalized, now, sha1, content_b64, now),
+        )
+        _CONN.execute(
+            "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            (session.project_id, session.username, session.token, normalized, now, sha1, content_b64, now),
+        )
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "path": normalized,
+        "uploaded": True,
+        "skipped": False,
+        "bytes": len(raw),
+        "sha1": sha1,
+        "overwrote": bool(exists and allow_overwrite),
+    }
+
+
+@app.post("/api/admin/images/upload-zip")
+async def admin_upload_zip(
+    archive: UploadFile = File(...),
+    target_prefix: str = Form(""),
+    expected_project_id: str = Form(""),
+    overwrite: str = Form("0"),
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    expected = str(expected_project_id or "").strip()
+    if expected and expected != session.project_id:
+        raise HTTPException(status_code=409, detail="Active project changed. Refresh and retry upload.")
+
+    filename = str(archive.filename or "").strip()
+    if not filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip archives are accepted")
+
+    prefix = str(target_prefix or "").strip()
+    if prefix:
+        prefix = _normalize_path(prefix)
+
+    allow_overwrite = str(overwrite).strip().lower() in {"1", "true", "yes", "on"}
+    use_s3_for_image = _project_uses_s3_images(session.project_id)
+
+    tmp_path = ""
+    total_read = 0
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            tmp_path = tmp.name
+            while True:
+                chunk = await archive.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_read += len(chunk)
+                if total_read > MAX_ZIP_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Archive exceeds max size {MAX_ZIP_UPLOAD_BYTES}",
+                    )
+                tmp.write(chunk)
+
+        uploaded = 0
+        skipped_existing = 0
+        overwritten = 0
+        failed = 0
+        ignored_non_images = 0
+        ignored_oversize = 0
+        failed_paths: list[dict[str, str]] = []
+
+        with zipfile.ZipFile(tmp_path, "r") as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+
+                try:
+                    relative = _sanitize_archive_member_path(info.filename)
+                    target_path = _normalize_path(f"{prefix}/{relative}" if prefix else relative)
+                except HTTPException:
+                    failed += 1
+                    if len(failed_paths) < 50:
+                        failed_paths.append({"path": str(info.filename), "reason": "invalid-path"})
+                    continue
+
+                if not _is_image_path(target_path):
+                    ignored_non_images += 1
+                    continue
+
+                if info.file_size > MAX_FILE_BYTES:
+                    ignored_oversize += 1
+                    continue
+
+                try:
+                    raw = zf.read(info)
+                except Exception:
+                    failed += 1
+                    if len(failed_paths) < 50:
+                        failed_paths.append({"path": target_path, "reason": "zip-read-failed"})
+                    continue
+
+                if not raw:
+                    failed += 1
+                    if len(failed_paths) < 50:
+                        failed_paths.append({"path": target_path, "reason": "empty-file"})
+                    continue
+
+                if len(raw) > MAX_FILE_BYTES:
+                    ignored_oversize += 1
+                    continue
+
+                exists = _s3_image_exists(session.project_id, target_path) if use_s3_for_image else _db_file_exists(session.project_id, target_path)
+                if exists and not allow_overwrite:
+                    skipped_existing += 1
+                    continue
+
+                sha1 = hashlib.sha1(raw).hexdigest()
+                content_b64 = ""
+
+                try:
+                    if use_s3_for_image:
+                        _s3_put_image(session.project_id, target_path, raw)
+                    else:
+                        content_b64 = base64.b64encode(raw).decode("ascii")
+                except Exception:
+                    failed += 1
+                    if len(failed_paths) < 50:
+                        failed_paths.append({"path": target_path, "reason": "storage-write-failed"})
+                    continue
+
+                with _db_lock:
+                    now = _now_ms()
+                    _CONN.execute(
+                        """
+                        INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
+                        VALUES (?, ?, 0, ?, ?, ?, ?)
+                        ON CONFLICT(project_id, path) DO UPDATE SET
+                          deleted=0,
+                          mtime_ms=excluded.mtime_ms,
+                          sha1=excluded.sha1,
+                          content_base64=excluded.content_base64,
+                          updated_at=excluded.updated_at
+                        """,
+                        (session.project_id, target_path, now, sha1, content_b64, now),
+                    )
+                    _CONN.execute(
+                        "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+                        (session.project_id, session.username, session.token, target_path, now, sha1, content_b64, now),
+                    )
+                    _CONN.commit()
+
+                uploaded += 1
+                if exists and allow_overwrite:
+                    overwritten += 1
+
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid zip archive: {exc}") from exc
+    finally:
+        await archive.close()
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    return {
+        "ok": True,
+        "archive": filename,
+        "projectId": session.project_id,
+        "targetPrefix": prefix,
+        "uploaded": uploaded,
+        "skippedExisting": skipped_existing,
+        "overwritten": overwritten,
+        "failed": failed,
+        "ignoredNonImages": ignored_non_images,
+        "ignoredOversize": ignored_oversize,
+        "maxFileBytes": MAX_FILE_BYTES,
+        "maxZipBytes": MAX_ZIP_UPLOAD_BYTES,
+        "failedItems": failed_paths,
     }
 
 

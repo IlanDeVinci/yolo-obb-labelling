@@ -437,7 +437,12 @@ class RealtimeSyncAgent:
     def get_image_access_mode(self) -> str:
         return str(self._image_access_mode or "local")
 
+    def _ensure_auth(self) -> None:
+        if not self._token:
+            self._login()
+
     def get_project_summary(self) -> dict[str, Any]:
+        self._ensure_auth()
         payload = self._request_json("/api/project/summary")
         mode = str(payload.get("imageAccessMode") or "local")
         self._image_access_mode = mode
@@ -445,13 +450,16 @@ class RealtimeSyncAgent:
         return payload
 
     def get_image_manifest(self) -> dict[str, Any]:
+        self._ensure_auth()
         return self._request_json("/api/images/manifest")
 
     def get_signed_image_read(self, path: str) -> dict[str, Any]:
+        self._ensure_auth()
         query = urllib.parse.urlencode({"path": path})
         return self._request_json(f"/api/images/signed-read?{query}")
 
     def get_signed_image_write(self, path: str, content_type: str | None = None) -> dict[str, Any]:
+        self._ensure_auth()
         return self._request_json(
             "/api/images/signed-write",
             body={"path": path, "contentType": content_type or ""},
@@ -488,6 +496,7 @@ class RealtimeSyncAgent:
         raise RuntimeError(f"Signed upload failed for {path}")
 
     def request_image_prefetch(self, current_path: str | None, count: int) -> dict[str, Any]:
+        self._ensure_auth()
         return self._request_json(
             "/api/images/prefetch",
             body={"currentPath": current_path or "", "count": int(max(1, count))},

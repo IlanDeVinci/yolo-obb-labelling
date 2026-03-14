@@ -949,7 +949,17 @@ class MainWindow(QMainWindow):
     def _sync_local_images_to_s3(self) -> None:
         agent = self._sync_agent
         if agent is None:
-            QMessageBox.information(self, "Cloud Sync", "Cloud sync must be connected before uploading images.")
+            self._start_project_sync_if_enabled()
+            agent = self._sync_agent
+        if agent is None:
+            last_error = str((self._sync_status_cache or {}).get("lastError", "")).strip()
+            reason = f"\n\nLast error: {last_error}" if last_error else ""
+            QMessageBox.information(
+                self,
+                "Cloud Sync",
+                "Cloud sync is not active. Check Cloud Sync Settings and connection first."
+                + reason,
+            )
             return
 
         project = self._project_mgr.current_project
@@ -979,6 +989,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            agent.get_project_summary()
             manifest_payload = agent.get_image_manifest()
         except Exception as exc:
             QMessageBox.warning(self, "Cloud Sync", f"Cannot load cloud manifest: {exc}")
@@ -1413,7 +1424,25 @@ class MainWindow(QMainWindow):
         self._lbl_sync.setText(f"SYNC: live ({users} online){suffix}")
         self._lbl_sync.setStyleSheet("padding: 0 8px; color: #86cc9f;")
         mode = str(status.get("imageAccessMode") or self._cloud_image_access_mode or "local")
+        previous_mode = self._cloud_image_access_mode
         self._cloud_image_access_mode = mode
+        if previous_mode != mode:
+            project_folder = self._project_mgr.get_project_folder()
+            if project_folder is not None:
+                config = CloudSyncConfig(
+                    enabled=bool(self._cloud_sync_settings.get("enabled", False)),
+                    server_url=str(self._cloud_sync_settings.get("server_url", "")),
+                    project_id=str(self._cloud_sync_settings.get("project_id", "")),
+                    project_password=str(self._cloud_sync_settings.get("project_password", "")),
+                    username=str(self._cloud_sync_settings.get("username", "")),
+                    user_password=str(self._cloud_sync_settings.get("user_password", "")),
+                    poll_seconds=float(self._cloud_sync_settings.get("poll_seconds", 1.2) or 1.2),
+                    image_cache_dir=str(self._cloud_sync_settings.get("image_cache_dir", "")),
+                    image_cache_max_mb=int(self._cloud_sync_settings.get("image_cache_max_mb", 2048) or 2048),
+                    image_cache_ttl_hours=int(self._cloud_sync_settings.get("image_cache_ttl_hours", 24) or 24),
+                    image_prefetch_count=int(self._cloud_sync_settings.get("image_prefetch_count", 8) or 8),
+                )
+                self._setup_cloud_image_provider(project_folder, config)
         if mode == "cloud_only":
             self._lbl_cloud_mode.setText("IMAGES: Cloud-Only")
             self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #63b38f;")
@@ -1454,9 +1483,9 @@ class MainWindow(QMainWindow):
         self._act_cloud_status.setText(status_text)
 
         if self._team_menu is not None:
-            self._team_menu.menuAction().setEnabled(not enabled)
+            self._team_menu.menuAction().setEnabled(True)
         for action in self._team_actions:
-            action.setEnabled(not enabled)
+            action.setEnabled(True)
 
     def _load_cloud_sync_settings(self) -> dict[str, object]:
         default_cache_root = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)

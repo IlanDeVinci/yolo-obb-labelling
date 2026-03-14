@@ -37,6 +37,7 @@ http://localhost:8095/
 - `SYNC_SESSION_TTL_SECONDS` (default `45`)
 - `SYNC_BACKUP_RETENTION_DAYS` (default `14`)
 - `SYNC_MAX_FILE_BYTES` (default `8388608`)
+- `SYNC_MAX_ZIP_UPLOAD_BYTES` (default `536870912`)
 - `SYNC_BOOTSTRAP_TOKEN` (optional but recommended in production)
 - `SYNC_REQUIRE_PROJECT_PASSWORD` (`0` by default, set `1` to require project password during login)
 - `SYNC_S3_BUCKET` (optional, enables S3 storage for image files)
@@ -143,9 +144,26 @@ After bootstrap succeeds, keep the token set. It still protects the endpoint aga
 - `GET /api/images/signed-read?path=...`
 - `POST /api/images/signed-write`
 - `POST /api/images/prefetch`
+- `POST /api/admin/images/upload` (multipart upload for backend dashboard)
+- `POST /api/admin/images/upload-zip` (server-side bulk zip ingest for huge batches)
 - `POST /api/admin/project/image-access`
 - `GET /api/admin/project/image-access`
 - `DELETE /api/users/{username}`
+
+## Backend dashboard image uploader
+
+Admin users can upload image files/folders directly from the backend web UI:
+
+- Drag and drop files/folders into "Project Image Upload"
+- Or use "Pick Files" / "Pick Folder"
+- "Sync Entire Local Folder" runs folder-pick + conflict analysis + upload in one flow
+- Conflict report includes: `existing`, `changed-size`, `changed-hash`
+- Optional target prefix (default `images`)
+- Optional overwrite toggle
+- For very large batches, use "Bulk Zip Upload (Server-Side)"
+
+Uploads are duplicate-safe by default (`skip if exists`) and each uploaded image is recorded in sync change history.
+Both single-file and zip upload endpoints enforce the active authenticated project; dashboard sends `expected_project_id` and backend rejects if session/project changed.
 
 ## Lock behavior
 
