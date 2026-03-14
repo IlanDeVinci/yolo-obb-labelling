@@ -124,6 +124,11 @@ class ProjectImageAccessPayload(BaseModel):
     imageAccessMode: str = Field(pattern="^(local|hybrid|cloud_only)$")
 
 
+class ImageStatusPayload(BaseModel):
+    imageName: str = Field(min_length=1, max_length=512)
+    status: str = Field(pattern="^(in_progress|completed|yolo|to_rotate)$")
+
+
 class ActivateLockPayload(BaseModel):
     path: str | None = None
 
@@ -348,6 +353,14 @@ def _init_db() -> None:
               content_base64 TEXT NOT NULL,
               created_at INTEGER NOT NULL
             );
+                        CREATE TABLE IF NOT EXISTS image_status (
+                            project_id TEXT NOT NULL,
+                            image_name TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            updated_at INTEGER NOT NULL,
+                            updated_by TEXT NOT NULL,
+                            PRIMARY KEY(project_id, image_name)
+                        );
             """
         )
         columns = _CONN.execute("PRAGMA table_info(projects)").fetchall()
@@ -1246,6 +1259,78 @@ def request_prefetch_batch(
         "startIndex": start_index,
         "count": len(items),
         "items": items,
+    }
+
+
+@app.get("/api/image-status")
+def get_image_status_map(session: SessionContext = Depends(_auth_from_header)) -> dict[str, Any]:
+    rows = _CONN.execute(
+        "SELECT image_name, status, updated_at, updated_by FROM image_status WHERE project_id = ? ORDER BY image_name ASC",
+        (session.project_id,),
+    ).fetchall()
+
+    statuses: dict[str, str] = {}
+    meta: list[dict[str, Any]] = []
+    for row in rows:
+        image_name = str(row["image_name"] or "").strip()
+        status = str(row["status"] or "").strip().lower()
+        if not image_name or status not in {"in_progress", "completed", "yolo", "to_rotate"}:
+            continue
+        statuses[image_name] = status
+        meta.append(
+            {
+                "imageName": image_name,
+                "status": status,
+                "updatedAt": int(row["updated_at"] or 0),
+                "updatedBy": str(row["updated_by"] or ""),
+            }
+        )
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "count": len(statuses),
+        "statuses": statuses,
+        "items": meta,
+    }
+
+
+@app.post("/api/image-status")
+def upsert_image_status(
+    payload: ImageStatusPayload,
+    session: SessionContext = Depends(_auth_from_header),
+) -> dict[str, Any]:
+    image_name = str(payload.imageName or "").strip()
+    status = str(payload.status or "").strip().lower()
+    if not image_name:
+        raise HTTPException(status_code=400, detail="imageName is required")
+    if "/" in image_name or "\\" in image_name:
+        raise HTTPException(status_code=400, detail="imageName must be a basename")
+    if status not in {"in_progress", "completed", "yolo", "to_rotate"}:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    with _db_lock:
+        now = _now_ms()
+        _CONN.execute(
+            """
+            INSERT INTO image_status (project_id, image_name, status, updated_at, updated_by)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(project_id, image_name) DO UPDATE SET
+              status=excluded.status,
+              updated_at=excluded.updated_at,
+              updated_by=excluded.updated_by
+            """,
+            (session.project_id, image_name, status, now, session.username),
+        )
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "imageName": image_name,
+        "status": status,
+        "updatedAt": _now_ms(),
+        "updatedBy": session.username,
     }
 
 

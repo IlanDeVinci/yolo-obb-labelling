@@ -73,6 +73,8 @@ class CloudImageCache:
         self._index: dict[str, dict[str, Any]] = {}
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._load()
+        # Clean stale/missing entries immediately so old cache does not linger forever.
+        self.prune()
 
     @property
     def cache_dir(self) -> Path:
@@ -148,6 +150,8 @@ class CloudImageCache:
 
     def stats(self) -> dict[str, Any]:
         with self._lock:
+            # Opportunistic cleanup on stats calls (invoked regularly by UI status updates).
+            self._evict_locked()
             used = 0
             count = 0
             for entry in self._index.values():
@@ -162,6 +166,11 @@ class CloudImageCache:
                 "entries": count,
                 "usedBytes": used,
             }
+
+    def prune(self) -> None:
+        with self._lock:
+            self._evict_locked()
+            self._save_locked()
 
     def _evict_locked(self) -> None:
         candidates: list[tuple[str, dict[str, Any], Path]] = []

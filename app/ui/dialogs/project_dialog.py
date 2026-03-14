@@ -381,13 +381,24 @@ class ProjectSettingsDialog(QDialog):
         general_layout.addWidget(QLabel("Dossier dataset:"))
         folder_layout = QHBoxLayout()
         self._folder_edit = QLineEdit(project.dataset_folder)
-        self._folder_edit.setReadOnly(True)
+        self._folder_edit.setPlaceholderText("images or C:/data/my-project-images")
         folder_layout.addWidget(self._folder_edit)
         btn_browse = QPushButton("...")
         btn_browse.setFixedWidth(30)
         btn_browse.clicked.connect(self._browse_folder)
         folder_layout.addWidget(btn_browse)
         general_layout.addLayout(folder_layout)
+
+        general_layout.addWidget(QLabel("Dossier status images partage:"))
+        status_layout = QHBoxLayout()
+        self._status_folder_edit = QLineEdit(project.image_status_folder)
+        self._status_folder_edit.setPlaceholderText("image-status or C:/data/my-project-status")
+        status_layout.addWidget(self._status_folder_edit)
+        btn_status_browse = QPushButton("...")
+        btn_status_browse.setFixedWidth(30)
+        btn_status_browse.clicked.connect(self._browse_status_folder)
+        status_layout.addWidget(btn_status_browse)
+        general_layout.addLayout(status_layout)
 
         general_layout.addStretch()
         tabs.addTab(general_tab, "General")
@@ -422,9 +433,19 @@ class ProjectSettingsDialog(QDialog):
         if folder:
             self._folder_edit.setText(folder)
 
+    def _browse_status_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Selectionner le dossier status partage",
+            self._status_folder_edit.text() or "",
+        )
+        if folder:
+            self._status_folder_edit.setText(folder)
+
     def _on_accept(self) -> None:
         self._project.name = self._name_edit.text().strip() or self._project.name
         self._project.dataset_folder = self._folder_edit.text()
+        self._project.image_status_folder = self._status_folder_edit.text().strip() or "image-status"
 
         # Parse classes
         classes_text = self._classes_edit.text()

@@ -45,6 +45,7 @@ class Project:
 
     # Dataset configuration
     dataset_folder: str = ""      # Path to images/dataset root folder
+    image_status_folder: str = IMAGE_STATUS_DIR_NAME  # Path to shared image status folder
     yaml_path: str = ""           # Path to dataset YAML (optional)
     class_names: list[str] = field(default_factory=list)
 
@@ -72,6 +73,8 @@ class Project:
             self.created_at = datetime.now().isoformat()
         if not self.modified_at:
             self.modified_at = datetime.now().isoformat()
+        if not str(self.image_status_folder or "").strip():
+            self.image_status_folder = IMAGE_STATUS_DIR_NAME
 
     # ------------------------------------------------------------------
     # Team management
@@ -245,6 +248,7 @@ class Project:
                 created_at=data.get("created_at", ""),
                 modified_at=data.get("modified_at", ""),
                 dataset_folder=data.get("dataset_folder", ""),
+                image_status_folder=data.get("image_status_folder", IMAGE_STATUS_DIR_NAME),
                 yaml_path=data.get("yaml_path", ""),
                 class_names=data.get("class_names", []),
                 team_members=data.get("team_members", []),
@@ -408,7 +412,7 @@ class ProjectManager:
     def resolve_dataset_folder(self, project: Project | None = None) -> Path | None:
         """Resolve project.dataset_folder to an absolute path in project scope.
 
-        dataset_folder is stored as a path relative to the project folder.
+        dataset_folder supports both relative (project-local) and absolute paths.
         """
         if project is None:
             project = self._current_project
@@ -422,17 +426,27 @@ class ProjectManager:
 
         rel = Path(raw)
         if rel.is_absolute():
-            try:
-                rel = rel.resolve().relative_to(project_folder.resolve())
-            except Exception:
-                return None
+            return rel.resolve()
 
         resolved = (project_folder / rel).resolve()
-        try:
-            resolved.relative_to(project_folder.resolve())
-        except Exception:
-            return None
         return resolved
+
+    def resolve_image_status_folder(self, project: Project | None = None) -> Path | None:
+        """Resolve shared image status folder to absolute path.
+
+        image_status_folder supports both relative (project-local) and absolute paths.
+        """
+        if project is None:
+            project = self._current_project
+        if project is None or self._current_path is None:
+            return None
+
+        project_folder = self._current_path.parent
+        raw = str(project.image_status_folder or "").strip() or IMAGE_STATUS_DIR_NAME
+        candidate = Path(raw)
+        if candidate.is_absolute():
+            return candidate.resolve()
+        return (project_folder / candidate).resolve()
 
     def save_user_state(self) -> bool:
         """Save per-user runtime state in a local sidecar file."""
@@ -482,12 +496,18 @@ class ProjectManager:
 
         try:
             candidate_resolved = candidate.resolve()
-            rel = candidate_resolved.relative_to(project_folder)
+            if Path(raw).is_absolute():
+                new_value = candidate_resolved.as_posix()
+            else:
+                rel = candidate_resolved.relative_to(project_folder)
+                new_value = rel.as_posix() if rel.as_posix() else "."
         except Exception:
-            fallback = Path("images")
-            new_value = fallback.as_posix()
-        else:
-            new_value = rel.as_posix() if rel.as_posix() else "."
+            # Keep explicit absolute paths as-is when they cannot be relativized.
+            if Path(raw).is_absolute():
+                new_value = Path(raw).as_posix()
+            else:
+                fallback = Path("images")
+                new_value = fallback.as_posix()
 
         if project.dataset_folder != new_value:
             project.dataset_folder = new_value
@@ -527,7 +547,10 @@ class ProjectManager:
         metadata["sig"] = self._compute_status_sig(metadata)
 
         try:
-            status_path = self._image_status_file(self._current_path.parent, image_name)
+            status_dir = self.resolve_image_status_folder(self._current_project)
+            if status_dir is None:
+                return False
+            status_path = self._image_status_file(status_dir, image_name)
             status_path.parent.mkdir(parents=True, exist_ok=True)
             status_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
             return True
@@ -550,7 +573,9 @@ class ProjectManager:
         if not self._current_path:
             return 0
 
-        status_dir = self._current_path.parent / IMAGE_STATUS_DIR_NAME
+        status_dir = self.resolve_image_status_folder(self._current_project)
+        if status_dir is None:
+            return 0
         if not status_dir.exists():
             return 0
 
@@ -583,7 +608,16 @@ class ProjectManager:
                 "duplicate_images": 0,
             }
 
-        status_dir = self._current_path.parent / IMAGE_STATUS_DIR_NAME
+        status_dir = self.resolve_image_status_folder(self._current_project)
+        if status_dir is None:
+            return {
+                "has_project": False,
+                "status_dir": "",
+                "total_files": 0,
+                "valid_files": 0,
+                "malformed_files": 0,
+                "duplicate_images": 0,
+            }
         if not status_dir.exists():
             return {
                 "has_project": True,
@@ -674,7 +708,10 @@ class ProjectManager:
 
     def _load_shared_image_completion(self, project_folder: Path) -> dict[str, str]:
         """Read shared per-image completion metadata as an image->status map."""
-        status_dir = project_folder / IMAGE_STATUS_DIR_NAME
+        _ = project_folder
+        status_dir = self.resolve_image_status_folder(self._current_project)
+        if status_dir is None:
+            return {}
         if not status_dir.exists():
             return {}
 
@@ -740,12 +777,12 @@ class ProjectManager:
         expected = ProjectManager._compute_status_sig(data)
         return hmac.compare_digest(stored, expected)
 
-    def _image_status_file(self, project_folder: Path, image_name: str) -> Path:
+    def _image_status_file(self, status_dir: Path, image_name: str) -> Path:
         stem = Path(image_name).stem
         safe_stem = re.sub(r"[^A-Za-z0-9._-]", "_", stem).strip("._") or "image"
         digest = hashlib.sha1(image_name.encode("utf-8")).hexdigest()[:10]
         file_name = f"{safe_stem}-{digest}.json"
-        return project_folder / IMAGE_STATUS_DIR_NAME / file_name
+        return status_dir / file_name
 
     @staticmethod
     def _apply_user_state_to_project(project: Project, state: dict[str, object]) -> None:

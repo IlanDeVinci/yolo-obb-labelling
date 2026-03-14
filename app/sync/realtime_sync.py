@@ -502,6 +502,17 @@ class RealtimeSyncAgent:
             body={"currentPath": current_path or "", "count": int(max(1, count))},
         )
 
+    def get_image_status_map(self) -> dict[str, Any]:
+        self._ensure_auth()
+        return self._request_json("/api/image-status")
+
+    def set_image_status(self, image_name: str, status: str) -> dict[str, Any]:
+        self._ensure_auth()
+        return self._request_json(
+            "/api/image-status",
+            body={"imageName": str(image_name or ""), "status": str(status or "")},
+        )
+
     def _normalize_server_url(self, raw_url: str) -> str:
         value = str(raw_url or "").strip()
         if not value:
