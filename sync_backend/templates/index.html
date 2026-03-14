@@ -4,41 +4,94 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>YOLO Sync Backend</title>
+    <title>YOLO Sync Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 
 <body>
-    <main class="page">
-        <section class="shell">
-            <header class="head">
-                <h1>YOLO Sync Backend</h1>
-                <p class="muted">Cloud sync control plane for authentication, project status, and admin actions.</p>
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+        <symbol id="i-grid" viewBox="0 0 24 24">
+            <path d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z" fill="currentColor" />
+        </symbol>
+        <symbol id="i-activity" viewBox="0 0 24 24">
+            <path d="M3 12h4l2-5 4 10 2-5h6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24">
+            <path d="M12 16V5m0 0-4 4m4-4 4 4M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24">
+            <path d="M12 3 4 6v6c0 5.2 3.3 8.9 8 10 4.7-1.1 8-4.8 8-10V6l-8-3Z" stroke="currentColor" stroke-width="2" fill="none" />
+        </symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24">
+            <path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v6h-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-user-plus" viewBox="0 0 24 24">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M8.5 11A4 4 0 1 0 8.5 3a4 4 0 0 0 0 8Zm11-4v6m3-3h-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-database" viewBox="0 0 24 24">
+            <ellipse cx="12" cy="5" rx="8" ry="3" stroke="currentColor" stroke-width="2" fill="none" />
+            <path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7" stroke="currentColor" stroke-width="2" fill="none" />
+        </symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24">
+            <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m-9 0 1 14a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24">
+            <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-cloud" viewBox="0 0 24 24">
+            <path d="M7 18a4 4 0 1 1 .8-7.9A5 5 0 0 1 18 10a3.5 3.5 0 1 1 .5 8H7Z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-layout" viewBox="0 0 24 24">
+            <path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5Zm6 0v14" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" />
+        </symbol>
+    </svg>
+
+    <div class="background-ornaments" aria-hidden="true">
+        <div class="orb orb-a"></div>
+        <div class="orb orb-b"></div>
+        <div class="grid-wash"></div>
+    </div>
+
+    <main class="app-shell">
+        <section class="auth-surface" id="authPanel">
+            <header class="brand-head">
+                <div class="brand-mark">
+                    <svg><use href="#i-cloud"></use></svg>
+                </div>
+                <div>
+                    <p class="eyebrow">YOLO Platform</p>
+                    <h1>Sync Control</h1>
+                    <p class="muted">Secure project access, cloud image workflows, and operational controls.</p>
+                </div>
             </header>
 
-            <section class="panel" id="authPanel">
-                <h2>Login</h2>
-                <form id="loginBox" class="stack">
+            <section class="glass-card">
+                <h2>Sign In</h2>
+                <form id="loginBox" class="stack gap-md">
                     <div class="grid-2">
-                        <label>Username<input id="username" placeholder="username" /></label>
-                        <label>Password<input id="password" placeholder="password" type="password" /></label>
+                        <label>Username<input id="username" placeholder="username" autocomplete="username" /></label>
+                        <label>Password<input id="password" placeholder="password" type="password" autocomplete="current-password" /></label>
                     </div>
                     <div class="row">
-                        <button id="loadProjectsBtn" type="button" class="secondary">Load Projects</button>
-                        <button id="loginBtn" type="submit">Login</button>
+                        <button id="loadProjectsBtn" type="button" class="btn ghost">Load Projects</button>
+                        <button id="loginBtn" type="submit" class="btn solid">Login</button>
                     </div>
                     <label>Project<select id="projectIdSelect">
                             <option value="">Select a project...</option>
                         </select></label>
-                    <label id="projectPasswordWrap" class="hidden">Project Password<input id="projectPassword"
-                            type="password" placeholder="project password" /></label>
+                    <label id="projectPasswordWrap" class="hidden">Project Password<input id="projectPassword" type="password" placeholder="project password" /></label>
                     <p id="loginHint" class="muted small"></p>
                 </form>
 
                 <div id="bootstrapWrap" class="hidden top-gap">
-                    <button id="showBootstrapBtn" type="button" class="secondary">Need to bootstrap first
-                        project?</button>
-                    <form id="bootstrapBox" class="stack hidden top-gap">
+                    <button id="showBootstrapBtn" type="button" class="btn ghost">Need to bootstrap first project?</button>
+                    <form id="bootstrapBox" class="stack gap-md hidden top-gap">
                         <h3>Bootstrap First Project</h3>
                         <div class="grid-2">
                             <label>Project ID<input id="bootProject" placeholder="project-id" /></label>
@@ -46,75 +99,215 @@
                             <label>Owner Username<input id="bootUser" /></label>
                             <label>Owner Password<input id="bootPass" type="password" /></label>
                         </div>
-                        <label>Bootstrap Token<input id="bootToken" type="password"
-                                placeholder="optional if server requires it" /></label>
-                        <button id="bootBtn" type="submit">Create Project + Owner</button>
+                        <label>Bootstrap Token<input id="bootToken" type="password" placeholder="optional if server requires it" /></label>
+                        <button id="bootBtn" type="submit" class="btn solid">Create Project + Owner</button>
                     </form>
                 </div>
             </section>
+        </section>
 
-            <section class="panel hidden" id="dashboardPanel">
-                <div class="row spread">
-                    <div>
-                        <h2>Session</h2>
-                        <p class="muted small" id="sessionText">Not connected</p>
-                    </div>
-                    <div class="row">
-                        <button id="refreshBtn" type="button" class="secondary">Refresh</button>
-                        <button id="logoutBtn" type="button" class="secondary">Logout</button>
-                    </div>
+        <section class="dashboard hidden" id="dashboardPanel">
+            <aside class="sidebar panel-card">
+                <div class="sidebar-top">
+                    <p class="eyebrow">YOLO Platform</p>
+                    <h2>Control Plane</h2>
+                    <p class="small muted" id="sessionText">Not connected</p>
                 </div>
-
-                <div class="cards" id="summaryCards"></div>
-
                 <nav class="dash-nav" id="dashNav">
-                    <button type="button" class="secondary nav-btn" data-page="overview">Overview</button>
-                    <button type="button" class="secondary nav-btn" data-page="activity">Activity</button>
-                    <button type="button" class="secondary nav-btn" data-page="uploads">Uploads</button>
-                    <button type="button" class="secondary nav-btn admin-only" data-page="admin">Admin</button>
+                    <button type="button" class="nav-btn" data-page="overview">
+                        <svg><use href="#i-grid"></use></svg>
+                        <span>Overview</span>
+                    </button>
+                    <button type="button" class="nav-btn" data-page="activity">
+                        <svg><use href="#i-activity"></use></svg>
+                        <span>Activity</span>
+                    </button>
+                    <button type="button" class="nav-btn" data-page="uploads">
+                        <svg><use href="#i-upload"></use></svg>
+                        <span>Uploads</span>
+                    </button>
+                    <button type="button" class="nav-btn admin-only" data-page="admin">
+                        <svg><use href="#i-shield"></use></svg>
+                        <span>Admin</span>
+                    </button>
                 </nav>
-
-                <div class="panel-flat" data-page="activity">
-                    <h3>Recent Modifications</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Seq</th>
-                                <th>User</th>
-                                <th>Path</th>
-                                <th>State</th>
-                                <th>When</th>
-                            </tr>
-                        </thead>
-                        <tbody id="changesBody">
-                            <tr>
-                                <td colspan="5" class="muted">No data yet.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <div class="sidebar-actions">
+                    <button id="compactModeBtn" type="button" class="btn ghost icon-btn">
+                        <svg><use href="#i-layout"></use></svg>
+                        <span id="compactModeLabel">Layout: Auto</span>
+                    </button>
+                    <button id="refreshBtn" type="button" class="btn ghost icon-btn">
+                        <svg><use href="#i-refresh"></use></svg>
+                        <span>Refresh</span>
+                    </button>
+                    <button id="logoutBtn" type="button" class="btn ghost icon-btn">
+                        <svg><use href="#i-logout"></use></svg>
+                        <span>Logout</span>
+                    </button>
                 </div>
+            </aside>
 
-                <div class="panel-flat" data-page="overview">
-                    <h3>Account</h3>
-                    <div class="row">
-                        <button id="deleteSelfBtn" class="danger" type="button">Delete My User</button>
+            <section class="content panel-card" id="adminPanel">
+                <section class="page-view" data-page="overview">
+                    <header class="view-head">
+                        <h3>Project Overview</h3>
+                        <p class="muted">Live project health and session profile.</p>
+                    </header>
+                    <div class="cards" id="summaryCards"></div>
+                    <div class="overview-grid">
+                        <article class="sub-card accent-surface">
+                            <h4>Account Actions</h4>
+                            <p class="muted small">Manage your own access immediately.</p>
+                            <button id="deleteSelfBtn" class="btn danger icon-btn" type="button">
+                                <svg><use href="#i-trash"></use></svg>
+                                <span>Delete My User</span>
+                            </button>
+                        </article>
+                        <article class="sub-card">
+                            <h4>Live Session</h4>
+                            <p class="muted small" id="overviewSessionMirror">No active session details yet.</p>
+                        </article>
                     </div>
-                </div>
+                </section>
 
-                <div id="adminPanel" class="panel-flat hidden" data-page="uploads">
-                    <h3>Project Workspace</h3>
+                <section class="page-view hidden" data-page="activity">
+                    <header class="view-head">
+                        <h3>Recent Modifications</h3>
+                        <p class="muted">Last synchronized writes for this project.</p>
+                    </header>
+                    <div class="table-shell">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Seq</th>
+                                    <th>User</th>
+                                    <th>Path</th>
+                                    <th>State</th>
+                                    <th>When</th>
+                                </tr>
+                            </thead>
+                            <tbody id="changesBody">
+                                <tr>
+                                    <td colspan="5" class="muted">No data yet.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
 
-                    <div class="grid-2 admin-only" data-page="admin">
-                        <div class="stack">
-                            <h4>Create User</h4>
+                <section class="page-view hidden" data-page="uploads">
+                    <header class="view-head">
+                        <h3>Project Upload Workspace</h3>
+                        <p class="muted">Drag and drop folders, inspect conflicts, and run uploads.</p>
+                    </header>
+
+                    <div class="stack gap-md uploader-shell">
+                        <p id="uploadProjectBadge" class="project-badge">Uploading into: (not connected)</p>
+                        <div id="uploadDropZone" class="drop-zone">
+                            <p>Drop images or folders here</p>
+                            <p class="muted small">Accepted: .jpg .jpeg .png .bmp .tiff .tif .webp</p>
+                        </div>
+
+                        <div class="row">
+                            <button id="pickImageFilesBtn" type="button" class="btn ghost icon-btn">
+                                <svg><use href="#i-upload"></use></svg>
+                                <span>Pick Files</span>
+                            </button>
+                            <button id="pickImageFolderBtn" type="button" class="btn ghost icon-btn">
+                                <svg><use href="#i-folder"></use></svg>
+                                <span>Pick Folder</span>
+                            </button>
+                            <button id="syncProjectFolderBtn" type="button" class="btn ghost icon-btn">
+                                <svg><use href="#i-cloud"></use></svg>
+                                <span>Sync Entire Local Folder</span>
+                            </button>
+                            <button id="analyzeConflictsBtn" type="button" class="btn ghost">Analyze Conflicts</button>
+                            <label class="inline"><input id="uploadOverwrite" type="checkbox" /> Overwrite existing</label>
+                        </div>
+
+                        <label>Target Prefix (inside project)
+                            <input id="uploadTargetPrefix" placeholder="images" value="images" />
+                        </label>
+
+                        <div class="row">
+                            <button id="startUploadBtn" type="button" class="btn solid">Upload Selected</button>
+                            <button id="clearUploadQueueBtn" type="button" class="btn ghost">Clear Queue</button>
+                        </div>
+
+                        <p id="uploadSummary" class="muted small">Queue empty.</p>
+                        <p id="conflictSummary" class="muted small">Conflict report: not generated.</p>
+
+                        <div class="mini-metrics">
+                            <article>
+                                <p class="muted">Existing</p>
+                                <strong id="conflictExisting">0</strong>
+                            </article>
+                            <article>
+                                <p class="muted">Changed Size</p>
+                                <strong id="conflictChangedSize">0</strong>
+                            </article>
+                            <article>
+                                <p class="muted">Changed Hash</p>
+                                <strong id="conflictChangedHash">0</strong>
+                            </article>
+                        </div>
+
+                        <div class="table-shell">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>File</th>
+                                        <th>Size</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="uploadQueueBody">
+                                    <tr>
+                                        <td colspan="3" class="muted">No files queued.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <input id="pickImageFilesInput" type="file" class="hidden" multiple accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" />
+                        <input id="pickImageFolderInput" type="file" class="hidden" multiple webkitdirectory directory />
+
+                        <article class="zip-shell">
+                            <h4>Bulk Zip Upload (Server-Side)</h4>
+                            <p class="muted small">Use a single zip for huge batches. Server extracts images and records sync changes.</p>
+                            <div class="row">
+                                <button id="pickZipBtn" type="button" class="btn ghost">Pick Zip</button>
+                                <button id="uploadZipBtn" type="button" class="btn solid">Upload Zip</button>
+                                <span id="zipSelectedName" class="muted small">No zip selected.</span>
+                            </div>
+                            <input id="pickZipInput" type="file" class="hidden" accept=".zip,application/zip" />
+                        </article>
+                    </div>
+                </section>
+
+                <section class="page-view hidden" data-page="admin">
+                    <header class="view-head">
+                        <h3>Admin Workspace</h3>
+                        <p class="muted">Manage users and project-level storage controls.</p>
+                    </header>
+
+                    <div class="grid-2 admin-only">
+                        <article class="sub-card stack">
+                            <h4>
+                                <svg class="h4-icon"><use href="#i-user-plus"></use></svg>
+                                Create User
+                            </h4>
                             <label>Username<input id="newUser" placeholder="new username" /></label>
                             <label>Password<input id="newPass" type="password" /></label>
                             <label class="inline"><input id="newIsAdmin" type="checkbox" /> Admin role</label>
-                            <button id="createUserBtn" type="button">Create User</button>
-                        </div>
+                            <button id="createUserBtn" type="button" class="btn solid">Create User</button>
+                        </article>
 
-                        <div class="stack">
-                            <h4>Project Settings</h4>
+                        <article class="sub-card stack">
+                            <h4>
+                                <svg class="h4-icon"><use href="#i-database"></use></svg>
+                                Project Settings
+                            </h4>
                             <label>Storage Mode
                                 <select id="storageMode">
                                     <option value="auto">auto</option>
@@ -130,108 +323,39 @@
                                 </select>
                             </label>
                             <div class="row">
-                                <button id="saveStorageBtn" type="button">Save Storage</button>
-                                <button id="saveImageAccessBtn" type="button">Save Image Access</button>
-                                <button id="backupBtn" type="button" class="secondary">Backup Now</button>
+                                <button id="saveStorageBtn" type="button" class="btn solid">Save Storage</button>
+                                <button id="saveImageAccessBtn" type="button" class="btn solid">Save Image Access</button>
+                                <button id="backupBtn" type="button" class="btn ghost">Backup Now</button>
                             </div>
-                        </div>
+                        </article>
                     </div>
 
-                    <h4 class="admin-only" data-page="admin">Users</h4>
-                    <table class="admin-only" data-page="admin">
-                        <thead>
-                            <tr>
-                                <th>Username</th>
-                                <th>Role</th>
-                                <th>Created By</th>
-                                <th>Created At</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="usersBody">
-                            <tr>
-                                <td colspan="5" class="muted">No users loaded.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                    <h4 data-page="uploads">Project Image Upload</h4>
-                    <div class="stack uploader-shell" data-page="uploads">
-                        <p class="muted small">Drag and drop image files or folders here, then upload into this project.
-                        </p>
-                        <p id="uploadProjectBadge" class="project-badge">Uploading into: (not connected)</p>
-                        <div id="uploadDropZone" class="drop-zone">
-                            <p>Drop images or folders here</p>
-                            <p class="muted small">Accepted: .jpg .jpeg .png .bmp .tiff .tif .webp</p>
+                    <article class="sub-card admin-only">
+                        <h4>Users</h4>
+                        <div class="table-shell">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Username</th>
+                                        <th>Role</th>
+                                        <th>Created By</th>
+                                        <th>Created At</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="usersBody">
+                                    <tr>
+                                        <td colspan="5" class="muted">No users loaded.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
-                        <div class="row">
-                            <button id="pickImageFilesBtn" type="button" class="secondary">Pick Files</button>
-                            <button id="pickImageFolderBtn" type="button" class="secondary">Pick Folder</button>
-                            <button id="syncProjectFolderBtn" type="button" class="secondary">Sync Entire Local
-                                Folder</button>
-                            <button id="analyzeConflictsBtn" type="button" class="secondary">Analyze Conflicts</button>
-                            <label class="inline"><input id="uploadOverwrite" type="checkbox" /> Overwrite
-                                existing</label>
-                        </div>
-                        <label>Target Prefix (inside project)
-                            <input id="uploadTargetPrefix" placeholder="images" value="images" />
-                        </label>
-                        <div class="row">
-                            <button id="startUploadBtn" type="button">Upload Selected</button>
-                            <button id="clearUploadQueueBtn" type="button" class="secondary">Clear Queue</button>
-                        </div>
-                        <p id="uploadSummary" class="muted small">Queue empty.</p>
-                        <p id="conflictSummary" class="muted small">Conflict report: not generated.</p>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Existing</th>
-                                    <th>Changed Size</th>
-                                    <th>Changed Hash</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td id="conflictExisting">0</td>
-                                    <td id="conflictChangedSize">0</td>
-                                    <td id="conflictChangedHash">0</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>File</th>
-                                    <th>Size</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody id="uploadQueueBody">
-                                <tr>
-                                    <td colspan="3" class="muted">No files queued.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <input id="pickImageFilesInput" type="file" class="hidden" multiple
-                            accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp" />
-                        <input id="pickImageFolderInput" type="file" class="hidden" multiple webkitdirectory
-                            directory />
-
-                        <h4>Bulk Zip Upload (Server-Side)</h4>
-                        <p class="muted small">Use a single zip for huge batches. Server extracts images and records
-                            sync changes.</p>
-                        <div class="row">
-                            <button id="pickZipBtn" type="button" class="secondary">Pick Zip</button>
-                            <button id="uploadZipBtn" type="button">Upload Zip</button>
-                            <span id="zipSelectedName" class="muted small">No zip selected.</span>
-                        </div>
-                        <input id="pickZipInput" type="file" class="hidden" accept=".zip,application/zip" />
-                    </div>
-                </div>
+                    </article>
+                </section>
             </section>
-
-            <p id="msg" class="msg"></p>
         </section>
+
+        <p id="msg" class="msg" aria-live="polite"></p>
     </main>
 
     <script>
@@ -241,6 +365,7 @@
         const bootstrapWrap = document.getElementById('bootstrapWrap');
         const bootstrapBox = document.getElementById('bootstrapBox');
         const sessionText = document.getElementById('sessionText');
+        const overviewSessionMirror = document.getElementById('overviewSessionMirror');
         const adminPanel = document.getElementById('adminPanel');
         const summaryCards = document.getElementById('summaryCards');
         const changesBody = document.getElementById('changesBody');
@@ -261,6 +386,8 @@
         const projectIdSelect = document.getElementById('projectIdSelect');
         const projectPasswordWrap = document.getElementById('projectPasswordWrap');
         const loginHint = document.getElementById('loginHint');
+        const compactModeBtn = document.getElementById('compactModeBtn');
+        const compactModeLabel = document.getElementById('compactModeLabel');
 
         let token = localStorage.getItem('syncToken') || '';
         let currentUser = localStorage.getItem('syncUsername') || '';
@@ -273,7 +400,39 @@
         let uploadQueue = [];
         let selectedZipFile = null;
         let autoSyncAfterFolderPick = false;
+        let compactPreference = localStorage.getItem('syncCompactMode') || 'auto';
         const imageSuffixes = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']);
+
+        function shouldUseAutoCompactMode() {
+            return window.innerWidth <= 1366 || window.innerHeight <= 820;
+        }
+
+        function updateCompactModeLabel() {
+            const map = {
+                auto: 'Layout: Auto',
+                on: 'Layout: Compact',
+                off: 'Layout: Comfortable',
+            };
+            compactModeLabel.textContent = map[compactPreference] || map.auto;
+        }
+
+        function applyCompactMode() {
+            const useCompact = compactPreference === 'on' || (compactPreference === 'auto' && shouldUseAutoCompactMode());
+            document.body.classList.toggle('compact-mode', useCompact);
+            updateCompactModeLabel();
+        }
+
+        function cycleCompactModePreference() {
+            if (compactPreference === 'auto') {
+                compactPreference = 'on';
+            } else if (compactPreference === 'on') {
+                compactPreference = 'off';
+            } else {
+                compactPreference = 'auto';
+            }
+            localStorage.setItem('syncCompactMode', compactPreference);
+            applyCompactMode();
+        }
 
         function setMessage(text, isError = false) {
             msg.textContent = text || '';
@@ -299,15 +458,14 @@
             }
             activeDashPage = next;
 
-            const sections = Array.from(document.querySelectorAll('#dashboardPanel [data-page]'));
-            for (const section of sections) {
-                const target = String(section.getAttribute('data-page') || '').trim();
-                const isNavButton = section.classList.contains('nav-btn');
-                if (isNavButton) {
-                    section.classList.toggle('active', target === next);
-                    continue;
-                }
-                section.classList.toggle('hidden', target !== next);
+            const views = Array.from(document.querySelectorAll('#dashboardPanel .page-view[data-page]'));
+            for (const view of views) {
+                view.classList.toggle('hidden', view.getAttribute('data-page') !== next);
+            }
+
+            const navButtons = Array.from(document.querySelectorAll('#dashboardPanel .nav-btn[data-page]'));
+            for (const btn of navButtons) {
+                btn.classList.toggle('active', btn.getAttribute('data-page') === next);
             }
         }
 
@@ -374,7 +532,9 @@
                 { label: 'Changes', value: summary.totals?.changes || 0 },
             ];
             summaryCards.innerHTML = cards.map(c => `<article class="card-mini"><p>${c.label}</p><strong>${c.value}</strong></article>`).join('');
-            sessionText.textContent = `${status.username || currentUser} on ${summary.projectId || '-'} | role: ${status.role || '-'} | active: ${status.activeFile || '-'}`;
+            const line = `${status.username || currentUser} on ${summary.projectId || '-'} | role: ${status.role || '-'} | active: ${status.activeFile || '-'}`;
+            sessionText.textContent = line;
+            overviewSessionMirror.textContent = line;
         }
 
         function renderChanges(changes) {
@@ -401,7 +561,7 @@
             }
             usersBody.innerHTML = users.map(u => {
                 const deleteBtn = u.canDelete
-                    ? `<button data-delete-user="${u.username}" class="danger small-btn">Delete</button>`
+                    ? `<button data-delete-user="${u.username}" class="btn danger small-btn">Delete</button>`
                     : '';
                 return `
                     <tr>
@@ -446,7 +606,7 @@
                 uploadSummary.textContent = 'Queue empty.';
                 return;
             }
-            uploadQueueBody.innerHTML = uploadQueue.map((item, idx) => `
+            uploadQueueBody.innerHTML = uploadQueue.map(item => `
                 <tr>
                     <td class="mono">${item.targetPath}</td>
                     <td>${bytesToHuman(item.file.size)}</td>
@@ -871,12 +1031,14 @@
 
         document.getElementById('refreshBtn').addEventListener('click', () => refreshAll(false));
         document.getElementById('logoutBtn').addEventListener('click', () => handleLogout());
+        compactModeBtn.addEventListener('click', cycleCompactModePreference);
 
         dashNav.addEventListener('click', (event) => {
             const target = event.target;
             if (!target || !(target instanceof HTMLElement)) return;
-            if (!target.matches('button[data-page]')) return;
-            const page = target.getAttribute('data-page') || 'uploads';
+            const button = target.closest('button[data-page]');
+            if (!button) return;
+            const page = button.getAttribute('data-page') || 'uploads';
             setDashboardPage(page);
         });
 
@@ -1045,6 +1207,7 @@
 
         async function init() {
             setLoggedInState(false);
+            applyCompactMode();
             refreshUploadProjectBadge();
             setDashboardPage(activeDashPage);
             try {
@@ -1069,6 +1232,8 @@
                 startTimer();
             }
         }
+
+        window.addEventListener('resize', applyCompactMode);
 
         init();
     </script>
