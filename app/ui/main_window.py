@@ -1369,7 +1369,8 @@ class MainWindow(QMainWindow):
                 pass
         self._cloud_image_provider = None
 
-        if self._cloud_image_access_mode == "local":
+        # If sync is not attached yet (or was just torn down), stay on local provider.
+        if self._cloud_image_access_mode == "local" or self._sync_agent is None:
             self._image_provider = LocalFilesystemImageProvider()
             return
 
@@ -1428,7 +1429,7 @@ class MainWindow(QMainWindow):
         self._cloud_image_access_mode = mode
         if previous_mode != mode:
             project_folder = self._project_mgr.get_project_folder()
-            if project_folder is not None:
+            if project_folder is not None and self._sync_agent is not None:
                 config = CloudSyncConfig(
                     enabled=bool(self._cloud_sync_settings.get("enabled", False)),
                     server_url=str(self._cloud_sync_settings.get("server_url", "")),

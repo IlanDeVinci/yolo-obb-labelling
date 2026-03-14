@@ -255,6 +255,12 @@ class CloudImageProvider:
         self._pool.shutdown(wait=False, cancel_futures=True)
 
     def refresh_manifest(self) -> list[ImageManifestEntry]:
+        if self._sync_agent is None:
+            with self._lock:
+                self._manifest = []
+                self._manifest_map = {}
+            return []
+
         payload = self._sync_agent.get_image_manifest()
         items = payload.get("manifest") if isinstance(payload, dict) else []
         parsed: list[ImageManifestEntry] = []
@@ -301,6 +307,10 @@ class CloudImageProvider:
             return cached
 
         self._telemetry["cacheMisses"] += 1
+        if self._sync_agent is None:
+            self._telemetry["failures"] += 1
+            raise RuntimeError("Cloud sync agent is not connected")
+
         signed = self._sync_agent.get_signed_image_read(rel)
         url = str(signed.get("url") or "")
         if not url:
