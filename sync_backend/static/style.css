@@ -446,6 +446,27 @@ html[data-theme="dark"] .btn.danger {
   animation: fade-rise 440ms ease-out;
 }
 
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 56;
+  min-height: 42px;
+  padding: 8px 11px;
+}
+
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 15, 14, 0.42);
+  z-index: 54;
+}
+
+html[data-theme="dark"] .sidebar-overlay {
+  background: rgba(2, 5, 7, 0.58);
+}
+
 .sidebar {
   padding: 16px;
   display: grid;
@@ -1184,12 +1205,39 @@ body.is-admin .nav-btn.admin-only {
     grid-template-columns: 1fr;
   }
 
+  .sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .sidebar {
-    position: static;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: min(84vw, 320px);
+    max-width: 320px;
+    overflow-y: auto;
+    z-index: 55;
+    transform: translateX(-120%);
+    transition: transform 180ms ease;
+  }
+
+  body.sidebar-open {
+    overflow: hidden;
+  }
+
+  body.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .content {
+    padding-top: 62px;
   }
 
   .dash-nav {
-    grid-template-columns: repeat(4, minmax(130px, 1fr));
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1212,7 +1260,7 @@ body.is-admin .nav-btn.admin-only {
   }
 
   .dash-nav {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .slideshow-panel {
@@ -1249,6 +1297,32 @@ body.is-admin .nav-btn.admin-only {
   #imagesOpsPercent {
     flex: 0 0 auto;
   }
+
+  .page-view[data-page="admin"] .row,
+  .page-view[data-page="images"] .row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .page-view[data-page="admin"] .row > *,
+  .page-view[data-page="images"] .row > * {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .page-view[data-page="admin"] .row .btn,
+  .page-view[data-page="images"] .row .btn {
+    justify-content: center;
+  }
+
+  .page-view[data-page="images"] #imagesOpsPercent,
+  .page-view[data-page="images"] #imagesSummary,
+  .page-view[data-page="images"] #imagesOpsStatus {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1281,6 +1355,10 @@ body.is-admin .nav-btn.admin-only {
 
   .dash-nav {
     grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    width: min(90vw, 320px);
   }
 
   .sidebar-actions {

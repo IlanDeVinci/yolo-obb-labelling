@@ -42,6 +42,10 @@
             <path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v6h-6" stroke="currentColor" stroke-width="2" fill="none"
                 stroke-linecap="round" stroke-linejoin="round" />
         </symbol>
+        <symbol id="i-menu" viewBox="0 0 24 24">
+            <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
         <symbol id="i-logout" viewBox="0 0 24 24">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor"
                 stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
@@ -142,7 +146,16 @@
         </section>
 
         <section class="dashboard hidden" id="dashboardPanel">
-            <aside class="sidebar panel-card">
+            <button id="sidebarToggleBtn" type="button" class="sidebar-toggle btn ghost icon-btn" aria-label="Open navigation menu"
+                aria-expanded="false" aria-controls="dashSidebar">
+                <svg>
+                    <use href="#i-menu"></use>
+                </svg>
+                <span>Menu</span>
+            </button>
+            <div id="sidebarOverlay" class="sidebar-overlay hidden" aria-hidden="true"></div>
+
+            <aside class="sidebar panel-card" id="dashSidebar">
                 <div class="sidebar-top">
                     <p class="eyebrow">YOLO Platform</p>
                     <h2>Control Plane</h2>
@@ -640,6 +653,8 @@
         const msg = document.getElementById('msg');
         const authPanel = document.getElementById('authPanel');
         const dashboardPanel = document.getElementById('dashboardPanel');
+        const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
         const bootstrapWrap = document.getElementById('bootstrapWrap');
         const bootstrapBox = document.getElementById('bootstrapBox');
         const sessionText = document.getElementById('sessionText');
@@ -817,6 +832,39 @@
         function setLoggedInState(loggedIn) {
             authPanel.classList.toggle('hidden', loggedIn);
             dashboardPanel.classList.toggle('hidden', !loggedIn);
+            if (!loggedIn) {
+                closeMobileSidebar();
+            }
+        }
+
+        function isMobileSidebarMode() {
+            return window.matchMedia('(max-width: 1120px)').matches;
+        }
+
+        function updateSidebarToggleState(open) {
+            if (!sidebarToggleBtn || !sidebarOverlay) return;
+            sidebarToggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            sidebarOverlay.classList.toggle('hidden', !open);
+        }
+
+        function openMobileSidebar() {
+            if (!isMobileSidebarMode()) return;
+            document.body.classList.add('sidebar-open');
+            updateSidebarToggleState(true);
+        }
+
+        function closeMobileSidebar() {
+            document.body.classList.remove('sidebar-open');
+            updateSidebarToggleState(false);
+        }
+
+        function toggleMobileSidebar() {
+            if (!isMobileSidebarMode()) return;
+            if (document.body.classList.contains('sidebar-open')) {
+                closeMobileSidebar();
+                return;
+            }
+            openMobileSidebar();
         }
 
         function setDashboardPage(page) {
@@ -837,6 +885,10 @@
             const navButtons = Array.from(document.querySelectorAll('#dashboardPanel .nav-btn[data-page]'));
             for (const btn of navButtons) {
                 btn.classList.toggle('active', btn.getAttribute('data-page') === next);
+            }
+
+            if (isMobileSidebarMode()) {
+                closeMobileSidebar();
             }
         }
 
@@ -1889,6 +1941,12 @@
         document.getElementById('refreshBtn').addEventListener('click', () => refreshAll(false));
         document.getElementById('logoutBtn').addEventListener('click', () => handleLogout());
         themeModeBtn.addEventListener('click', cycleThemeModePreference);
+        if (sidebarToggleBtn) {
+            sidebarToggleBtn.addEventListener('click', toggleMobileSidebar);
+        }
+        if (sidebarOverlay) {
+            sidebarOverlay.addEventListener('click', closeMobileSidebar);
+        }
 
         dashNav.addEventListener('click', (event) => {
             const target = event.target;
@@ -2567,6 +2625,9 @@
         }
 
         window.addEventListener('resize', () => {
+            if (!isMobileSidebarMode()) {
+                closeMobileSidebar();
+            }
             if (slideshowState.open) {
                 refreshSlideOverlay().catch(() => { });
             }
