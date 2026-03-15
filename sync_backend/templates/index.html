@@ -150,12 +150,15 @@
         </section>
 
         <section class="dashboard hidden" id="dashboardPanel">
-            <button id="sidebarToggleBtn" type="button" class="sidebar-toggle btn ghost icon-btn"
-                aria-label="Open navigation menu" aria-expanded="false" aria-controls="dashSidebar">
-                <svg>
-                    <use id="sidebarToggleIconUse" href="#i-menu"></use>
-                </svg>
-            </button>
+            <div class="mobile-nav-bar">
+                <button id="sidebarToggleBtn" type="button" class="sidebar-toggle btn ghost icon-btn"
+                    aria-label="Open navigation menu" aria-expanded="false" aria-controls="dashSidebar">
+                    <svg>
+                        <use id="sidebarToggleIconUse" href="#i-menu"></use>
+                    </svg>
+                </button>
+                <p class="mobile-nav-title">Control Plane</p>
+            </div>
             <div id="sidebarOverlay" class="sidebar-overlay hidden" aria-hidden="true"></div>
 
             <aside class="sidebar panel-card" id="dashSidebar">
