@@ -898,10 +898,6 @@
             for (const btn of navButtons) {
                 btn.classList.toggle('active', btn.getAttribute('data-page') === next);
             }
-
-            if (isMobileSidebarMode()) {
-                closeMobileSidebar();
-            }
         }
 
         function refreshUploadProjectBadge() {
@@ -1967,6 +1963,9 @@
             if (!button) return;
             const page = button.getAttribute('data-page') || 'uploads';
             setDashboardPage(page);
+            if (isMobileSidebarMode()) {
+                closeMobileSidebar();
+            }
         });
 
         document.getElementById('createUserBtn').addEventListener('click', async () => {

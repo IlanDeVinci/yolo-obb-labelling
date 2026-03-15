@@ -473,7 +473,7 @@ html[data-theme="dark"] .btn.danger {
   position: fixed;
   inset: 0;
   background: rgba(9, 15, 14, 0.42);
-  z-index: 54;
+  z-index: 57;
 }
 
 html[data-theme="dark"] .sidebar-overlay {
@@ -1265,7 +1265,7 @@ body.is-admin .nav-btn.admin-only {
     border-radius: 0 14px 14px 0;
     box-shadow: 0 18px 44px rgba(9, 20, 16, 0.28);
     overflow-y: auto;
-    z-index: 55;
+    z-index: 58;
     transform: translateX(-120%);
     transition: transform 180ms ease;
   }
