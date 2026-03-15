@@ -28,9 +28,10 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 try:
-    from PIL import Image, UnidentifiedImageError
+    from PIL import Image, ImageOps, UnidentifiedImageError
 except Exception:  # pragma: no cover - optional dependency in local dev
     Image = None
+    ImageOps = None
 
     class UnidentifiedImageError(Exception):
         pass
@@ -804,6 +805,30 @@ def _image_read_url(project_id: str, path: str, *, expires_seconds: int) -> str:
         encoded = urllib.parse.quote(key, safe="/._-")
         return f"{CLOUDFRONT_BASE_URL}/{encoded}"
     return _s3_signed_get_url(project_id, path, expires_seconds=expires_seconds)
+
+
+def _optimized_image_data_url(raw: bytes, *, max_width: int, quality: int) -> tuple[str, str]:
+    if Image is None:
+        raise RuntimeError("Pillow unavailable")
+    img = Image.open(io.BytesIO(raw))
+    img.load()
+    if ImageOps is not None:
+        img = ImageOps.exif_transpose(img)
+    if img.mode not in {"RGB", "L"}:
+        img = img.convert("RGB")
+
+    width, height = img.size
+    target_width = max(320, min(int(max_width), 3840))
+    if width > target_width:
+        ratio = float(target_width) / float(max(1, width))
+        target_height = max(1, int(round(float(height) * ratio)))
+        img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+    q = max(55, min(int(quality), 95))
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=q, optimize=True, progressive=True)
+    b64 = base64.b64encode(out.getvalue()).decode("ascii")
+    return "image/jpeg", f"data:image/jpeg;base64,{b64}"
 
 
 def _cloudfront_invalidate_keys(keys: list[str], *, caller_tag: str) -> dict[str, Any]:
@@ -2445,15 +2470,39 @@ def admin_cancel_normalize_images_job(
 @app.get("/api/admin/images/view")
 def admin_get_image_view(
     path: str,
+    maxWidth: int = 0,
+    quality: int = 82,
     session: SessionContext = Depends(_admin_only),
 ) -> dict[str, Any]:
     normalized = _normalize_path(path)
     if not _is_image_path(normalized):
         raise HTTPException(status_code=400, detail="Path must reference an image file")
 
+    requested_max_width = max(0, min(int(maxWidth or 0), 3840))
+    requested_quality = max(55, min(int(quality or 82), 95))
+
     # Prefer S3 for latest object if available.
     if _is_s3_enabled() and _s3_image_exists(session.project_id, normalized):
         try:
+            if requested_max_width > 0 and Image is not None:
+                raw = _s3_get_image_bytes(session.project_id, normalized)
+                try:
+                    content_type, url = _optimized_image_data_url(
+                        raw,
+                        max_width=requested_max_width,
+                        quality=requested_quality,
+                    )
+                    return {
+                        "ok": True,
+                        "path": normalized,
+                        "source": "s3-optimized",
+                        "contentType": content_type,
+                        "url": url,
+                        "maxWidth": requested_max_width,
+                        "quality": requested_quality,
+                    }
+                except Exception:
+                    pass
             return {
                 "ok": True,
                 "path": normalized,
@@ -2474,6 +2523,26 @@ def admin_get_image_view(
     content_b64 = str(row["content_base64"] or "")
     if not content_b64:
         raise HTTPException(status_code=404, detail="Image content is unavailable for this path")
+
+    if requested_max_width > 0 and Image is not None:
+        try:
+            raw = base64.b64decode(content_b64.encode("ascii"), validate=False)
+            content_type, url = _optimized_image_data_url(
+                raw,
+                max_width=requested_max_width,
+                quality=requested_quality,
+            )
+            return {
+                "ok": True,
+                "path": normalized,
+                "source": "db-optimized",
+                "contentType": content_type,
+                "url": url,
+                "maxWidth": requested_max_width,
+                "quality": requested_quality,
+            }
+        except Exception:
+            pass
 
     content_type = mimetypes.guess_type(normalized)[0] or "application/octet-stream"
     return {
