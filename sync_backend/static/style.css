@@ -504,6 +504,7 @@ html[data-theme="dark"] .nav-btn {
 
 html[data-theme="dark"] .nav-btn.active {
   color: #effbf7;
+  background-color: var(--accent);
 }
 
 .nav-btn:not(.active):hover {
