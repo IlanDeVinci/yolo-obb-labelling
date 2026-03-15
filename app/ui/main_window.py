@@ -491,7 +491,7 @@ class MainWindow(QMainWindow):
         self._act_cloud_sync_all_statuses.triggered.connect(self._sync_all_local_statuses_to_cloud_db)
         cloud_menu.addAction(self._act_cloud_sync_all_statuses)
 
-        self._act_cloud_sync_all_labels = QAction("Sync All Local Labels to Cloud DB (Lock-Safe)", self)
+        self._act_cloud_sync_all_labels = QAction("Sync Local Labels to Cloud DB", self)
         self._act_cloud_sync_all_labels.triggered.connect(self._sync_all_local_labels_to_cloud_db)
         cloud_menu.addAction(self._act_cloud_sync_all_labels)
 
@@ -2759,7 +2759,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_act_cloud_sync_all_statuses") and self._act_cloud_sync_all_statuses is not None:
             self._act_cloud_sync_all_statuses.setEnabled(bool(connected and self._is_cloud_admin_user()))
         if hasattr(self, "_act_cloud_sync_all_labels") and self._act_cloud_sync_all_labels is not None:
-            self._act_cloud_sync_all_labels.setEnabled(bool(connected))
+            self._act_cloud_sync_all_labels.setEnabled(bool(enabled))
 
         team_allowed = not self._is_cloud_project_workflow_enabled()
         if self._team_menu is not None:

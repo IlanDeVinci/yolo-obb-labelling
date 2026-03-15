@@ -631,7 +631,9 @@ th {
   opacity: 0;
   transform: translateY(-8px);
   pointer-events: none;
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
 }
 
 .msg.show {
@@ -647,6 +649,13 @@ th {
 
 #imagesOpsStatus.err {
   color: #8c2828;
+}
+
+.images-ops-progress {
+  width: min(260px, 38vw);
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
 }
 
 .slideshow-modal {

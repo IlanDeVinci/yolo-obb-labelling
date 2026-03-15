@@ -36,6 +36,13 @@ except Exception:  # pragma: no cover - optional dependency in local dev
         pass
 
 try:
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+except Exception:
+    pillow_heif = None
+
+try:
     import boto3
     from botocore.exceptions import BotoCoreError, ClientError
 except Exception:  # pragma: no cover - optional dependency in local dev
