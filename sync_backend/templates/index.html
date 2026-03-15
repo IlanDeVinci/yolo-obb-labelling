@@ -77,7 +77,8 @@
         </symbol>
         <symbol id="i-sun" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" fill="none" />
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+            <path
+                d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" />
         </symbol>
     </svg>
@@ -432,6 +433,98 @@
                             </table>
                         </div>
                     </article>
+
+                    <article class="sub-card admin-only stack">
+                        <h4>
+                            <svg class="h4-icon">
+                                <use href="#i-folder"></use>
+                            </svg>
+                            Backups Manager
+                        </h4>
+                        <p class="muted small">List backups, set auto-retention, and restore a specific version with confirmation.</p>
+                        <div class="row">
+                            <label>Retention Value
+                                <input id="backupRetentionValue" type="number" min="1" max="3650" value="14" />
+                            </label>
+                            <label>Retention Unit
+                                <select id="backupRetentionUnit">
+                                    <option value="days">days</option>
+                                    <option value="months">months</option>
+                                </select>
+                            </label>
+                            <button id="saveBackupRetentionBtn" type="button" class="btn solid">Save Retention</button>
+                            <button id="cleanupBackupsBtn" type="button" class="btn ghost">Cleanup Now</button>
+                            <button id="refreshBackupsBtn" type="button" class="btn ghost">Refresh Backups</button>
+                        </div>
+                        <p id="backupMeta" class="muted small">Backups not loaded yet.</p>
+                        <div class="table-shell">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Backup</th>
+                                        <th>Reason</th>
+                                        <th>Size</th>
+                                        <th>Created</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="backupsBody">
+                                    <tr>
+                                        <td colspan="5" class="muted">No backups loaded.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+
+                    <article class="sub-card admin-only stack">
+                        <h4>
+                            <svg class="h4-icon">
+                                <use href="#i-database"></use>
+                            </svg>
+                            Database Explorer
+                        </h4>
+                        <p class="muted small">Browse SQLite tables directly from admin backoffice.</p>
+                        <div class="row">
+                            <label>Table
+                                <select id="dbTableSelect">
+                                    <option value="">Select table...</option>
+                                </select>
+                            </label>
+                            <label>Search
+                                <input id="dbTableSearch" type="text" placeholder="contains..." />
+                            </label>
+                            <label>Column
+                                <select id="dbSearchColumn">
+                                    <option value="">All columns</option>
+                                </select>
+                            </label>
+                            <label>Limit
+                                <input id="dbTableLimit" type="number" min="1" max="500" value="100" />
+                            </label>
+                            <label>Offset
+                                <input id="dbTableOffset" type="number" min="0" value="0" />
+                            </label>
+                            <button id="loadDbTableBtn" type="button" class="btn solid">Load Rows</button>
+                            <button id="clearDbFilterBtn" type="button" class="btn ghost">Clear Filter</button>
+                            <button id="refreshDbTablesBtn" type="button" class="btn ghost">Refresh Tables</button>
+                        </div>
+                        <p id="dbExplorerMeta" class="muted small">Database not loaded yet.</p>
+                        <div class="table-shell">
+                            <table>
+                                <thead id="dbRowsHead">
+                                    <tr>
+                                        <th>Row Data</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dbRowsBody">
+                                    <tr>
+                                        <td class="muted">No table selected.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
                 </section>
 
                 <section class="page-view hidden" data-page="images">
@@ -564,6 +657,18 @@
         const summaryCards = document.getElementById('summaryCards');
         const changesBody = document.getElementById('changesBody');
         const usersBody = document.getElementById('usersBody');
+        const backupsBody = document.getElementById('backupsBody');
+        const backupMeta = document.getElementById('backupMeta');
+        const backupRetentionValue = document.getElementById('backupRetentionValue');
+        const backupRetentionUnit = document.getElementById('backupRetentionUnit');
+        const dbTableSelect = document.getElementById('dbTableSelect');
+        const dbTableSearch = document.getElementById('dbTableSearch');
+        const dbSearchColumn = document.getElementById('dbSearchColumn');
+        const dbTableLimit = document.getElementById('dbTableLimit');
+        const dbTableOffset = document.getElementById('dbTableOffset');
+        const dbRowsHead = document.getElementById('dbRowsHead');
+        const dbRowsBody = document.getElementById('dbRowsBody');
+        const dbExplorerMeta = document.getElementById('dbExplorerMeta');
         const imagesBody = document.getElementById('imagesBody');
         const dashNav = document.getElementById('dashNav');
         const uploadDropZone = document.getElementById('uploadDropZone');
@@ -626,6 +731,9 @@
         let refreshTimer = null;
         let activeDashPage = localStorage.getItem(DASH_PAGE_STORAGE_KEY) || 'uploads';
         let uploadQueue = [];
+        let backupItems = [];
+        let dbTables = [];
+        let dbColumns = [];
         let selectedZipFile = null;
         let autoSyncAfterFolderPick = false;
         let compactPreference = localStorage.getItem('syncCompactMode') || 'auto';
@@ -879,6 +987,162 @@
                     </tr>
                 `;
             }).join('');
+        }
+
+        function renderBackups(payload) {
+            const items = Array.isArray(payload?.items) ? payload.items : [];
+            backupItems = items;
+            const retentionValue = Number(payload?.retentionValue || 14);
+            const retentionUnit = String(payload?.retentionUnit || 'days');
+            const retentionDays = Number(payload?.retentionDays || retentionValue || 14);
+
+            backupRetentionValue.value = String(retentionValue);
+            backupRetentionUnit.value = retentionUnit;
+            backupMeta.textContent = `${items.length} backup(s) in ${payload?.backupDir || '-'}. Auto cleanup: ${retentionValue} ${retentionUnit} (${retentionDays} day(s)).`;
+
+            if (!items.length) {
+                backupsBody.innerHTML = '<tr><td colspan="5" class="muted">No backups found.</td></tr>';
+                return;
+            }
+
+            backupsBody.innerHTML = items.map((item) => `
+                <tr>
+                    <td class="mono">${item.name}</td>
+                    <td>${item.reason || '-'}</td>
+                    <td>${bytesToHuman(item.sizeBytes || 0)}</td>
+                    <td>${fmtDate(item.createdAt || item.modifiedAt || 0)}</td>
+                    <td>
+                        <button type="button" class="btn ghost small-btn" data-download-backup="${item.name}">Download</button>
+                        <button type="button" class="btn ghost small-btn" data-dryrun-backup="${item.name}">Dry Run</button>
+                        <button type="button" class="btn danger small-btn" data-restore-backup="${item.name}">Restore</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function loadBackups() {
+            if (!isAdmin) return;
+            const payload = await api('/api/admin/backups');
+            renderBackups(payload);
+        }
+
+        function renderDbTables(payload) {
+            dbTables = Array.isArray(payload?.tables) ? payload.tables : [];
+            const current = String(dbTableSelect.value || '').trim();
+            const options = ['<option value="">Select table...</option>'];
+            for (const table of dbTables) {
+                options.push(`<option value="${table}">${table}</option>`);
+            }
+            dbTableSelect.innerHTML = options.join('');
+            if (current && dbTables.includes(current)) {
+                dbTableSelect.value = current;
+            } else if (dbTables.length) {
+                dbTableSelect.value = dbTables[0];
+            }
+            dbExplorerMeta.textContent = `DB: ${payload?.dbPath || '-'} | ${dbTables.length} table(s)`;
+            renderDbSearchColumns([]);
+        }
+
+        function renderDbSearchColumns(columns) {
+            dbColumns = Array.isArray(columns) ? columns : [];
+            const current = String(dbSearchColumn.value || '').trim();
+            const options = ['<option value="">All columns</option>'];
+            for (const col of dbColumns) {
+                options.push(`<option value="${col}">${col}</option>`);
+            }
+            dbSearchColumn.innerHTML = options.join('');
+            if (current && dbColumns.includes(current)) {
+                dbSearchColumn.value = current;
+            }
+        }
+
+        function renderDbRows(payload) {
+            const columns = Array.isArray(payload?.columns) ? payload.columns : [];
+            const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+            renderDbSearchColumns(columns);
+
+            if (!columns.length) {
+                dbRowsHead.innerHTML = '<tr><th>Row Data</th></tr>';
+                dbRowsBody.innerHTML = '<tr><td class="muted">No columns returned.</td></tr>';
+                return;
+            }
+
+            dbRowsHead.innerHTML = `<tr>${columns.map((col) => `<th>${col}</th>`).join('')}</tr>`;
+
+            if (!rows.length) {
+                dbRowsBody.innerHTML = `<tr><td colspan="${columns.length}" class="muted">No rows in this page.</td></tr>`;
+                dbExplorerMeta.textContent = `${payload.table}: 0 row(s) in page. total=${payload.total || 0}`;
+                return;
+            }
+
+            dbRowsBody.innerHTML = rows.map((row) => {
+                const cells = columns.map((col) => {
+                    const value = row?.[col];
+                    if (value === null || value === undefined) return '<td class="muted">NULL</td>';
+                    if (typeof value === 'object') {
+                        return `<td class="mono">${JSON.stringify(value)}</td>`;
+                    }
+                    return `<td class="mono">${String(value)}</td>`;
+                }).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+
+            dbExplorerMeta.textContent = `${payload.table}: showing ${rows.length} row(s) from offset ${payload.offset || 0} (total ${payload.total || 0})`;
+        }
+
+        async function loadDbTables() {
+            if (!isAdmin) return;
+            const payload = await api('/api/admin/database/tables');
+            renderDbTables(payload);
+        }
+
+        async function loadDbRows() {
+            if (!isAdmin) return;
+            const table = String(dbTableSelect.value || '').trim();
+            if (!table) {
+                throw new Error('Select a table first.');
+            }
+            const limit = Math.max(1, Math.min(500, Number(dbTableLimit.value || 100)));
+            const offset = Math.max(0, Number(dbTableOffset.value || 0));
+            const search = String(dbTableSearch.value || '').trim();
+            const searchColumn = String(dbSearchColumn.value || '').trim();
+            const payload = await api('/api/admin/database/table', 'POST', {
+                table,
+                limit,
+                offset,
+                search,
+                searchColumn,
+            });
+            renderDbRows(payload);
+        }
+
+        async function downloadBackupFile(backupName) {
+            if (!backupName) {
+                throw new Error('Backup name is required.');
+            }
+
+            const headers = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(`/api/admin/backups/${encodeURIComponent(backupName)}/download`, {
+                method: 'GET',
+                headers,
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                const detail = data.detail || data.error || `HTTP ${res.status}`;
+                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            }
+
+            const blob = await res.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = objectUrl;
+            anchor.download = backupName;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(objectUrl);
         }
 
         function renderAdminImages(items) {
@@ -1560,6 +1824,8 @@
                     const storage = await api('/api/admin/project/storage');
                     document.getElementById('storageMode').value = storage.storageMode || 'auto';
                     document.getElementById('imageAccessMode').value = storage.imageAccessMode || 'local';
+                    await loadBackups();
+                    await loadDbTables();
                     await loadAdminImages();
                 }
             } catch (e) {
@@ -1702,6 +1968,100 @@
             }
         });
 
+        document.getElementById('saveBackupRetentionBtn').addEventListener('click', async () => {
+            try {
+                const retentionValue = Math.max(1, Number(backupRetentionValue.value || 14));
+                const retentionUnit = String(backupRetentionUnit.value || 'days');
+                const result = await api('/api/admin/backups/retention', 'POST', {
+                    retentionValue,
+                    retentionUnit,
+                });
+                setMessage(`Backup retention updated to ${result.retentionValue} ${result.retentionUnit} (${result.retentionDays} day(s)).`);
+                await loadBackups();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('cleanupBackupsBtn').addEventListener('click', async () => {
+            try {
+                const yes = confirm('Run backup cleanup now using current retention rules?');
+                if (!yes) return;
+                const result = await api('/api/admin/backups/cleanup-now', 'POST', {});
+                setMessage(`Backup cleanup complete. removed=${result.removed || 0}, remaining=${result.remaining || 0}.`);
+                await loadBackups();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('refreshBackupsBtn').addEventListener('click', async () => {
+            try {
+                await loadBackups();
+                setMessage('Backups refreshed.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('refreshDbTablesBtn').addEventListener('click', async () => {
+            try {
+                await loadDbTables();
+                setMessage('Database tables refreshed.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('loadDbTableBtn').addEventListener('click', async () => {
+            try {
+                await loadDbRows();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('clearDbFilterBtn').addEventListener('click', async () => {
+            try {
+                dbTableSearch.value = '';
+                dbSearchColumn.value = '';
+                dbTableOffset.value = '0';
+                await loadDbRows();
+                setMessage('Database table filter cleared.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        dbTableSearch.addEventListener('keydown', async (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            try {
+                dbTableOffset.value = '0';
+                await loadDbRows();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        dbSearchColumn.addEventListener('change', async () => {
+            try {
+                dbTableOffset.value = '0';
+                await loadDbRows();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        dbTableSelect.addEventListener('change', async () => {
+            try {
+                dbTableOffset.value = '0';
+                await loadDbRows();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
         document.getElementById('saveStorageBtn').addEventListener('click', async () => {
             try {
                 const mode = document.getElementById('storageMode').value;
@@ -1750,6 +2110,55 @@
                 await refreshAll(true);
             } catch (e) {
                 setMessage(e.message, true);
+            }
+        });
+
+        backupsBody.addEventListener('click', async (event) => {
+            const target = event.target;
+            if (!target) return;
+            try {
+                if (target.matches('button[data-download-backup]')) {
+                    const backupName = target.getAttribute('data-download-backup');
+                    if (!backupName) return;
+                    await downloadBackupFile(backupName);
+                    setMessage(`Backup download started: ${backupName}`);
+                    return;
+                }
+
+                if (target.matches('button[data-dryrun-backup]')) {
+                    const backupName = target.getAttribute('data-dryrun-backup');
+                    if (!backupName) return;
+                    const result = await api('/api/admin/backups/restore/dry-run', 'POST', { backupName });
+                    const quickCheckText = result.quickCheckOk
+                        ? 'ok'
+                        : (result.quickCheckError || result.quickCheck || 'failed');
+                    const health = result.ok ? 'ready' : 'not ready';
+                    setMessage(
+                        `Dry run ${health} for ${backupName}. size=${bytesToHuman(result.sizeBytes || 0)}, sha256=${result.sha256 || '-'}, quick_check=${quickCheckText}`,
+                        !result.ok,
+                        true,
+                    );
+                    return;
+                }
+
+                if (!target.matches('button[data-restore-backup]')) return;
+                const backupName = target.getAttribute('data-restore-backup');
+                if (!backupName) return;
+                const warning = `You are about to restore backup: ${backupName}\n\nThis will replace the live sync database.\nType exactly:\nRESTORE ${backupName}`;
+                const confirmText = prompt(warning, '');
+                if (confirmText === null) return;
+                const result = await api('/api/admin/backups/restore', 'POST', {
+                    backupName,
+                    confirmText,
+                });
+                setMessage(
+                    `Database restored from ${result.restoredFrom}. Pre-restore snapshot: ${result.preRestoreSnapshot}.`,
+                    false,
+                    true,
+                );
+                await refreshAll(true);
+            } catch (e) {
+                setMessage(e.message, true, true);
             }
         });
 

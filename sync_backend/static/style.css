@@ -53,7 +53,12 @@ body {
 }
 
 html[data-theme="dark"] body {
-  background: linear-gradient(150deg, var(--bg-1) 0%, #122126 45%, var(--bg-2) 100%);
+  background: linear-gradient(
+    150deg,
+    var(--bg-1) 0%,
+    #122126 45%,
+    var(--bg-2) 100%
+  );
 }
 
 .icon-sprite {
@@ -236,7 +241,11 @@ h4 {
 html[data-theme="dark"] .glass-card,
 html[data-theme="dark"] .panel-card {
   border: 1px solid rgba(57, 85, 97, 0.9);
-  background: linear-gradient(180deg, rgba(26, 40, 47, 0.95) 0%, rgba(21, 34, 40, 0.95) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(26, 40, 47, 0.95) 0%,
+    rgba(21, 34, 40, 0.95) 100%
+  );
 }
 
 .glass-card:hover,

@@ -22,3 +22,9 @@ projets/**/labels/obb/*.txt
 **/.cloud-image-cache/
 .env
 /docs/
+
+# Runtime sync backend state (keep on server disk, never track in git)
+sync_backend/data/backups/
+sync_backend/data/**/*.db
+sync_backend/data/**/*.db-wal
+sync_backend/data/**/*.db-shm

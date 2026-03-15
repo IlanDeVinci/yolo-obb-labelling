@@ -22,7 +22,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -199,6 +199,28 @@ class AdminImageStatusReconcilePayload(BaseModel):
 class AdminNormalizeImagesPayload(BaseModel):
     paths: list[str] = Field(default_factory=list)
     quality: int = Field(default=90, ge=60, le=95)
+
+
+class BackupRetentionPayload(BaseModel):
+    retentionValue: int = Field(default=14, ge=1, le=3650)
+    retentionUnit: str = Field(default="days", pattern="^(days|months)$")
+
+
+class BackupRestorePayload(BaseModel):
+    backupName: str = Field(min_length=1, max_length=255)
+    confirmText: str = Field(min_length=1, max_length=300)
+
+
+class BackupDryRunPayload(BaseModel):
+    backupName: str = Field(min_length=1, max_length=255)
+
+
+class DatabaseTableQueryPayload(BaseModel):
+    table: str = Field(min_length=1, max_length=120)
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    search: str = Field(default="", max_length=250)
+    searchColumn: str = Field(default="", max_length=120)
 
 
 @dataclass
@@ -605,6 +627,11 @@ def _init_db() -> None:
                             updated_by TEXT NOT NULL,
                             PRIMARY KEY(project_id, image_name)
                         );
+                        CREATE TABLE IF NOT EXISTS app_settings (
+                            key TEXT PRIMARY KEY,
+                            value TEXT NOT NULL,
+                            updated_at INTEGER NOT NULL
+                        );
             """
         )
         columns = _CONN.execute("PRAGMA table_info(projects)").fetchall()
@@ -669,7 +696,241 @@ def _init_db() -> None:
         _CONN.execute(
             "UPDATE users SET is_admin = CASE WHEN role IN ('owner', 'admin') THEN 1 ELSE 0 END"
         )
+
+        now = _now_ms()
+        existing_retention_unit = _CONN.execute(
+            "SELECT value FROM app_settings WHERE key = 'backup_retention_unit'",
+        ).fetchone()
+        existing_retention_value = _CONN.execute(
+            "SELECT value FROM app_settings WHERE key = 'backup_retention_value'",
+        ).fetchone()
+        if existing_retention_unit is None:
+            _CONN.execute(
+                "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('backup_retention_unit', ?, ?)",
+                ("days", now),
+            )
+        if existing_retention_value is None:
+            _CONN.execute(
+                "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('backup_retention_value', ?, ?)",
+                (str(BACKUP_RETENTION_DAYS), now),
+            )
+
         _CONN.commit()
+
+
+def _setting_get(key: str, default_value: str = "") -> str:
+    row = _CONN.execute(
+        "SELECT value FROM app_settings WHERE key = ?",
+        (str(key or ""),),
+    ).fetchone()
+    if row is None:
+        return str(default_value)
+    return str(row["value"] or default_value)
+
+
+def _setting_set(key: str, value: str) -> None:
+    with _db_lock:
+        _CONN.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+            (str(key or ""), str(value or ""), _now_ms()),
+        )
+        _CONN.commit()
+
+
+def _get_backup_retention_policy() -> tuple[int, str, int]:
+    raw_unit = _setting_get("backup_retention_unit", "days").strip().lower()
+    unit = raw_unit if raw_unit in {"days", "months"} else "days"
+
+    default_value = BACKUP_RETENTION_DAYS
+    if unit == "months":
+        default_value = max(1, min(120, int(round(BACKUP_RETENTION_DAYS / 30))))
+
+    raw_value = _setting_get("backup_retention_value", str(default_value)).strip()
+    try:
+        retention_value = int(raw_value)
+    except Exception:
+        retention_value = default_value
+
+    if unit == "days":
+        retention_value = max(2, min(3650, retention_value))
+        retention_days = retention_value
+    else:
+        retention_value = max(1, min(120, retention_value))
+        retention_days = max(2, min(3650, retention_value * 30))
+
+    return retention_value, unit, retention_days
+
+
+def _set_backup_retention_policy(retention_value: int, retention_unit: str) -> dict[str, Any]:
+    unit = str(retention_unit or "days").strip().lower()
+    if unit not in {"days", "months"}:
+        raise HTTPException(status_code=400, detail="retentionUnit must be 'days' or 'months'")
+
+    value = int(retention_value)
+    if unit == "days":
+        value = max(2, min(3650, value))
+        days = value
+    else:
+        value = max(1, min(120, value))
+        days = max(2, min(3650, value * 30))
+
+    now = _now_ms()
+    with _db_lock:
+        _CONN.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('backup_retention_value', ?, ?)",
+            (str(value), now),
+        )
+        _CONN.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('backup_retention_unit', ?, ?)",
+            (unit, now),
+        )
+        _CONN.commit()
+
+    return {
+        "retentionValue": value,
+        "retentionUnit": unit,
+        "retentionDays": days,
+    }
+
+
+def _list_backups() -> list[dict[str, Any]]:
+    backups = sorted(BACKUP_DIR.glob("sync-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    items: list[dict[str, Any]] = []
+    for backup in backups:
+        try:
+            stats = backup.stat()
+        except OSError:
+            continue
+
+        stem = backup.stem
+        reason = "unknown"
+        created_at = int(stats.st_mtime * 1000)
+        parts = stem.split("-")
+        if len(parts) >= 4 and parts[0] == "sync":
+            date_part = parts[1]
+            time_part = parts[2]
+            reason = "-".join(parts[3:])
+            try:
+                parsed = dt.datetime.strptime(f"{date_part}-{time_part}", "%Y%m%d-%H%M%S")
+                created_at = int(parsed.replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
+            except Exception:
+                created_at = int(stats.st_mtime * 1000)
+
+        items.append(
+            {
+                "name": backup.name,
+                "sizeBytes": int(stats.st_size),
+                "modifiedAt": int(stats.st_mtime * 1000),
+                "createdAt": int(created_at),
+                "reason": reason,
+            }
+        )
+    return items
+
+
+def _safe_backup_path_from_name(backup_name: str) -> Path:
+    name = str(backup_name or "").strip()
+    if not name or "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(status_code=400, detail="Invalid backup name")
+    if not name.endswith(".db") or not name.startswith("sync-"):
+        raise HTTPException(status_code=400, detail="Invalid backup file name")
+
+    backup_path = (BACKUP_DIR / name).resolve()
+    if BACKUP_DIR not in backup_path.parents and backup_path != BACKUP_DIR:
+        raise HTTPException(status_code=400, detail="Invalid backup path")
+    if not backup_path.exists() or not backup_path.is_file():
+        raise HTTPException(status_code=404, detail="Backup file not found")
+    return backup_path
+
+
+def _compute_sha256_for_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _dry_run_backup_restore(backup_path: Path) -> dict[str, Any]:
+    try:
+        stats = backup_path.stat()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Backup stat failed: {exc}")
+
+    header_ok = False
+    header_text = ""
+    try:
+        with backup_path.open("rb") as handle:
+            header = handle.read(16)
+        header_text = header.decode("ascii", errors="ignore")
+        header_ok = header_text.startswith("SQLite format 3")
+    except Exception:
+        header_ok = False
+
+    quick_check_ok = False
+    quick_check_result = ""
+    quick_check_error = ""
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(f"file:{backup_path}?mode=ro", uri=True)
+        row = conn.execute("PRAGMA quick_check").fetchone()
+        quick_check_result = str(row[0] if row and row[0] is not None else "")
+        quick_check_ok = quick_check_result.lower() == "ok"
+    except Exception as exc:
+        quick_check_error = str(exc)
+        quick_check_ok = False
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+
+    return {
+        "ok": bool(header_ok and quick_check_ok),
+        "backupName": backup_path.name,
+        "sizeBytes": int(stats.st_size),
+        "modifiedAt": int(stats.st_mtime * 1000),
+        "sha256": _compute_sha256_for_file(backup_path),
+        "header": header_text,
+        "headerValid": header_ok,
+        "quickCheck": quick_check_result,
+        "quickCheckOk": quick_check_ok,
+        "quickCheckError": quick_check_error,
+    }
+
+
+def _restore_db_from_backup(backup_path: Path) -> dict[str, Any]:
+    global _CONN
+
+    pre_restore_snapshot = Path(
+        _backup_db("pre-restore")
+    )
+
+    with _db_lock:
+        try:
+            _CONN.commit()
+        except Exception:
+            pass
+        try:
+            _CONN.close()
+        except Exception:
+            pass
+
+        shutil.copy2(backup_path, DB_PATH)
+        _CONN = _connect()
+
+    _init_db()
+    _cleanup_old_backups()
+
+    return {
+        "ok": True,
+        "restoredFrom": backup_path.name,
+        "preRestoreSnapshot": pre_restore_snapshot.name,
+    }
 
 
 def _get_project_storage_mode(project_id: str) -> str:
@@ -1326,7 +1587,8 @@ def _backup_db(reason: str) -> str:
 
 
 def _cleanup_old_backups() -> None:
-    cutoff = dt.datetime.utcnow() - dt.timedelta(days=BACKUP_RETENTION_DAYS)
+    _, _, retention_days = _get_backup_retention_policy()
+    cutoff = dt.datetime.utcnow() - dt.timedelta(days=retention_days)
     for backup in BACKUP_DIR.glob("sync-*.db"):
         try:
             modified = dt.datetime.utcfromtimestamp(backup.stat().st_mtime)
@@ -1380,6 +1642,7 @@ def index(request: Request) -> HTMLResponse:
 def public_info() -> dict[str, Any]:
     row = _CONN.execute("SELECT COUNT(*) AS c FROM projects").fetchone()
     has_projects = bool(row and int(row["c"]) > 0)
+    retention_value, retention_unit, retention_days = _get_backup_retention_policy()
     return {
         "ok": True,
         "hasProjects": has_projects,
@@ -1391,7 +1654,9 @@ def public_info() -> dict[str, Any]:
         "signedUrlTtlSeconds": SIGNED_URL_TTL_SECONDS,
         "sessionTtlSeconds": SESSION_TTL_SECONDS,
         "backupDir": str(BACKUP_DIR),
-        "backupRetentionDays": BACKUP_RETENTION_DAYS,
+        "backupRetentionDays": retention_days,
+        "backupRetentionValue": retention_value,
+        "backupRetentionUnit": retention_unit,
     }
 
 
@@ -1644,6 +1909,201 @@ def backup_now(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]
     backup_path = _backup_db("manual")
     _cleanup_old_backups()
     return {"ok": True, "backupPath": backup_path}
+
+
+@app.get("/api/admin/backups")
+def admin_list_backups(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
+    retention_value, retention_unit, retention_days = _get_backup_retention_policy()
+    items = _list_backups()
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "backupDir": str(BACKUP_DIR),
+        "retentionValue": retention_value,
+        "retentionUnit": retention_unit,
+        "retentionDays": retention_days,
+        "count": len(items),
+        "items": items,
+    }
+
+
+@app.post("/api/admin/backups/retention")
+def admin_set_backup_retention(
+    payload: BackupRetentionPayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    result = _set_backup_retention_policy(
+        retention_value=int(payload.retentionValue),
+        retention_unit=str(payload.retentionUnit),
+    )
+    _cleanup_old_backups()
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        **result,
+    }
+
+
+@app.post("/api/admin/backups/cleanup-now")
+def admin_cleanup_backups_now(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
+    before = len(_list_backups())
+    _cleanup_old_backups()
+    after_items = _list_backups()
+    retention_value, retention_unit, retention_days = _get_backup_retention_policy()
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "removed": max(0, before - len(after_items)),
+        "remaining": len(after_items),
+        "retentionValue": retention_value,
+        "retentionUnit": retention_unit,
+        "retentionDays": retention_days,
+    }
+
+
+@app.post("/api/admin/backups/restore/dry-run")
+def admin_restore_backup_dry_run(
+    payload: BackupDryRunPayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    backup_name = str(payload.backupName or "").strip()
+    backup_path = _safe_backup_path_from_name(backup_name)
+    result = _dry_run_backup_restore(backup_path)
+    return {
+        **result,
+        "projectId": session.project_id,
+    }
+
+
+@app.get("/api/admin/backups/{backup_name}/download")
+def admin_download_backup(backup_name: str, session: SessionContext = Depends(_admin_only)) -> FileResponse:
+    backup_path = _safe_backup_path_from_name(backup_name)
+    return FileResponse(
+        path=str(backup_path),
+        media_type="application/x-sqlite3",
+        filename=backup_path.name,
+    )
+
+
+@app.post("/api/admin/backups/restore")
+def admin_restore_backup(
+    payload: BackupRestorePayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    backup_name = str(payload.backupName or "").strip()
+    confirm_text = str(payload.confirmText or "").strip()
+    expected = f"RESTORE {backup_name}"
+    if confirm_text != expected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Confirmation text mismatch. Expected: {expected}",
+        )
+
+    backup_path = _safe_backup_path_from_name(backup_name)
+    result = _restore_db_from_backup(backup_path)
+    return {
+        **result,
+        "projectId": session.project_id,
+        "restoredBy": session.username,
+        "restoredAt": _now_ms(),
+    }
+
+
+@app.get("/api/admin/database/tables")
+def admin_database_tables(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
+    rows = _CONN.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+        ORDER BY name ASC
+        """
+    ).fetchall()
+    tables = [str(row["name"]) for row in rows if row and row["name"]]
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "dbPath": str(DB_PATH),
+        "tables": tables,
+    }
+
+
+@app.post("/api/admin/database/table")
+def admin_database_table_rows(
+    payload: DatabaseTableQueryPayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    table = str(payload.table or "").strip()
+    if not table or not table.replace("_", "a").isalnum():
+        raise HTTPException(status_code=400, detail="Invalid table name")
+
+    exists = _CONN.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1",
+        (table,),
+    ).fetchone()
+    if exists is None:
+        raise HTTPException(status_code=404, detail="Table not found")
+
+    safe_limit = max(1, min(int(payload.limit or 100), 500))
+    safe_offset = max(0, int(payload.offset or 0))
+
+    col_rows = _CONN.execute(f'PRAGMA table_info("{table}")').fetchall()
+    columns = [str(row["name"]) for row in col_rows if row and row["name"]]
+
+    search_text = str(payload.search or "").strip()
+    search_column = str(payload.searchColumn or "").strip()
+
+    where_clause = ""
+    where_params: list[Any] = []
+    if search_text:
+        like_value = f"%{search_text}%"
+        if search_column:
+            if search_column not in columns:
+                raise HTTPException(status_code=400, detail="Invalid search column")
+            where_clause = f' WHERE CAST("{search_column}" AS TEXT) LIKE ?'
+            where_params.append(like_value)
+        elif columns:
+            parts = [f'CAST("{col}" AS TEXT) LIKE ?' for col in columns]
+            where_clause = " WHERE " + " OR ".join(parts)
+            where_params.extend([like_value] * len(columns))
+
+    total_query = f'SELECT COUNT(*) AS c FROM "{table}"{where_clause}'
+    total_row = _CONN.execute(total_query, tuple(where_params)).fetchone()
+    total = int(total_row["c"] if total_row else 0)
+
+    rows_query = f'SELECT * FROM "{table}"{where_clause} LIMIT ? OFFSET ?'
+    rows = _CONN.execute(
+        rows_query,
+        tuple([*where_params, safe_limit, safe_offset]),
+    ).fetchall()
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        record: dict[str, Any] = {}
+        for key in row.keys():
+            value = row[key]
+            if isinstance(value, bytes):
+                record[str(key)] = {
+                    "type": "bytes",
+                    "size": len(value),
+                    "previewBase64": base64.b64encode(value[:48]).decode("ascii"),
+                }
+            else:
+                record[str(key)] = value
+        items.append(record)
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "table": table,
+        "columns": columns,
+        "limit": safe_limit,
+        "offset": safe_offset,
+        "search": search_text,
+        "searchColumn": search_column,
+        "total": total,
+        "rows": items,
+    }
 
 
 @app.get("/api/project/summary")
@@ -3297,15 +3757,8 @@ def sync_status(session: SessionContext = Depends(_auth_from_header)) -> dict[st
         (session.project_id,),
     ).fetchone()
 
-    backups = sorted(BACKUP_DIR.glob("sync-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
-    backup_items = [
-        {
-            "name": path.name,
-            "sizeBytes": path.stat().st_size,
-            "modifiedAt": int(path.stat().st_mtime * 1000),
-        }
-        for path in backups[:8]
-    ]
+    retention_value, retention_unit, retention_days = _get_backup_retention_policy()
+    backup_items = _list_backups()[:8]
 
     return {
         "ok": True,
@@ -3315,7 +3768,9 @@ def sync_status(session: SessionContext = Depends(_auth_from_header)) -> dict[st
         "isAdmin": session.is_admin,
         "dailyBackupEnabled": True,
         "backupDir": str(BACKUP_DIR),
-        "backupRetentionDays": BACKUP_RETENTION_DAYS,
+        "backupRetentionDays": retention_days,
+        "backupRetentionValue": retention_value,
+        "backupRetentionUnit": retention_unit,
         "imageAccessMode": _get_project_image_access_mode(session.project_id),
         "activeFile": session.active_file,
         "onlineUsers": int(users_online_row["c"] if users_online_row else 0),
