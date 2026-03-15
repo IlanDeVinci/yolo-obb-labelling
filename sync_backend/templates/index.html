@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 
 <head>
@@ -22,6 +22,66 @@
 </head>
 
 <body>
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+        <symbol id="i-grid" viewBox="0 0 24 24">
+            <path d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z" fill="currentColor" />
+        </symbol>
+        <symbol id="i-activity" viewBox="0 0 24 24">
+            <path d="M3 12h4l2-5 4 10 2-5h6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+                stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24">
+            <path d="M12 16V5m0 0-4 4m4-4 4 4M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" stroke="currentColor"
+                stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24">
+            <path d="M12 3 4 6v6c0 5.2 3.3 8.9 8 10 4.7-1.1 8-4.8 8-10V6l-8-3Z" stroke="currentColor" stroke-width="2"
+                fill="none" />
+        </symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24">
+            <path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v6h-6" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor"
+                stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-user-plus" viewBox="0 0 24 24">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M8.5 11A4 4 0 1 0 8.5 3a4 4 0 0 0 0 8Zm11-4v6m3-3h-6"
+                stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-database" viewBox="0 0 24 24">
+            <ellipse cx="12" cy="5" rx="8" ry="3" stroke="currentColor" stroke-width="2" fill="none" />
+            <path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7" stroke="currentColor"
+                stroke-width="2" fill="none" />
+        </symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24">
+            <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m-9 0 1 14a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-14"
+                stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24">
+            <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor"
+                stroke-width="2" fill="none" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-cloud" viewBox="0 0 24 24">
+            <path d="M7 18a4 4 0 1 1 .8-7.9A5 5 0 0 1 18 10a3.5 3.5 0 1 1 .5 8H7Z" stroke="currentColor"
+                stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-layout" viewBox="0 0 24 24">
+            <path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5Zm6 0v14"
+                stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-theme" viewBox="0 0 24 24">
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8Z" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" fill="none" />
+            <path
+                d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </symbol>
+    </svg>
 
     <div class="background-ornaments" aria-hidden="true">
         <div class="orb orb-a"></div>
@@ -34,7 +94,7 @@
             <header class="brand-head">
                 <div class="brand-mark">
                     <svg>
-                        <use href="/static/icons.svg#i-cloud"></use>
+                        <use href="#i-cloud"></use>
                     </svg>
                 </div>
                 <div>
@@ -95,31 +155,31 @@
                 <nav class="dash-nav" id="dashNav">
                     <button type="button" class="nav-btn" data-page="overview">
                         <svg>
-                            <use href="/static/icons.svg#i-grid"></use>
+                            <use href="#i-grid"></use>
                         </svg>
                         <span>Overview</span>
                     </button>
                     <button type="button" class="nav-btn" data-page="activity">
                         <svg>
-                            <use href="/static/icons.svg#i-activity"></use>
+                            <use href="#i-activity"></use>
                         </svg>
                         <span>Activity</span>
                     </button>
                     <button type="button" class="nav-btn" data-page="uploads">
                         <svg>
-                            <use href="/static/icons.svg#i-upload"></use>
+                            <use href="#i-upload"></use>
                         </svg>
                         <span>Uploads</span>
                     </button>
                     <button type="button" class="nav-btn admin-only" data-page="images">
                         <svg>
-                            <use href="/static/icons.svg#i-folder"></use>
+                            <use href="#i-folder"></use>
                         </svg>
                         <span>Images</span>
                     </button>
                     <button type="button" class="nav-btn admin-only" data-page="admin">
                         <svg>
-                            <use href="/static/icons.svg#i-shield"></use>
+                            <use href="#i-shield"></use>
                         </svg>
                         <span>Admin</span>
                     </button>
@@ -127,25 +187,25 @@
                 <div class="sidebar-actions">
                     <button id="themeModeBtn" type="button" class="btn ghost icon-btn">
                         <svg>
-                            <use id="themeModeIconUse" href="/static/icons.svg#i-theme"></use>
+                            <use id="themeModeIconUse" href="#i-theme"></use>
                         </svg>
                         <span id="themeModeLabel">Theme: Dark</span>
                     </button>
                     <button id="compactModeBtn" type="button" class="btn ghost icon-btn">
                         <svg>
-                            <use href="/static/icons.svg#i-layout"></use>
+                            <use href="#i-layout"></use>
                         </svg>
                         <span id="compactModeLabel">Layout: Auto</span>
                     </button>
                     <button id="refreshBtn" type="button" class="btn ghost icon-btn">
                         <svg>
-                            <use href="/static/icons.svg#i-refresh"></use>
+                            <use href="#i-refresh"></use>
                         </svg>
                         <span>Refresh</span>
                     </button>
                     <button id="logoutBtn" type="button" class="btn ghost icon-btn">
                         <svg>
-                            <use href="/static/icons.svg#i-logout"></use>
+                            <use href="#i-logout"></use>
                         </svg>
                         <span>Logout</span>
                     </button>
@@ -165,7 +225,7 @@
                             <p class="muted small">Manage your own access immediately.</p>
                             <button id="deleteSelfBtn" class="btn danger icon-btn" type="button">
                                 <svg>
-                                    <use href="/static/icons.svg#i-trash"></use>
+                                    <use href="#i-trash"></use>
                                 </svg>
                                 <span>Delete My User</span>
                             </button>
@@ -218,19 +278,19 @@
                         <div class="row">
                             <button id="pickImageFilesBtn" type="button" class="btn ghost icon-btn">
                                 <svg>
-                                    <use href="/static/icons.svg#i-upload"></use>
+                                    <use href="#i-upload"></use>
                                 </svg>
                                 <span>Pick Files</span>
                             </button>
                             <button id="pickImageFolderBtn" type="button" class="btn ghost icon-btn">
                                 <svg>
-                                    <use href="/static/icons.svg#i-folder"></use>
+                                    <use href="#i-folder"></use>
                                 </svg>
                                 <span>Pick Folder</span>
                             </button>
                             <button id="syncProjectFolderBtn" type="button" class="btn ghost icon-btn">
                                 <svg>
-                                    <use href="/static/icons.svg#i-cloud"></use>
+                                    <use href="#i-cloud"></use>
                                 </svg>
                                 <span>Sync Entire Local Folder</span>
                             </button>
@@ -312,7 +372,7 @@
                         <article class="sub-card stack">
                             <h4>
                                 <svg class="h4-icon">
-                                    <use href="/static/icons.svg#i-user-plus"></use>
+                                    <use href="#i-user-plus"></use>
                                 </svg>
                                 Create User
                             </h4>
@@ -325,7 +385,7 @@
                         <article class="sub-card stack">
                             <h4>
                                 <svg class="h4-icon">
-                                    <use href="/static/icons.svg#i-database"></use>
+                                    <use href="#i-database"></use>
                                 </svg>
                                 Project Settings
                             </h4>
@@ -377,7 +437,7 @@
                     <article class="sub-card admin-only stack">
                         <h4>
                             <svg class="h4-icon">
-                                <use href="/static/icons.svg#i-folder"></use>
+                                <use href="#i-folder"></use>
                             </svg>
                             Backups Manager
                         </h4>
@@ -421,7 +481,7 @@
                     <article class="sub-card admin-only stack">
                         <h4>
                             <svg class="h4-icon">
-                                <use href="/static/icons.svg#i-database"></use>
+                                <use href="#i-database"></use>
                             </svg>
                             Database Explorer
                         </h4>
@@ -586,10 +646,1981 @@
         </div>
     </div>
 
-    <script src="/static/app.core.js"></script>
-    <script src="/static/app.data.js"></script>
-    <script src="/static/app.slides.js"></script>
-    <script src="/static/app.actions.js"></script>
+    <script>
+        const msg = document.getElementById('msg');
+        const authPanel = document.getElementById('authPanel');
+        const dashboardPanel = document.getElementById('dashboardPanel');
+        const bootstrapWrap = document.getElementById('bootstrapWrap');
+        const bootstrapBox = document.getElementById('bootstrapBox');
+        const sessionText = document.getElementById('sessionText');
+        const overviewSessionMirror = document.getElementById('overviewSessionMirror');
+        const adminPanel = document.getElementById('adminPanel');
+        const summaryCards = document.getElementById('summaryCards');
+        const changesBody = document.getElementById('changesBody');
+        const usersBody = document.getElementById('usersBody');
+        const backupsBody = document.getElementById('backupsBody');
+        const backupMeta = document.getElementById('backupMeta');
+        const backupRetentionValue = document.getElementById('backupRetentionValue');
+        const backupRetentionUnit = document.getElementById('backupRetentionUnit');
+        const dbTableSelect = document.getElementById('dbTableSelect');
+        const dbTableSearch = document.getElementById('dbTableSearch');
+        const dbSearchColumn = document.getElementById('dbSearchColumn');
+        const dbTableLimit = document.getElementById('dbTableLimit');
+        const dbTableOffset = document.getElementById('dbTableOffset');
+        const dbRowsHead = document.getElementById('dbRowsHead');
+        const dbRowsBody = document.getElementById('dbRowsBody');
+        const dbExplorerMeta = document.getElementById('dbExplorerMeta');
+        const imagesBody = document.getElementById('imagesBody');
+        const dashNav = document.getElementById('dashNav');
+        const uploadDropZone = document.getElementById('uploadDropZone');
+        const uploadQueueBody = document.getElementById('uploadQueueBody');
+        const uploadSummary = document.getElementById('uploadSummary');
+        const uploadProjectBadge = document.getElementById('uploadProjectBadge');
+        const pickImageFilesInput = document.getElementById('pickImageFilesInput');
+        const pickImageFolderInput = document.getElementById('pickImageFolderInput');
+        const pickZipInput = document.getElementById('pickZipInput');
+        const zipSelectedName = document.getElementById('zipSelectedName');
+        const conflictSummary = document.getElementById('conflictSummary');
+        const conflictExisting = document.getElementById('conflictExisting');
+        const conflictChangedSize = document.getElementById('conflictChangedSize');
+        const conflictChangedHash = document.getElementById('conflictChangedHash');
+        const projectIdSelect = document.getElementById('projectIdSelect');
+        const projectPasswordWrap = document.getElementById('projectPasswordWrap');
+        const loginHint = document.getElementById('loginHint');
+        const compactModeBtn = document.getElementById('compactModeBtn');
+        const compactModeLabel = document.getElementById('compactModeLabel');
+        const themeModeBtn = document.getElementById('themeModeBtn');
+        const themeModeLabel = document.getElementById('themeModeLabel');
+        const themeModeIconUse = document.getElementById('themeModeIconUse');
+        const imagesSortBy = document.getElementById('imagesSortBy');
+        const imagesSortOrder = document.getElementById('imagesSortOrder');
+        const imagesDeleteLabels = document.getElementById('imagesDeleteLabels');
+        const imagesSelectAll = document.getElementById('imagesSelectAll');
+        const imagesSummary = document.getElementById('imagesSummary');
+        const imagesOpsStatus = document.getElementById('imagesOpsStatus');
+        const imagesOpsProgress = document.getElementById('imagesOpsProgress');
+        const imagesOpsPercent = document.getElementById('imagesOpsPercent');
+        const slideshowModal = document.getElementById('slideshowModal');
+        const slideStage = document.getElementById('slideStage');
+        const slideImage = document.getElementById('slideImage');
+        const slideOverlay = document.getElementById('slideOverlay');
+        const slideTitle = document.getElementById('slideTitle');
+        const slideCounter = document.getElementById('slideCounter');
+        const slideStatusText = document.getElementById('slideStatusText');
+        const slideSourceText = document.getElementById('slideSourceText');
+        const slideShowLabels = document.getElementById('slideShowLabels');
+        const slideShuffle = document.getElementById('slideShuffle');
+        const slideAutoplay = document.getElementById('slideAutoplay');
+        const slideInterval = document.getElementById('slideInterval');
+        const normalizeImagesBtn = document.getElementById('normalizeImagesBtn');
+        const cancelNormalizeBtn = document.getElementById('cancelNormalizeBtn');
+        const signOutExistingBtn = document.getElementById('signOutExistingBtn');
+        const globalLoadingOverlay = document.getElementById('globalLoadingOverlay');
+        const globalLoadingText = document.getElementById('globalLoadingText');
+
+        let messageTimer = null;
+        let activeNormalizeJobId = '';
+
+        const DASH_PAGE_STORAGE_KEY = 'syncDashPage';
+        const THEME_MODE_STORAGE_KEY = 'syncThemeMode';
+        let token = localStorage.getItem('syncToken') || '';
+        let currentUser = localStorage.getItem('syncUsername') || '';
+        let currentProjectId = '';
+        let role = '';
+        let isAdmin = false;
+        let requireProjectPassword = false;
+        let refreshTimer = null;
+        let activeDashPage = localStorage.getItem(DASH_PAGE_STORAGE_KEY) || 'uploads';
+        let uploadQueue = [];
+        let backupItems = [];
+        let dbTables = [];
+        let dbColumns = [];
+        let selectedZipFile = null;
+        let autoSyncAfterFolderPick = false;
+        let compactPreference = localStorage.getItem('syncCompactMode') || 'auto';
+        let themePreference = localStorage.getItem(THEME_MODE_STORAGE_KEY) || 'dark';
+        let adminImages = [];
+        const slideshowState = {
+            open: false,
+            index: 0,
+            items: [],
+            timer: null,
+            showLabels: true,
+            shuffle: false,
+            autoplay: false,
+            intervalMs: 2200,
+            labelsByPath: new Map(),
+            imageViewByPath: new Map(),
+            basePaths: [],
+        };
+        const imageSuffixes = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']);
+
+        function shouldUseAutoCompactMode() {
+            return window.innerWidth <= 1366 || window.innerHeight <= 820;
+        }
+
+        function updateCompactModeLabel() {
+            const map = {
+                auto: 'Layout: Auto',
+                on: 'Layout: Compact',
+                off: 'Layout: Comfortable',
+            };
+            compactModeLabel.textContent = map[compactPreference] || map.auto;
+        }
+
+        function applyCompactMode() {
+            const useCompact = compactPreference === 'on' || (compactPreference === 'auto' && shouldUseAutoCompactMode());
+            document.body.classList.toggle('compact-mode', useCompact);
+            updateCompactModeLabel();
+        }
+
+        function cycleCompactModePreference() {
+            if (compactPreference === 'auto') {
+                compactPreference = 'on';
+            } else if (compactPreference === 'on') {
+                compactPreference = 'off';
+            } else {
+                compactPreference = 'auto';
+            }
+            localStorage.setItem('syncCompactMode', compactPreference);
+            applyCompactMode();
+        }
+
+        function updateThemeModeLabel() {
+            if (!themeModeLabel) return;
+            themeModeLabel.textContent = themePreference === 'light' ? 'Theme: Light' : 'Theme: Dark';
+        }
+
+        function updateThemeModeIcon() {
+            if (!themeModeIconUse) return;
+            const isLight = themePreference === 'light';
+            themeModeIconUse.setAttribute('href', isLight ? '#i-sun' : '#i-theme');
+        }
+
+        function applyThemeMode() {
+            const mode = themePreference === 'light' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', mode);
+            updateThemeModeLabel();
+            updateThemeModeIcon();
+        }
+
+        function cycleThemeModePreference() {
+            themePreference = themePreference === 'dark' ? 'light' : 'dark';
+            localStorage.setItem(THEME_MODE_STORAGE_KEY, themePreference);
+            applyThemeMode();
+        }
+
+        function setMessage(text, isError = false, persist = false) {
+            if (messageTimer) {
+                clearTimeout(messageTimer);
+                messageTimer = null;
+            }
+            msg.textContent = text || '';
+            msg.className = isError ? 'msg err show' : 'msg show';
+            if (!persist && text) {
+                messageTimer = setTimeout(() => {
+                    msg.className = isError ? 'msg err' : 'msg';
+                }, 5600);
+            }
+        }
+
+        function setImagesOpsStatus(text, isError = false) {
+            if (!imagesOpsStatus) return;
+            imagesOpsStatus.textContent = text || '';
+            imagesOpsStatus.classList.toggle('err', !!isError);
+        }
+
+        function setImagesOpsProgress(processed, total) {
+            if (!imagesOpsProgress || !imagesOpsPercent) return;
+            const safeTotal = Math.max(1, Number(total || 1));
+            const safeProcessed = Math.max(0, Math.min(Number(processed || 0), safeTotal));
+            const pct = Math.max(0, Math.min(100, Math.round((safeProcessed / safeTotal) * 100)));
+            imagesOpsProgress.max = safeTotal;
+            imagesOpsProgress.value = safeProcessed;
+            imagesOpsPercent.textContent = `${pct}%`;
+        }
+
+        function updateAuthPanelSignOutVisibility() {
+            if (!signOutExistingBtn) return;
+            const hasSession = !!token;
+            signOutExistingBtn.classList.toggle('hidden', !hasSession);
+        }
+
+        function setGlobalLoading(active, text = 'Loading...') {
+            if (!globalLoadingOverlay || !globalLoadingText) return;
+            globalLoadingText.textContent = text;
+            globalLoadingOverlay.classList.toggle('hidden', !active);
+        }
+
+        function fmtDate(ms) {
+            if (!ms) return '-';
+            const d = new Date(Number(ms));
+            return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString();
+        }
+
+        function setLoggedInState(loggedIn) {
+            authPanel.classList.toggle('hidden', loggedIn);
+            dashboardPanel.classList.toggle('hidden', !loggedIn);
+        }
+
+        function setDashboardPage(page) {
+            const allowed = new Set(['overview', 'activity', 'uploads', 'images', 'admin']);
+            const requested = allowed.has(page) ? page : 'uploads';
+            let next = requested;
+            if (!isAdmin && (next === 'admin' || next === 'images')) {
+                next = token ? requested : 'uploads';
+            }
+            activeDashPage = next;
+            localStorage.setItem(DASH_PAGE_STORAGE_KEY, activeDashPage);
+
+            const views = Array.from(document.querySelectorAll('#dashboardPanel .page-view[data-page]'));
+            for (const view of views) {
+                view.classList.toggle('hidden', view.getAttribute('data-page') !== next);
+            }
+
+            const navButtons = Array.from(document.querySelectorAll('#dashboardPanel .nav-btn[data-page]'));
+            for (const btn of navButtons) {
+                btn.classList.toggle('active', btn.getAttribute('data-page') === next);
+            }
+        }
+
+        function refreshUploadProjectBadge() {
+            const name = String(currentProjectId || '').trim();
+            if (name) {
+                uploadProjectBadge.textContent = `Uploading into: ${name}`;
+                uploadProjectBadge.classList.remove('warn');
+                return;
+            }
+            uploadProjectBadge.textContent = 'Uploading into: (not connected)';
+            uploadProjectBadge.classList.add('warn');
+        }
+
+        function clearTimer() {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
+            }
+        }
+
+        function startTimer() {
+            clearTimer();
+            if (!token) return;
+            refreshTimer = setInterval(() => refreshAll(true), 5000);
+        }
+
+        async function api(path, method = 'GET', body = null, customHeaders = null) {
+            const headers = customHeaders || { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(path, {
+                method,
+                headers,
+                body: body ? JSON.stringify(body) : null,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const detail = data.detail || data.error || `HTTP ${res.status}`;
+                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            }
+            return data;
+        }
+
+        function renderProjects(projects) {
+            const options = ['<option value="">Select a project...</option>'];
+            for (const p of projects || []) {
+                options.push(`<option value="${p.projectId}">${p.projectId} (${p.role || (p.isAdmin ? 'admin' : 'user')})</option>`);
+            }
+            projectIdSelect.innerHTML = options.join('');
+            if ((projects || []).length === 1) {
+                projectIdSelect.value = projects[0].projectId;
+            }
+        }
+
+        function renderSummary(summary, status) {
+            const cards = [
+                { label: 'Project', value: summary.projectId || '-' },
+                { label: 'Your Role', value: status.role || summary.role || '-' },
+                { label: 'Image Access', value: summary.imageAccessMode || '-' },
+                { label: 'Storage', value: summary.storageMode || '-' },
+                { label: 'Online Users', value: status.onlineUsers || 0 },
+                { label: 'Latest Seq', value: status.latestSeq || 0 },
+                { label: 'Files', value: summary.totals?.files || 0 },
+                { label: 'Changes', value: summary.totals?.changes || 0 },
+            ];
+            summaryCards.innerHTML = cards.map(c => `<article class="card-mini"><p>${c.label}</p><strong>${c.value}</strong></article>`).join('');
+            const line = `${status.username || currentUser} on ${summary.projectId || '-'} | role: ${status.role || '-'} | active: ${status.activeFile || '-'}`;
+            sessionText.textContent = line;
+            overviewSessionMirror.textContent = line;
+        }
+
+        function renderChanges(changes) {
+            if (!changes || !changes.length) {
+                changesBody.innerHTML = '<tr><td colspan="5" class="muted">No changes yet.</td></tr>';
+                return;
+            }
+            changesBody.innerHTML = changes.map(item => `
+                <tr>
+                    <td>${item.seq}</td>
+                    <td>${item.username}</td>
+                    <td class="mono">${item.path}</td>
+                    <td>${item.deleted ? 'deleted' : 'updated'}</td>
+                    <td>${fmtDate(item.createdAt)}</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderUsers(payload) {
+            const users = payload.users || [];
+            if (!users.length) {
+                usersBody.innerHTML = '<tr><td colspan="5" class="muted">No users.</td></tr>';
+                return;
+            }
+            usersBody.innerHTML = users.map(u => {
+                const deleteBtn = u.canDelete
+                    ? `<button data-delete-user="${u.username}" class="btn danger small-btn">Delete</button>`
+                    : '';
+                return `
+                    <tr>
+                        <td>${u.username}</td>
+                        <td>${u.role || (u.isAdmin ? 'admin' : 'user')}</td>
+                        <td>${u.createdBy || '-'}</td>
+                        <td>${u.createdAt || '-'}</td>
+                        <td>${deleteBtn}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderBackups(payload) {
+            const items = Array.isArray(payload?.items) ? payload.items : [];
+            backupItems = items;
+            const retentionValue = Number(payload?.retentionValue || 14);
+            const retentionUnit = String(payload?.retentionUnit || 'days');
+            const retentionDays = Number(payload?.retentionDays || retentionValue || 14);
+
+            backupRetentionValue.value = String(retentionValue);
+            backupRetentionUnit.value = retentionUnit;
+            backupMeta.textContent = `${items.length} backup(s) in ${payload?.backupDir || '-'}. Auto cleanup: ${retentionValue} ${retentionUnit} (${retentionDays} day(s)).`;
+
+            if (!items.length) {
+                backupsBody.innerHTML = '<tr><td colspan="5" class="muted">No backups found.</td></tr>';
+                return;
+            }
+
+            backupsBody.innerHTML = items.map((item) => `
+                <tr>
+                    <td class="mono">${item.name}</td>
+                    <td>${item.reason || '-'}</td>
+                    <td>${bytesToHuman(item.sizeBytes || 0)}</td>
+                    <td>${fmtDate(item.createdAt || item.modifiedAt || 0)}</td>
+                    <td>
+                        <button type="button" class="btn ghost small-btn" data-download-backup="${item.name}">Download</button>
+                        <button type="button" class="btn ghost small-btn" data-dryrun-backup="${item.name}">Dry Run</button>
+                        <button type="button" class="btn danger small-btn" data-restore-backup="${item.name}">Restore</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function loadBackups() {
+            if (!isAdmin) return;
+            const payload = await api('/api/admin/backups');
+            renderBackups(payload);
+        }
+
+        function renderDbTables(payload) {
+            dbTables = Array.isArray(payload?.tables) ? payload.tables : [];
+            const current = String(dbTableSelect.value || '').trim();
+            const options = ['<option value="">Select table...</option>'];
+            for (const table of dbTables) {
+                options.push(`<option value="${table}">${table}</option>`);
+            }
+            dbTableSelect.innerHTML = options.join('');
+            if (current && dbTables.includes(current)) {
+                dbTableSelect.value = current;
+            } else if (dbTables.length) {
+                dbTableSelect.value = dbTables[0];
+            }
+            dbExplorerMeta.textContent = `DB: ${payload?.dbPath || '-'} | ${dbTables.length} table(s)`;
+            renderDbSearchColumns([]);
+        }
+
+        function renderDbSearchColumns(columns) {
+            dbColumns = Array.isArray(columns) ? columns : [];
+            const current = String(dbSearchColumn.value || '').trim();
+            const options = ['<option value="">All columns</option>'];
+            for (const col of dbColumns) {
+                options.push(`<option value="${col}">${col}</option>`);
+            }
+            dbSearchColumn.innerHTML = options.join('');
+            if (current && dbColumns.includes(current)) {
+                dbSearchColumn.value = current;
+            }
+        }
+
+        function renderDbRows(payload) {
+            const columns = Array.isArray(payload?.columns) ? payload.columns : [];
+            const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+            renderDbSearchColumns(columns);
+
+            if (!columns.length) {
+                dbRowsHead.innerHTML = '<tr><th>Row Data</th></tr>';
+                dbRowsBody.innerHTML = '<tr><td class="muted">No columns returned.</td></tr>';
+                return;
+            }
+
+            dbRowsHead.innerHTML = `<tr>${columns.map((col) => `<th>${col}</th>`).join('')}</tr>`;
+
+            if (!rows.length) {
+                dbRowsBody.innerHTML = `<tr><td colspan="${columns.length}" class="muted">No rows in this page.</td></tr>`;
+                dbExplorerMeta.textContent = `${payload.table}: 0 row(s) in page. total=${payload.total || 0}`;
+                return;
+            }
+
+            dbRowsBody.innerHTML = rows.map((row) => {
+                const cells = columns.map((col) => {
+                    const value = row?.[col];
+                    if (value === null || value === undefined) return '<td class="muted">NULL</td>';
+                    if (typeof value === 'object') {
+                        return `<td class="mono">${JSON.stringify(value)}</td>`;
+                    }
+                    return `<td class="mono">${String(value)}</td>`;
+                }).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+
+            dbExplorerMeta.textContent = `${payload.table}: showing ${rows.length} row(s) from offset ${payload.offset || 0} (total ${payload.total || 0})`;
+        }
+
+        async function loadDbTables() {
+            if (!isAdmin) return;
+            const payload = await api('/api/admin/database/tables');
+            renderDbTables(payload);
+        }
+
+        async function loadDbRows() {
+            if (!isAdmin) return;
+            const table = String(dbTableSelect.value || '').trim();
+            if (!table) {
+                throw new Error('Select a table first.');
+            }
+            const limit = Math.max(1, Math.min(500, Number(dbTableLimit.value || 100)));
+            const offset = Math.max(0, Number(dbTableOffset.value || 0));
+            const search = String(dbTableSearch.value || '').trim();
+            const searchColumn = String(dbSearchColumn.value || '').trim();
+            const payload = await api('/api/admin/database/table', 'POST', {
+                table,
+                limit,
+                offset,
+                search,
+                searchColumn,
+            });
+            renderDbRows(payload);
+        }
+
+        async function downloadBackupFile(backupName) {
+            if (!backupName) {
+                throw new Error('Backup name is required.');
+            }
+
+            const headers = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(`/api/admin/backups/${encodeURIComponent(backupName)}/download`, {
+                method: 'GET',
+                headers,
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                const detail = data.detail || data.error || `HTTP ${res.status}`;
+                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            }
+
+            const blob = await res.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = objectUrl;
+            anchor.download = backupName;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(objectUrl);
+        }
+
+        function renderAdminImages(items) {
+            adminImages = Array.isArray(items) ? items : [];
+            if (!adminImages.length) {
+                imagesBody.innerHTML = '<tr><td colspan="6" class="muted">No images loaded.</td></tr>';
+                imagesSummary.textContent = '0 images loaded.';
+                if (imagesSelectAll) imagesSelectAll.checked = false;
+                return;
+            }
+
+            imagesBody.innerHTML = adminImages.map((item, idx) => `
+                <tr>
+                    <td><input type="checkbox" data-image-index="${idx}" /></td>
+                    <td class="mono">${item.path || '-'}</td>
+                    <td>${item.status || '-'}</td>
+                    <td>${item.presentInS3 ? 's3' : 'db'}</td>
+                    <td>${bytesToHuman(item.sizeBytes || 0)}</td>
+                    <td>${fmtDate(item.mtimeMs || 0)}</td>
+                </tr>
+            `).join('');
+            const s3Only = adminImages.filter((item) => item.presentInS3 && !item.indexedInDb).length;
+            if (s3Only === 0) {
+                imagesSummary.textContent = `${adminImages.length} images loaded. S3 and DB index are in sync.`;
+            } else {
+                imagesSummary.textContent = `${adminImages.length} images loaded. s3-only=${s3Only} (present in S3, missing DB index row).`;
+            }
+            if (imagesSelectAll) imagesSelectAll.checked = false;
+        }
+
+        async function loadAdminImages() {
+            if (!isAdmin) return;
+            const sortBy = String(imagesSortBy?.value || 'path');
+            const order = String(imagesSortOrder?.value || 'asc');
+            const query = new URLSearchParams({ sortBy, order, limit: '5000' }).toString();
+            const payload = await api(`/api/admin/images?${query}`);
+            renderAdminImages(payload.items || []);
+        }
+
+        function getSelectedAdminImagePaths() {
+            const checks = Array.from(imagesBody.querySelectorAll('input[type="checkbox"][data-image-index]:checked'));
+            const selected = [];
+            for (const node of checks) {
+                const idx = Number(node.getAttribute('data-image-index'));
+                const item = Number.isFinite(idx) ? adminImages[idx] : null;
+                if (item && item.path) selected.push(String(item.path));
+            }
+            return selected;
+        }
+
+        function stopSlideshowAutoplay() {
+            if (slideshowState.timer) {
+                clearInterval(slideshowState.timer);
+                slideshowState.timer = null;
+            }
+        }
+
+        function maybeStartSlideshowAutoplay() {
+            stopSlideshowAutoplay();
+            if (!slideshowState.open || !slideshowState.autoplay || slideshowState.items.length <= 1) return;
+            const interval = Math.max(400, Number(slideshowState.intervalMs || 2200));
+            slideshowState.timer = setInterval(() => {
+                showSlideAt(slideshowState.index + 1).catch((error) => {
+                    stopSlideshowAutoplay();
+                    setMessage(error.message || String(error), true);
+                });
+            }, interval);
+        }
+
+        function getCurrentSlideItem() {
+            if (!slideshowState.items.length) return null;
+            const idx = Math.max(0, Math.min(slideshowState.index, slideshowState.items.length - 1));
+            return slideshowState.items[idx] || null;
+        }
+
+        function shuffleCopy(items) {
+            const out = items.slice();
+            for (let i = out.length - 1; i > 0; i -= 1) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const tmp = out[i];
+                out[i] = out[j];
+                out[j] = tmp;
+            }
+            return out;
+        }
+
+        function rebuildSlideshowItems(preservePath = '') {
+            const byPath = new Map(adminImages.map((item) => [item.path, item]));
+            let ordered = slideshowState.basePaths.map((path) => byPath.get(path)).filter(Boolean);
+            if (!ordered.length) {
+                ordered = adminImages.slice();
+                slideshowState.basePaths = ordered.map((item) => item.path);
+            }
+
+            if (slideshowState.shuffle && ordered.length > 1) {
+                if (preservePath) {
+                    const current = ordered.find((item) => item.path === preservePath) || null;
+                    const rest = ordered.filter((item) => item.path !== preservePath);
+                    ordered = current ? [current, ...shuffleCopy(rest)] : shuffleCopy(ordered);
+                } else {
+                    ordered = shuffleCopy(ordered);
+                }
+            }
+
+            slideshowState.items = ordered;
+            if (!ordered.length) {
+                slideshowState.index = 0;
+                return;
+            }
+
+            const idx = preservePath ? ordered.findIndex((item) => item.path === preservePath) : -1;
+            slideshowState.index = idx >= 0 ? idx : 0;
+        }
+
+        function drawSlideLabels(labels) {
+            const canvas = slideOverlay;
+            const img = slideImage;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            const stageRect = slideStage.getBoundingClientRect();
+            const imageRect = img.getBoundingClientRect();
+            const stageW = Math.max(1, Math.round(Number(stageRect.width || 0)));
+            const stageH = Math.max(1, Math.round(Number(stageRect.height || 0)));
+            canvas.width = stageW;
+            canvas.height = stageH;
+            ctx.clearRect(0, 0, stageW, stageH);
+
+            const drawW = Number(imageRect.width || 0);
+            const drawH = Number(imageRect.height || 0);
+            if (!drawW || !drawH) return;
+
+            const offsetX = Number(imageRect.left || 0) - Number(stageRect.left || 0);
+            const offsetY = Number(imageRect.top || 0) - Number(stageRect.top || 0);
+            ctx.lineWidth = 2;
+            ctx.font = '12px "IBM Plex Mono", monospace';
+
+            for (const item of labels || []) {
+                const pts = Array.isArray(item.points) ? item.points.map((v) => Number(v || 0)) : [];
+                if (pts.length < 8) continue;
+                const color = item.format === 'obb' ? '#ec6f08' : '#0d7662';
+                ctx.strokeStyle = color;
+                ctx.fillStyle = `${color}33`;
+                ctx.beginPath();
+                ctx.moveTo(offsetX + (pts[0] * drawW), offsetY + (pts[1] * drawH));
+                ctx.lineTo(offsetX + (pts[2] * drawW), offsetY + (pts[3] * drawH));
+                ctx.lineTo(offsetX + (pts[4] * drawW), offsetY + (pts[5] * drawH));
+                ctx.lineTo(offsetX + (pts[6] * drawW), offsetY + (pts[7] * drawH));
+                ctx.closePath();
+                ctx.stroke();
+                ctx.fill();
+
+                const classText = `c${Number(item.classId || 0)}`;
+                const tx = offsetX + (pts[0] * drawW);
+                const ty = Math.max(12, offsetY + (pts[1] * drawH) - 4);
+                ctx.fillStyle = color;
+                ctx.fillText(classText, tx, ty);
+            }
+        }
+
+        async function fetchSlideLabels(path) {
+            if (!path) return [];
+            if (slideshowState.labelsByPath.has(path)) {
+                return slideshowState.labelsByPath.get(path) || [];
+            }
+            const payload = await api(`/api/admin/images/labels?path=${encodeURIComponent(path)}`);
+            const labels = Array.isArray(payload.labels) ? payload.labels : [];
+            slideshowState.labelsByPath.set(path, labels);
+            return labels;
+        }
+
+        async function refreshSlideOverlay() {
+            const current = getCurrentSlideItem();
+            const ctx = slideOverlay.getContext('2d');
+            if (ctx) {
+                ctx.clearRect(0, 0, slideOverlay.width, slideOverlay.height);
+            }
+            if (!current || !slideshowState.showLabels) return;
+            try {
+                const labels = await fetchSlideLabels(current.path);
+                drawSlideLabels(labels);
+            } catch (error) {
+                setMessage(`Label overlay failed: ${String(error.message || error)}`, true);
+            }
+        }
+
+        async function showSlideAt(nextIndex) {
+            if (!slideshowState.items.length) return;
+            const len = slideshowState.items.length;
+            const normalized = ((nextIndex % len) + len) % len;
+            slideshowState.index = normalized;
+            const current = slideshowState.items[normalized];
+            if (!current) return;
+
+            slideTitle.textContent = current.path || '-';
+            slideCounter.textContent = `${normalized + 1} / ${len}`;
+            slideStatusText.textContent = `status: ${current.status || '-'}`;
+            slideSourceText.textContent = 'source: loading...';
+
+            let payload = slideshowState.imageViewByPath.get(current.path) || null;
+            if (!payload) {
+                const maxWidth = Math.max(640, Math.min(2200, Math.floor(window.innerWidth * 0.9)));
+                const maxHeight = Math.max(520, Math.min(2200, Math.floor(window.innerHeight * 0.8)));
+                payload = await api(`/api/admin/images/view?path=${encodeURIComponent(current.path)}&maxWidth=${maxWidth}&maxHeight=${maxHeight}&quality=82`);
+                slideshowState.imageViewByPath.set(current.path, payload);
+                if (slideshowState.imageViewByPath.size > 80) {
+                    const firstKey = slideshowState.imageViewByPath.keys().next().value;
+                    if (firstKey) {
+                        slideshowState.imageViewByPath.delete(firstKey);
+                    }
+                }
+            }
+            slideSourceText.textContent = `source: ${payload.source || '-'}`;
+
+            await new Promise((resolve, reject) => {
+                slideImage.onload = () => resolve();
+                slideImage.onerror = () => reject(new Error('Failed to load image for slideshow'));
+                slideImage.src = payload.url;
+            });
+
+            const naturalW = Number(slideImage.naturalWidth || 0);
+            const naturalH = Number(slideImage.naturalHeight || 0);
+            slideStage.classList.toggle('is-portrait', naturalH > naturalW && naturalW > 0);
+
+            await refreshSlideOverlay();
+        }
+
+        async function setImageStatusForPath(path, status) {
+            const imageName = (path || '').split('/').pop();
+            if (!imageName) throw new Error('Invalid image path');
+            await api('/api/image-status', 'POST', { imageName, status });
+            for (const item of adminImages) {
+                if (item && item.path === path) {
+                    item.status = status;
+                }
+            }
+            for (const item of slideshowState.items) {
+                if (item && item.path === path) {
+                    item.status = status;
+                }
+            }
+            renderAdminImages(adminImages);
+            const current = getCurrentSlideItem();
+            if (current && current.path === path) {
+                slideStatusText.textContent = `status: ${status}`;
+            }
+        }
+
+        async function deleteCurrentSlideImage() {
+            const current = getCurrentSlideItem();
+            if (!current) return;
+            const yes = confirm(`Delete image ${current.path}?`);
+            if (!yes) return;
+            await api('/api/admin/images/delete', 'POST', {
+                paths: [current.path],
+                deleteLabels: !!imagesDeleteLabels.checked,
+            });
+
+            adminImages = adminImages.filter((item) => item.path !== current.path);
+            slideshowState.basePaths = slideshowState.basePaths.filter((path) => path !== current.path);
+            rebuildSlideshowItems();
+            slideshowState.labelsByPath.delete(current.path);
+            slideshowState.imageViewByPath.delete(current.path);
+            renderAdminImages(adminImages);
+
+            if (!slideshowState.items.length) {
+                closeSlideshow();
+                return;
+            }
+
+            if (slideshowState.index >= slideshowState.items.length) {
+                slideshowState.index = slideshowState.items.length - 1;
+            }
+            await showSlideAt(slideshowState.index);
+        }
+
+        function closeSlideshow() {
+            slideshowState.open = false;
+            stopSlideshowAutoplay();
+            slideshowState.items = [];
+            slideshowState.basePaths = [];
+            slideshowState.index = 0;
+            slideshowModal.classList.add('hidden');
+            slideshowModal.setAttribute('aria-hidden', 'true');
+            slideImage.src = '';
+            const ctx = slideOverlay.getContext('2d');
+            if (ctx) {
+                ctx.clearRect(0, 0, slideOverlay.width, slideOverlay.height);
+            }
+        }
+
+        async function openSlideshow() {
+            if (!adminImages.length) {
+                setMessage('No images loaded yet. Refresh Images first.', true);
+                return;
+            }
+
+            const selected = getSelectedAdminImagePaths();
+            const selectedSet = new Set(selected);
+            let baseItems = selected.length
+                ? adminImages.filter((item) => selectedSet.has(item.path))
+                : adminImages.slice();
+
+            slideshowState.shuffle = !!slideShuffle.checked;
+            slideshowState.showLabels = !!slideShowLabels.checked;
+            slideshowState.autoplay = !!slideAutoplay.checked;
+            slideshowState.intervalMs = Math.max(400, Number(slideInterval.value || 2200));
+            slideshowState.labelsByPath = new Map();
+            slideshowState.basePaths = baseItems.map((item) => item.path).filter(Boolean);
+            rebuildSlideshowItems();
+            slideshowState.open = true;
+
+            slideshowModal.classList.remove('hidden');
+            slideshowModal.setAttribute('aria-hidden', 'false');
+            await showSlideAt(slideshowState.index);
+            maybeStartSlideshowAutoplay();
+        }
+
+        function sanitizeRelativePath(value) {
+            const normalized = String(value || '').replace(/\\/g, '/').trim().replace(/^\/+/, '');
+            const parts = normalized.split('/').filter(Boolean);
+            if (!parts.length) return '';
+            for (const part of parts) {
+                if (part === '.' || part === '..') return '';
+            }
+            return parts.join('/');
+        }
+
+        function toQueuePath(prefix, relative) {
+            const p = sanitizeRelativePath(prefix || '');
+            const r = sanitizeRelativePath(relative || '');
+            if (!r) return '';
+            return p ? `${p}/${r}` : r;
+        }
+
+        function bytesToHuman(value) {
+            const n = Number(value || 0);
+            if (!Number.isFinite(n) || n <= 0) return '0 B';
+            if (n < 1024) return `${n} B`;
+            if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+            return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+        }
+
+        function renderUploadQueue() {
+            if (!uploadQueue.length) {
+                uploadQueueBody.innerHTML = '<tr><td colspan="3" class="muted">No files queued.</td></tr>';
+                uploadSummary.textContent = 'Queue empty.';
+                return;
+            }
+            uploadQueueBody.innerHTML = uploadQueue.map(item => `
+                <tr>
+                    <td class="mono">${item.targetPath}</td>
+                    <td>${bytesToHuman(item.file.size)}</td>
+                    <td>${item.status || (item.conflict ? `queued (${item.conflict})` : 'queued')}</td>
+                </tr>
+            `).join('');
+            uploadSummary.textContent = `${uploadQueue.length} file(s) queued.`;
+        }
+
+        function resetConflictReport() {
+            conflictExisting.textContent = '0';
+            conflictChangedSize.textContent = '0';
+            conflictChangedHash.textContent = '0';
+            conflictSummary.textContent = 'Conflict report: not generated.';
+            for (const item of uploadQueue) {
+                item.conflict = '';
+            }
+        }
+
+        async function sha1HexForFile(file) {
+            const buf = await file.arrayBuffer();
+            const digest = await crypto.subtle.digest('SHA-1', buf);
+            return Array.from(new Uint8Array(digest))
+                .map((v) => v.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        async function analyzeConflicts() {
+            if (!uploadQueue.length) {
+                setMessage('Upload queue is empty.', true);
+                resetConflictReport();
+                return { existing: 0, changedSize: 0, changedHash: 0 };
+            }
+            if (!token) {
+                setMessage('Login is required to analyze conflicts.', true);
+                return { existing: 0, changedSize: 0, changedHash: 0 };
+            }
+
+            const payload = await api('/api/images/manifest');
+            const remoteByPath = new Map();
+            for (const item of payload.manifest || []) {
+                remoteByPath.set(String(item.path || ''), {
+                    size: Number(item.size || 0),
+                    sha1: String(item.sha1 || '').toLowerCase(),
+                });
+            }
+
+            let existing = 0;
+            let changedSize = 0;
+            let changedHash = 0;
+
+            for (const item of uploadQueue) {
+                item.conflict = '';
+                const remote = remoteByPath.get(item.targetPath);
+                if (!remote) continue;
+                existing += 1;
+
+                if (remote.size !== Number(item.file.size || 0)) {
+                    changedSize += 1;
+                    item.conflict = 'changed-size';
+                    continue;
+                }
+
+                if (!remote.sha1) {
+                    item.conflict = 'existing';
+                    continue;
+                }
+
+                try {
+                    const localSha1 = await sha1HexForFile(item.file);
+                    if (localSha1.toLowerCase() !== remote.sha1) {
+                        changedHash += 1;
+                        item.conflict = 'changed-hash';
+                    } else {
+                        item.conflict = 'existing';
+                    }
+                } catch (_) {
+                    item.conflict = 'existing';
+                }
+            }
+
+            conflictExisting.textContent = String(existing);
+            conflictChangedSize.textContent = String(changedSize);
+            conflictChangedHash.textContent = String(changedHash);
+            conflictSummary.textContent = `Conflict report ready. existing=${existing}, changed-size=${changedSize}, changed-hash=${changedHash}`;
+            renderUploadQueue();
+            return { existing, changedSize, changedHash };
+        }
+
+        function addFilesToQueue(entries) {
+            const seen = new Set(uploadQueue.map(item => item.targetPath));
+            let added = 0;
+            for (const entry of entries) {
+                const file = entry.file;
+                const relative = sanitizeRelativePath(entry.relativePath || file.name || '');
+                if (!relative) continue;
+                const suffix = `.${relative.split('.').pop().toLowerCase()}`;
+                if (!imageSuffixes.has(suffix)) continue;
+
+                const prefix = document.getElementById('uploadTargetPrefix').value.trim();
+                const targetPath = toQueuePath(prefix, relative);
+                if (!targetPath || seen.has(targetPath)) continue;
+
+                uploadQueue.push({ file, relativePath: relative, targetPath, status: 'queued' });
+                seen.add(targetPath);
+                added += 1;
+            }
+            renderUploadQueue();
+            resetConflictReport();
+            if (added > 0) setMessage(`Added ${added} file(s) to upload queue.`);
+        }
+
+        function remapQueuePathsFromPrefix() {
+            const prefix = document.getElementById('uploadTargetPrefix').value.trim();
+            uploadQueue = uploadQueue.map(item => ({
+                ...item,
+                targetPath: toQueuePath(prefix, item.relativePath),
+            })).filter(item => !!item.targetPath);
+            resetConflictReport();
+            renderUploadQueue();
+        }
+
+        async function walkDroppedEntry(entry, parentPath = '') {
+            if (!entry) return [];
+            if (entry.isFile) {
+                const file = await new Promise((resolve, reject) => {
+                    entry.file(resolve, reject);
+                });
+                return [{ file, relativePath: sanitizeRelativePath(`${parentPath}${entry.name}`) }];
+            }
+
+            if (!entry.isDirectory) return [];
+            const reader = entry.createReader();
+            const items = [];
+            while (true) {
+                const chunk = await new Promise((resolve, reject) => {
+                    reader.readEntries(resolve, reject);
+                });
+                if (!chunk.length) break;
+                items.push(...chunk);
+            }
+
+            const out = [];
+            for (const child of items) {
+                const nested = await walkDroppedEntry(child, `${parentPath}${entry.name}/`);
+                out.push(...nested);
+            }
+            return out;
+        }
+
+        async function handleDrop(event) {
+            event.preventDefault();
+            uploadDropZone.classList.remove('active');
+
+            const items = Array.from(event.dataTransfer?.items || []);
+            const fromEntries = [];
+            for (const item of items) {
+                const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                if (!entry) continue;
+                try {
+                    const walked = await walkDroppedEntry(entry, '');
+                    fromEntries.push(...walked);
+                } catch (_) {
+                }
+            }
+
+            if (fromEntries.length) {
+                addFilesToQueue(fromEntries);
+                return;
+            }
+
+            const rawFiles = Array.from(event.dataTransfer?.files || []);
+            addFilesToQueue(rawFiles.map(file => ({
+                file,
+                relativePath: file.webkitRelativePath || file.name,
+            })));
+        }
+
+        async function startUploadQueue() {
+            if (!uploadQueue.length) {
+                setMessage('Upload queue is empty.', true);
+                return;
+            }
+            if (!token) {
+                setMessage('Login is required to upload images.', true);
+                return;
+            }
+            if (!currentProjectId) {
+                setMessage('Active project is unknown. Refresh first.', true);
+                return;
+            }
+
+            const overwrite = !!document.getElementById('uploadOverwrite').checked;
+            let uploaded = 0;
+            let skipped = 0;
+            let failed = 0;
+
+            for (let i = 0; i < uploadQueue.length; i += 1) {
+                const item = uploadQueue[i];
+                item.status = 'uploading...';
+                renderUploadQueue();
+                const body = new FormData();
+                body.append('file', item.file, item.file.name);
+                body.append('path', item.targetPath);
+                body.append('expected_project_id', currentProjectId);
+                body.append('overwrite', overwrite ? '1' : '0');
+                try {
+                    const res = await fetch('/api/admin/images/upload', {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${token}` },
+                        body,
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        const detail = data.detail || data.error || `HTTP ${res.status}`;
+                        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                    }
+
+                    if (data.uploaded) {
+                        uploaded += 1;
+                        item.status = 'uploaded';
+                    } else if (data.skipped) {
+                        skipped += 1;
+                        item.status = 'skipped (exists)';
+                    } else {
+                        failed += 1;
+                        item.status = 'failed';
+                    }
+                } catch (error) {
+                    failed += 1;
+                    item.status = `failed: ${String(error.message || error)}`;
+                }
+                renderUploadQueue();
+            }
+
+            setMessage(`Upload finished. Uploaded: ${uploaded}, skipped: ${skipped}, failed: ${failed}`, failed > 0);
+            await refreshAll(true);
+        }
+
+
+        async function syncEntireLocalFolder() {
+            if (!token) {
+                setMessage('Login is required to sync local folder.', true);
+                return;
+            }
+            autoSyncAfterFolderPick = true;
+            pickImageFolderInput.click();
+        }
+
+        async function uploadZipArchive() {
+            if (!selectedZipFile) {
+                setMessage('Pick a zip archive first.', true);
+                return;
+            }
+            if (!token) {
+                setMessage('Login is required to upload zip archives.', true);
+                return;
+            }
+            if (!currentProjectId) {
+                setMessage('Active project is unknown. Refresh first.', true);
+                return;
+            }
+
+            const overwrite = !!document.getElementById('uploadOverwrite').checked;
+            const prefix = document.getElementById('uploadTargetPrefix').value.trim();
+            const body = new FormData();
+            body.append('archive', selectedZipFile, selectedZipFile.name);
+            body.append('target_prefix', prefix);
+            body.append('expected_project_id', currentProjectId);
+            body.append('overwrite', overwrite ? '1' : '0');
+
+            const res = await fetch('/api/admin/images/upload-zip', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+                body,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const detail = data.detail || data.error || `HTTP ${res.status}`;
+                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            }
+
+            setMessage(
+                `Zip upload finished. uploaded=${data.uploaded || 0}, skipped=${data.skippedExisting || 0}, overwritten=${data.overwritten || 0}, failed=${data.failed || 0}, ignored-non-images=${data.ignoredNonImages || 0}`,
+                Number(data.failed || 0) > 0,
+            );
+            await refreshAll(true);
+        }
+
+        async function loadProjectOptions() {
+            const u = document.getElementById('username').value.trim();
+            const p = document.getElementById('password').value;
+            if (!u || !p) throw new Error('Enter username and password first');
+
+            const data = await api('/api/auth/project-options', 'POST', { username: u, password: p });
+            requireProjectPassword = !!data.requireProjectPassword;
+            projectPasswordWrap.classList.toggle('hidden', !requireProjectPassword);
+            renderProjects(data.projects || []);
+            loginHint.textContent = `${(data.projects || []).length} project(s) found.`;
+        }
+
+        async function refreshAll(silent = false) {
+            if (!token) return;
+            try {
+                const [status, summary, changes] = await Promise.all([
+                    api('/api/sync/status'),
+                    api('/api/project/summary'),
+                    api('/api/project/recent-changes?limit=30'),
+                ]);
+
+                currentProjectId = String(status.projectId || summary.projectId || '');
+                refreshUploadProjectBadge();
+
+                role = status.role || summary.role || '';
+                isAdmin = !!status.isAdmin;
+                adminPanel.classList.toggle('hidden', false);
+                document.body.classList.toggle('is-admin', isAdmin);
+                if (!isAdmin && (activeDashPage === 'admin' || activeDashPage === 'images')) {
+                    activeDashPage = 'uploads';
+                }
+                setDashboardPage(activeDashPage);
+
+                renderSummary(summary, status);
+                renderChanges(changes.changes || []);
+
+                if (isAdmin) {
+                    const users = await api('/api/admin/users');
+                    renderUsers(users);
+                    const storage = await api('/api/admin/project/storage');
+                    document.getElementById('storageMode').value = storage.storageMode || 'auto';
+                    document.getElementById('imageAccessMode').value = storage.imageAccessMode || 'local';
+                    await loadBackups();
+                    await loadDbTables();
+                    await loadAdminImages();
+                }
+            } catch (e) {
+                if (!silent) setMessage(e.message, true);
+                if (String(e.message || '').includes('401')) {
+                    handleLogout(false);
+                }
+            }
+        }
+
+        async function handleLogout(notify = true) {
+            try {
+                if (token) await api('/api/auth/logout', 'POST', {});
+            } catch (_) {
+            }
+            closeSlideshow();
+            token = '';
+            role = '';
+            isAdmin = false;
+            document.body.classList.remove('is-admin');
+            currentUser = '';
+            currentProjectId = '';
+            refreshUploadProjectBadge();
+            localStorage.removeItem('syncToken');
+            localStorage.removeItem('syncUsername');
+            clearTimer();
+            setLoggedInState(false);
+            if (notify) setMessage('Logged out.');
+            updateAuthPanelSignOutVisibility();
+        }
+
+        document.getElementById('showBootstrapBtn').addEventListener('click', () => {
+            bootstrapBox.classList.toggle('hidden');
+        });
+
+        document.getElementById('bootstrapBox').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            try {
+                const payload = {
+                    projectId: document.getElementById('bootProject').value.trim(),
+                    projectPassword: document.getElementById('bootProjectPassword').value,
+                    username: document.getElementById('bootUser').value.trim(),
+                    password: document.getElementById('bootPass').value,
+                };
+                const bootstrapToken = document.getElementById('bootToken').value.trim();
+                const headers = { 'Content-Type': 'application/json' };
+                if (bootstrapToken) headers['X-Bootstrap-Token'] = bootstrapToken;
+                await api('/api/admin/bootstrap', 'POST', payload, headers);
+                setMessage('Bootstrap complete. Login using the owner credentials.');
+                bootstrapBox.classList.add('hidden');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('loadProjectsBtn').addEventListener('click', async () => {
+            try {
+                await loadProjectOptions();
+                setMessage('Projects loaded.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('loginBox').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            setGlobalLoading(true, 'Logging in...');
+            try {
+                if (!projectIdSelect.value) {
+                    await loadProjectOptions();
+                }
+                if (!projectIdSelect.value) throw new Error('Select a project before login');
+
+                const payload = {
+                    projectId: projectIdSelect.value,
+                    projectPassword: document.getElementById('projectPassword').value,
+                    username: document.getElementById('username').value.trim(),
+                    password: document.getElementById('password').value,
+                };
+
+                const data = await api('/api/auth/login', 'POST', payload);
+                token = data.token;
+                currentUser = data.username || payload.username;
+                role = data.role || (data.isAdmin ? 'admin' : 'user');
+                isAdmin = !!data.isAdmin;
+                localStorage.setItem('syncToken', token);
+                localStorage.setItem('syncUsername', currentUser);
+                setLoggedInState(true);
+                await refreshAll();
+                startTimer();
+                setMessage(`Logged in as ${currentUser}`);
+                updateAuthPanelSignOutVisibility();
+            } catch (e) {
+                setMessage(e.message, true);
+            } finally {
+                setGlobalLoading(false);
+            }
+        });
+
+        signOutExistingBtn.addEventListener('click', async () => {
+            await handleLogout(true);
+        });
+
+        document.getElementById('refreshBtn').addEventListener('click', () => refreshAll(false));
+        document.getElementById('logoutBtn').addEventListener('click', () => handleLogout());
+        compactModeBtn.addEventListener('click', cycleCompactModePreference);
+        themeModeBtn.addEventListener('click', cycleThemeModePreference);
+
+        dashNav.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!target || !(target instanceof HTMLElement)) return;
+            const button = target.closest('button[data-page]');
+            if (!button) return;
+            const page = button.getAttribute('data-page') || 'uploads';
+            setDashboardPage(page);
+        });
+
+        document.getElementById('createUserBtn').addEventListener('click', async () => {
+            try {
+                const payload = {
+                    username: document.getElementById('newUser').value.trim(),
+                    password: document.getElementById('newPass').value,
+                    isAdmin: !!document.getElementById('newIsAdmin').checked,
+                };
+                const data = await api('/api/admin/users', 'POST', payload);
+                setMessage(`User ${data.username} created (${data.role}).`);
+                await refreshAll(true);
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('backupBtn').addEventListener('click', async () => {
+            try {
+                await api('/api/admin/backup-now', 'POST', {});
+                setMessage('Backup created.');
+                await refreshAll(true);
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('saveBackupRetentionBtn').addEventListener('click', async () => {
+            try {
+                const retentionValue = Math.max(1, Number(backupRetentionValue.value || 14));
+                const retentionUnit = String(backupRetentionUnit.value || 'days');
+                const result = await api('/api/admin/backups/retention', 'POST', {
+                    retentionValue,
+                    retentionUnit,
+                });
+                setMessage(`Backup retention updated to ${result.retentionValue} ${result.retentionUnit} (${result.retentionDays} day(s)).`);
+                await loadBackups();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('cleanupBackupsBtn').addEventListener('click', async () => {
+            try {
+                const yes = confirm('Run backup cleanup now using current retention rules?');
+                if (!yes) return;
+                const result = await api('/api/admin/backups/cleanup-now', 'POST', {});
+                setMessage(`Backup cleanup complete. removed=${result.removed || 0}, remaining=${result.remaining || 0}.`);
+                await loadBackups();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('refreshBackupsBtn').addEventListener('click', async () => {
+            try {
+                await loadBackups();
+                setMessage('Backups refreshed.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('refreshDbTablesBtn').addEventListener('click', async () => {
+            try {
+                await loadDbTables();
+                setMessage('Database tables refreshed.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('loadDbTableBtn').addEventListener('click', async () => {
+            try {
+                await loadDbRows();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('clearDbFilterBtn').addEventListener('click', async () => {
+            try {
+                dbTableSearch.value = '';
+                dbSearchColumn.value = '';
+                dbTableOffset.value = '0';
+                await loadDbRows();
+                setMessage('Database table filter cleared.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        dbTableSearch.addEventListener('keydown', async (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            try {
+                dbTableOffset.value = '0';
+                await loadDbRows();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        dbSearchColumn.addEventListener('change', async () => {
+            try {
+                dbTableOffset.value = '0';
+                await loadDbRows();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        dbTableSelect.addEventListener('change', async () => {
+            try {
+                dbTableOffset.value = '0';
+                await loadDbRows();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('saveStorageBtn').addEventListener('click', async () => {
+            try {
+                const mode = document.getElementById('storageMode').value;
+                await api('/api/admin/project/storage', 'POST', { storageMode: mode });
+                setMessage(`Storage mode set to ${mode}.`);
+                await refreshAll(true);
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('saveImageAccessBtn').addEventListener('click', async () => {
+            try {
+                const mode = document.getElementById('imageAccessMode').value;
+                await api('/api/admin/project/image-access', 'POST', { imageAccessMode: mode });
+                setMessage(`Image access mode set to ${mode}.`);
+                await refreshAll(true);
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('deleteSelfBtn').addEventListener('click', async () => {
+            try {
+                const yes = confirm('Delete your user account? This logs you out immediately.');
+                if (!yes) return;
+                await api(`/api/users/${encodeURIComponent(currentUser)}`, 'DELETE');
+                setMessage('Your user was deleted.');
+                await handleLogout(false);
+                setMessage('Your user was deleted.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        usersBody.addEventListener('click', async (event) => {
+            const target = event.target;
+            if (!target || !target.matches('button[data-delete-user]')) return;
+            const username = target.getAttribute('data-delete-user');
+            if (!username) return;
+            try {
+                const yes = confirm(`Delete user ${username}?`);
+                if (!yes) return;
+                await api(`/api/users/${encodeURIComponent(username)}`, 'DELETE');
+                setMessage(`User ${username} deleted.`);
+                await refreshAll(true);
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        backupsBody.addEventListener('click', async (event) => {
+            const target = event.target;
+            if (!target) return;
+            try {
+                if (target.matches('button[data-download-backup]')) {
+                    const backupName = target.getAttribute('data-download-backup');
+                    if (!backupName) return;
+                    await downloadBackupFile(backupName);
+                    setMessage(`Backup download started: ${backupName}`);
+                    return;
+                }
+
+                if (target.matches('button[data-dryrun-backup]')) {
+                    const backupName = target.getAttribute('data-dryrun-backup');
+                    if (!backupName) return;
+                    const result = await api('/api/admin/backups/restore/dry-run', 'POST', { backupName });
+                    const quickCheckText = result.quickCheckOk
+                        ? 'ok'
+                        : (result.quickCheckError || result.quickCheck || 'failed');
+                    const health = result.ok ? 'ready' : 'not ready';
+                    setMessage(
+                        `Dry run ${health} for ${backupName}. size=${bytesToHuman(result.sizeBytes || 0)}, sha256=${result.sha256 || '-'}, quick_check=${quickCheckText}`,
+                        !result.ok,
+                        true,
+                    );
+                    return;
+                }
+
+                if (!target.matches('button[data-restore-backup]')) return;
+                const backupName = target.getAttribute('data-restore-backup');
+                if (!backupName) return;
+                const warning = `You are about to restore backup: ${backupName}\n\nThis will replace the live sync database.\nType exactly:\nRESTORE ${backupName}`;
+                const confirmText = prompt(warning, '');
+                if (confirmText === null) return;
+                const result = await api('/api/admin/backups/restore', 'POST', {
+                    backupName,
+                    confirmText,
+                });
+                setMessage(
+                    `Database restored from ${result.restoredFrom}. Pre-restore snapshot: ${result.preRestoreSnapshot}.`,
+                    false,
+                    true,
+                );
+                await refreshAll(true);
+            } catch (e) {
+                setMessage(e.message, true, true);
+            }
+        });
+
+        document.getElementById('refreshImagesBtn').addEventListener('click', async () => {
+            try {
+                await loadAdminImages();
+                setMessage('Image list refreshed.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('reconcileStatusesBtn').addEventListener('click', async () => {
+            try {
+                const yes = confirm('Create missing image statuses for images found in DB/S3?');
+                if (!yes) return;
+                const result = await api('/api/admin/images/reconcile-status', 'POST', {
+                    defaultStatus: 'in_progress',
+                    removeOrphans: false,
+                });
+                setMessage(`Status sync done. added=${result.added || 0}, removed=${result.removed || 0}`);
+                await loadAdminImages();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('labelsSummaryBtn').addEventListener('click', async () => {
+            try {
+                const result = await api('/api/admin/labels/summary');
+                setMessage(
+                    `Label sync summary: images=${result.totalImages || 0}, label-files=${result.labelFiles || 0}, with-labels=${result.imagesWithLabels || 0}, missing=${result.imagesMissingLabels || 0}, rows=${result.parsedLabelRows || 0}.`
+                );
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('labelSyncHelpBtn').addEventListener('click', () => {
+            setMessage(
+                'Local labels sync is in desktop app: Cloud -> Sync Local Labels Now (Cloud DB). Keep cloud sync connected, then run it once.',
+                false,
+                true
+            );
+        });
+
+        normalizeImagesBtn.addEventListener('click', async () => {
+            try {
+                const yes = confirm('Normalize all project images to JPEG encoding in cloud storage/DB? This can take a while.');
+                if (!yes) return;
+
+                normalizeImagesBtn.disabled = true;
+                normalizeImagesBtn.textContent = 'Normalizing...';
+                setImagesOpsStatus('Starting JPEG normalization job...');
+                setImagesOpsProgress(0, 1);
+                setMessage('JPEG normalization started. Progress will appear in Images operations status.', false, true);
+
+                const started = await api('/api/admin/images/normalize-jpeg/start', 'POST', {
+                    paths: [],
+                    quality: 90,
+                });
+
+                const jobId = String(started.jobId || '').trim();
+                if (!jobId) {
+                    throw new Error('Normalization job did not return a job ID');
+                }
+                activeNormalizeJobId = jobId;
+                cancelNormalizeBtn.disabled = false;
+
+                setImagesOpsProgress(0, Number(started.requested || 1));
+
+                let finalResult = null;
+                let transientErrors = 0;
+                while (true) {
+                    let job = null;
+                    try {
+                        job = await api(`/api/admin/images/normalize-jpeg/jobs/${encodeURIComponent(jobId)}`);
+                        transientErrors = 0;
+                    } catch (pollErr) {
+                        const msgText = String(pollErr && pollErr.message ? pollErr.message : pollErr);
+                        const isTransient = /HTTP\s*504|HTTP\s*503|timed out|timeout|NetworkError|Failed to fetch/i.test(msgText);
+                        if (isTransient && transientErrors < 25) {
+                            transientErrors += 1;
+                            setImagesOpsStatus(`Waiting for normalization status... retry ${transientErrors}/25`, false);
+                            await new Promise((resolve) => setTimeout(resolve, 1500));
+                            continue;
+                        }
+                        throw pollErr;
+                    }
+                    const processed = Number(job.processed || 0);
+                    const requested = Number(job.requested || 0);
+                    const converted = Number(job.converted || 0);
+                    const failed = Number(job.failed || 0);
+                    const currentPath = String(job.currentPath || '');
+                    const pathSuffix = currentPath ? ` | ${currentPath}` : '';
+                    setImagesOpsProgress(processed, requested || 1);
+                    setImagesOpsStatus(`JPEG normalize: ${processed}/${requested} processed, converted=${converted}, failed=${failed}${pathSuffix}`, job.status === 'error');
+
+                    if (job.status === 'done') {
+                        finalResult = job.result || job;
+                        break;
+                    }
+                    if (job.status === 'canceled') {
+                        finalResult = job.result || job;
+                        break;
+                    }
+                    if (job.status === 'error') {
+                        throw new Error(String(job.error || 'Normalization job failed'));
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
+
+                const failed = Number(finalResult.failed || 0);
+                const requestedFinal = Number(finalResult.requested || 0);
+                const processedFinal = Number(finalResult.processed || requestedFinal || 0);
+                const inv = finalResult.cloudfrontInvalidation || null;
+                const invText = inv
+                    ? (inv.ok
+                        ? ` CloudFront invalidation queued (id=${inv.invalidationId || '-'}, paths=${inv.pathCount || 0}).`
+                        : ` CloudFront invalidation skipped/failed (${inv.reason || 'unknown'}).`)
+                    : '';
+                setImagesOpsProgress(processedFinal, Number(requestedFinal || 1));
+                const sample = Array.isArray(finalResult.failedItems) && finalResult.failedItems.length
+                    ? ` First failure: ${finalResult.failedItems[0].path} (${finalResult.failedItems[0].error}).`
+                    : '';
+                if (finalResult.canceled) {
+                    const canceledBy = String(finalResult.cancelRequestedBy || '');
+                    const canceledAt = Number(finalResult.canceledAt || 0);
+                    const canceledAtText = canceledAt ? ` at ${fmtDate(canceledAt)}` : '';
+                    const canceledByText = canceledBy ? ` by ${canceledBy}` : '';
+                    setMessage(
+                        `JPEG normalization canceled${canceledByText}${canceledAtText}. processed=${processedFinal}/${requestedFinal}, converted=${finalResult.converted || 0}, failed=${failed}.${sample}${invText}`,
+                        true
+                    );
+                    setImagesOpsStatus(`JPEG normalization canceled${canceledByText}${canceledAtText}.`, true);
+                    return;
+                }
+                setMessage(
+                    `JPEG normalization done. requested=${finalResult.requested || 0}, converted=${finalResult.converted || 0}, failed=${failed}.${sample}${invText}`,
+                    failed > 0
+                );
+                setImagesOpsStatus(`JPEG normalization completed. converted=${finalResult.converted || 0}, failed=${failed}.`, failed > 0);
+                await loadAdminImages();
+            } catch (e) {
+                setMessage(e.message, true);
+                setImagesOpsStatus(`JPEG normalization failed: ${String(e.message || e)}`, true);
+            } finally {
+                activeNormalizeJobId = '';
+                cancelNormalizeBtn.disabled = true;
+                normalizeImagesBtn.disabled = false;
+                normalizeImagesBtn.textContent = 'Normalize To JPEG';
+            }
+        });
+
+        cancelNormalizeBtn.addEventListener('click', async () => {
+            try {
+                if (!activeNormalizeJobId) {
+                    setMessage('No active normalization job to cancel.', true);
+                    return;
+                }
+                const yes = confirm('Cancel the running JPEG normalization job?');
+                if (!yes) return;
+                cancelNormalizeBtn.disabled = true;
+                const canceled = await api(`/api/admin/images/normalize-jpeg/jobs/${encodeURIComponent(activeNormalizeJobId)}/cancel`, 'POST', {});
+                const who = String(canceled.cancelRequestedBy || '');
+                const at = Number(canceled.canceledAt || 0);
+                const whoText = who ? ` by ${who}` : '';
+                const atText = at ? ` at ${fmtDate(at)}` : '';
+                setImagesOpsStatus('Cancel requested for normalization job. Waiting for worker to stop...', false);
+                setMessage(`Cancel requested${whoText}${atText}. Waiting for worker to stop...`, false);
+            } catch (e) {
+                cancelNormalizeBtn.disabled = false;
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('openSlideshowBtn').addEventListener('click', () => {
+            openSlideshow().catch((error) => {
+                setMessage(error.message || String(error), true);
+            });
+        });
+
+        imagesSortBy.addEventListener('change', () => {
+            loadAdminImages().catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        imagesSortOrder.addEventListener('change', () => {
+            loadAdminImages().catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        imagesSelectAll.addEventListener('change', () => {
+            const checks = Array.from(imagesBody.querySelectorAll('input[type="checkbox"][data-image-index]'));
+            for (const node of checks) {
+                node.checked = !!imagesSelectAll.checked;
+            }
+        });
+
+        document.getElementById('deleteSelectedImagesBtn').addEventListener('click', async () => {
+            try {
+                const selected = getSelectedAdminImagePaths();
+                if (!selected.length) {
+                    throw new Error('Select at least one image first.');
+                }
+                const yes = confirm(`Delete ${selected.length} image(s) from this project?`);
+                if (!yes) return;
+                const payload = {
+                    paths: selected,
+                    deleteLabels: !!imagesDeleteLabels.checked,
+                };
+                const result = await api('/api/admin/images/delete', 'POST', payload);
+                setMessage(`Deleted images=${result.deletedImageCount || 0}, file records=${result.deletedFileRecords || 0}.`);
+                await loadAdminImages();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('purgeModeLabelsBtn').addEventListener('click', async () => {
+            try {
+                const yes = confirm('Purge all /labels/BB and /labels/OBB .txt files from this project?');
+                if (!yes) return;
+                const result = await api('/api/admin/labels/purge-mode-files', 'POST', {});
+                setMessage(`Purged mode label files: ${result.purged || 0}`);
+                await refreshAll(true);
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('pickImageFilesBtn').addEventListener('click', () => {
+            pickImageFilesInput.click();
+        });
+
+        document.getElementById('closeSlideshowBtn').addEventListener('click', closeSlideshow);
+        slideshowModal.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            if (target.getAttribute('data-close-slideshow') === '1') {
+                closeSlideshow();
+            }
+        });
+
+        document.getElementById('slidePrevBtn').addEventListener('click', () => {
+            showSlideAt(slideshowState.index - 1).catch((error) => setMessage(error.message || String(error), true));
+        });
+        document.getElementById('slideNextBtn').addEventListener('click', () => {
+            showSlideAt(slideshowState.index + 1).catch((error) => setMessage(error.message || String(error), true));
+        });
+        document.getElementById('slideMarkCompletedBtn').addEventListener('click', () => {
+            const current = getCurrentSlideItem();
+            if (!current) return;
+            setImageStatusForPath(current.path, 'completed').catch((error) => setMessage(error.message || String(error), true));
+        });
+        document.getElementById('slideMarkInProgressBtn').addEventListener('click', () => {
+            const current = getCurrentSlideItem();
+            if (!current) return;
+            setImageStatusForPath(current.path, 'in_progress').catch((error) => setMessage(error.message || String(error), true));
+        });
+        document.getElementById('slideDeleteBtn').addEventListener('click', () => {
+            deleteCurrentSlideImage().catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        slideShowLabels.addEventListener('change', () => {
+            slideshowState.showLabels = !!slideShowLabels.checked;
+            refreshSlideOverlay().catch((error) => setMessage(error.message || String(error), true));
+        });
+        slideShuffle.addEventListener('change', () => {
+            slideshowState.shuffle = !!slideShuffle.checked;
+            if (!slideshowState.open) return;
+            const current = getCurrentSlideItem();
+            rebuildSlideshowItems(current ? current.path : '');
+            showSlideAt(slideshowState.index).catch((error) => setMessage(error.message || String(error), true));
+        });
+        slideAutoplay.addEventListener('change', () => {
+            slideshowState.autoplay = !!slideAutoplay.checked;
+            maybeStartSlideshowAutoplay();
+        });
+        slideInterval.addEventListener('change', () => {
+            slideshowState.intervalMs = Math.max(400, Number(slideInterval.value || 2200));
+            maybeStartSlideshowAutoplay();
+        });
+
+        window.addEventListener('keydown', (event) => {
+            if (!slideshowState.open) return;
+            const target = event.target;
+            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+                return;
+            }
+            const key = String(event.key || '').toLowerCase();
+
+            if (key === 'escape') {
+                closeSlideshow();
+                event.preventDefault();
+                return;
+            }
+            if (key === 'arrowright' || key === ' ' || key === 'n') {
+                showSlideAt(slideshowState.index + 1).catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'arrowleft' || key === 'p') {
+                showSlideAt(slideshowState.index - 1).catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'c') {
+                const current = getCurrentSlideItem();
+                if (!current) return;
+                setImageStatusForPath(current.path, 'completed').catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'v') {
+                const current = getCurrentSlideItem();
+                if (!current) return;
+                setImageStatusForPath(current.path, 'in_progress').catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'delete') {
+                deleteCurrentSlideImage().catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'l') {
+                slideShowLabels.checked = !slideShowLabels.checked;
+                slideshowState.showLabels = !!slideShowLabels.checked;
+                refreshSlideOverlay().catch((error) => setMessage(error.message || String(error), true));
+                event.preventDefault();
+                return;
+            }
+            if (key === 'a') {
+                slideAutoplay.checked = !slideAutoplay.checked;
+                slideshowState.autoplay = !!slideAutoplay.checked;
+                maybeStartSlideshowAutoplay();
+                event.preventDefault();
+            }
+        });
+
+        document.getElementById('pickImageFolderBtn').addEventListener('click', () => {
+            pickImageFolderInput.click();
+        });
+
+        document.getElementById('syncProjectFolderBtn').addEventListener('click', () => {
+            syncEntireLocalFolder().catch((error) => {
+                setMessage(`Sync preparation failed: ${String(error.message || error)}`, true);
+            });
+        });
+
+        document.getElementById('analyzeConflictsBtn').addEventListener('click', () => {
+            analyzeConflicts().catch((error) => {
+                setMessage(`Conflict analysis failed: ${String(error.message || error)}`, true);
+            });
+        });
+
+        pickImageFilesInput.addEventListener('change', () => {
+            const files = Array.from(pickImageFilesInput.files || []);
+            addFilesToQueue(files.map(file => ({ file, relativePath: file.name })));
+            pickImageFilesInput.value = '';
+        });
+
+        pickImageFolderInput.addEventListener('change', () => {
+            const files = Array.from(pickImageFolderInput.files || []);
+            addFilesToQueue(files.map(file => ({
+                file,
+                relativePath: file.webkitRelativePath || file.name,
+            })));
+            pickImageFolderInput.value = '';
+
+            if (autoSyncAfterFolderPick) {
+                autoSyncAfterFolderPick = false;
+                analyzeConflicts()
+                    .then(() => startUploadQueue())
+                    .catch((error) => {
+                        setMessage(`Sync failed: ${String(error.message || error)}`, true);
+                    });
+            }
+        });
+
+        document.getElementById('pickZipBtn').addEventListener('click', () => {
+            pickZipInput.click();
+        });
+
+        pickZipInput.addEventListener('change', () => {
+            selectedZipFile = (pickZipInput.files && pickZipInput.files[0]) ? pickZipInput.files[0] : null;
+            zipSelectedName.textContent = selectedZipFile ? selectedZipFile.name : 'No zip selected.';
+            pickZipInput.value = '';
+        });
+
+        document.getElementById('uploadZipBtn').addEventListener('click', () => {
+            uploadZipArchive().catch((error) => {
+                setMessage(`Zip upload failed: ${String(error.message || error)}`, true);
+            });
+        });
+
+        uploadDropZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            uploadDropZone.classList.add('active');
+        });
+
+        uploadDropZone.addEventListener('dragleave', () => {
+            uploadDropZone.classList.remove('active');
+        });
+
+        uploadDropZone.addEventListener('drop', (event) => {
+            handleDrop(event).catch((error) => {
+                setMessage(`Drop parsing failed: ${String(error.message || error)}`, true);
+            });
+        });
+
+        document.getElementById('uploadTargetPrefix').addEventListener('change', remapQueuePathsFromPrefix);
+        document.getElementById('startUploadBtn').addEventListener('click', () => {
+            startUploadQueue().catch((error) => {
+                setMessage(`Upload failed: ${String(error.message || error)}`, true);
+            });
+        });
+        document.getElementById('clearUploadQueueBtn').addEventListener('click', () => {
+            uploadQueue = [];
+            resetConflictReport();
+            renderUploadQueue();
+        });
+
+        async function init() {
+            setLoggedInState(false);
+            applyThemeMode();
+            applyCompactMode();
+            refreshUploadProjectBadge();
+            setDashboardPage(activeDashPage);
+            updateAuthPanelSignOutVisibility();
+            try {
+                const info = await api('/api/public/info');
+                requireProjectPassword = !!info.requireProjectPassword;
+                projectPasswordWrap.classList.toggle('hidden', !requireProjectPassword);
+                loginHint.textContent = requireProjectPassword
+                    ? 'Project password is required at login.'
+                    : 'Use your username/password, then load projects.';
+                bootstrapWrap.classList.toggle('hidden', !!info.hasProjects);
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+
+            if (currentUser) {
+                document.getElementById('username').value = currentUser;
+            }
+
+            if (token) {
+                setLoggedInState(true);
+                await refreshAll(true);
+                startTimer();
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            applyCompactMode();
+            if (slideshowState.open) {
+                refreshSlideOverlay().catch(() => { });
+            }
+        });
+
+        init();
+    </script>
 </body>
 
 </html>

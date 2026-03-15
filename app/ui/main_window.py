@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.canvas.annotation_canvas import AnnotationCanvas
-from app.commands import (
+from app.commands.label_commands import (
     AddLabelCommand,
     AddLabelsCommand,
     DeleteLabelsCommand,
@@ -62,40 +62,6 @@ from app.ui.dialogs.cloud_sync_dialog import (
     CloudLoginDialog,
 )
 from app.ui.dialogs.cloud_upload_dialog import CloudUploadDialog
-from app.ui.image_sorting import image_sort_label, sorted_image_paths
-from app.ui.completion_state import (
-    completion_status_label,
-    ensure_selected_images,
-    selection_completion_hint,
-    toggle_completion_target,
-)
-from app.ui.completion_action_state import completion_actions_state
-from app.ui.completion_effects import should_auto_mark_in_progress, should_persist_completion_locally
-from app.ui.completion_apply import apply_completion_status_to_images
-from app.ui.split_visibility import visible_split_images
-from app.ui.dataset_navigation import (
-    apply_dataset_class_names,
-    load_dataset_yaml_safe,
-    split_images_for_key,
-    update_project_dataset_metadata,
-)
-from app.ui.model_ui_state import model_indicator_state
-from app.ui.inference_flow import build_inference_request, labels_added_hint, validate_inference_run
-from app.ui.inference_messages import build_missing_inference_message
-from app.ui.run_all_filter import filter_images_for_run_all
-from app.ui.sync_indicator_helpers import connected_cloud_mode_state, connected_sync_primary_text, disconnected_sync_state
-from app.ui.sync_status_merge import merge_sync_status_with_provider
-from app.ui.cloud_menu_state import cloud_menu_status_text
-from app.ui.inference_result_apply import apply_inference_labels
-from app.ui.cloud_sync_config_builder import build_cloud_sync_config
-from app.ui.status_values import (
-    VALID_COMPLETION_STATUSES,
-    is_cloud_only_mode,
-    is_hybrid_image_mode,
-    is_remote_image_mode,
-    normalize_completion_status,
-    normalize_image_access_mode,
-)
 from app.inference.yolo_predictor import (
     YoloPredictor,
     labels_from_result,
@@ -632,9 +598,9 @@ class MainWindow(QMainWindow):
         toolbar.setVisible(True)
 
         connected = self._is_cloud_connected()
-        mode = normalize_image_access_mode(self._cloud_image_access_mode)
+        mode = str(self._cloud_image_access_mode or "local")
         cloud_configured = self._is_cloud_project_workflow_enabled()
-        is_cloud_ui = cloud_configured or (connected and is_remote_image_mode(mode))
+        is_cloud_ui = cloud_configured or (connected and mode in {"cloud_only", "hybrid"})
         signature = f"{is_cloud_ui}:{mode}:{connected}:{cloud_configured}"
         if not force and signature == self._nav_signature:
             return
@@ -759,8 +725,8 @@ class MainWindow(QMainWindow):
 
     def _show_toolbar_icon_legend(self) -> None:
         connected = self._is_cloud_connected()
-        mode = normalize_image_access_mode(self._cloud_image_access_mode)
-        cloud_mode = self._is_cloud_project_workflow_enabled() or (connected and is_remote_image_mode(mode))
+        mode = str(self._cloud_image_access_mode or "local")
+        cloud_mode = self._is_cloud_project_workflow_enabled() or (connected and mode in {"cloud_only", "hybrid"})
         cloud_label = "Cloud" if cloud_mode else "Local"
 
         text = (
@@ -1181,7 +1147,7 @@ class MainWindow(QMainWindow):
 
         # Hybrid mode should always open local image files when they exist.
         # This prevents CloudFront/S3 fetch attempts for legacy local-only images.
-        if is_hybrid_image_mode(self._cloud_image_access_mode):
+        if self._cloud_image_access_mode == "hybrid":
             try:
                 if virtual_path.exists() and virtual_path.is_file():
                     return virtual_path
@@ -1206,7 +1172,7 @@ class MainWindow(QMainWindow):
             local_path = provider.resolve_for_open(virtual_path, progress_callback=on_progress)
             return local_path
         except Exception:
-            if is_hybrid_image_mode(self._cloud_image_access_mode):
+            if self._cloud_image_access_mode == "hybrid":
                 try:
                     if virtual_path.exists() and virtual_path.is_file():
                         return virtual_path
@@ -1453,8 +1419,8 @@ class MainWindow(QMainWindow):
         for image_name, status in project.image_completion.items():
             if image_name not in known_names:
                 continue
-            normalized_status = normalize_completion_status(status)
-            if normalized_status in VALID_COMPLETION_STATUSES:
+            normalized_status = str(status).strip().lower()
+            if normalized_status in {"in_progress", "completed", "yolo", "to_rotate"}:
                 normalized[image_name] = normalized_status
 
         if normalized != project.image_completion:
@@ -1462,7 +1428,15 @@ class MainWindow(QMainWindow):
 
     def _image_sort_label(self, mode: str | None = None) -> str:
         selected = str(mode or self._image_sort_mode or "name_asc")
-        return image_sort_label(selected)
+        labels = {
+            "name_asc": "Name A-Z",
+            "name_desc": "Name Z-A",
+            "size_asc": "Size Small-Large",
+            "size_desc": "Size Large-Small",
+            "mtime_desc": "Newest First",
+            "mtime_asc": "Oldest First",
+        }
+        return labels.get(selected, "Name A-Z")
 
     def _sorted_image_paths(
         self,
@@ -1470,12 +1444,47 @@ class MainWindow(QMainWindow):
         *,
         cloud_meta: dict[str, tuple[int, int]] | None = None,
     ) -> list[Path]:
-        return sorted_image_paths(
-            images,
-            mode=str(self._image_sort_mode or "name_asc"),
-            project_relative_path_for_sync=self._project_relative_path_for_sync,
-            cloud_meta=cloud_meta,
-        )
+        mode = str(self._image_sort_mode or "name_asc")
+        lowered_name = lambda p: p.name.lower()  # noqa: E731
+
+        if mode in {"name_asc", "name_desc"}:
+            return sorted(images, key=lowered_name, reverse=(mode == "name_desc"))
+
+        meta = cloud_meta or {}
+
+        def size_for(path: Path) -> int:
+            rel = self._project_relative_path_for_sync(path)
+            if rel and rel in meta:
+                return int(meta[rel][0])
+            try:
+                return int(path.stat().st_size)
+            except OSError:
+                return -1
+
+        def mtime_for(path: Path) -> int:
+            rel = self._project_relative_path_for_sync(path)
+            if rel and rel in meta:
+                return int(meta[rel][1])
+            try:
+                return int(path.stat().st_mtime * 1000)
+            except OSError:
+                return 0
+
+        if mode in {"size_asc", "size_desc"}:
+            return sorted(
+                images,
+                key=lambda p: (size_for(p), lowered_name(p)),
+                reverse=(mode == "size_desc"),
+            )
+
+        if mode in {"mtime_asc", "mtime_desc"}:
+            return sorted(
+                images,
+                key=lambda p: (mtime_for(p), lowered_name(p)),
+                reverse=(mode == "mtime_desc"),
+            )
+
+        return sorted(images, key=lowered_name)
 
     def _set_image_sort_mode(self, mode: str) -> None:
         valid = {"name_asc", "name_desc", "size_asc", "size_desc", "mtime_asc", "mtime_desc"}
@@ -1566,8 +1575,8 @@ class MainWindow(QMainWindow):
             )
             return
 
-        mode = normalize_image_access_mode(self._cloud_image_access_mode)
-        if is_cloud_only_mode(mode):
+        mode = str(self._cloud_image_access_mode or "local")
+        if mode == "cloud_only":
             provider = self._cloud_image_provider
             if provider is None:
                 QMessageBox.information(self, "Cloud Images", "Cloud image provider is not active.")
@@ -1650,7 +1659,7 @@ class MainWindow(QMainWindow):
                     f"Local delete completed, but cloud delete sync failed:\n{exc}",
                 )
 
-        if is_cloud_only_mode(self._cloud_image_access_mode):
+        if self._cloud_image_access_mode == "cloud_only":
             self._manual_refresh_cloud_images()
         else:
             self._refresh_local_dataset_image_list(silent=False)
@@ -1705,7 +1714,7 @@ class MainWindow(QMainWindow):
             return
 
         self._last_seen_remote_seq = latest_seq
-        if is_cloud_only_mode(mode):
+        if mode == "cloud_only":
             provider = self._cloud_image_provider
             if provider is None:
                 return
@@ -1716,16 +1725,16 @@ class MainWindow(QMainWindow):
                 self._lbl_hint.setText(f"Cloud manifest refresh failed: {exc}")
             return
 
-        if not is_cloud_only_mode(mode):
+        if mode in {"hybrid", "local"}:
             self._refresh_local_dataset_image_list(silent=True)
 
     def _is_strict_cloud_remote_mode(self) -> bool:
-        return bool(self._sync_agent is not None and is_cloud_only_mode(self._cloud_image_access_mode))
+        return bool(self._sync_agent is not None and self._cloud_image_access_mode == "cloud_only")
 
     def _should_push_status_to_cloud(self) -> bool:
         return bool(
             self._sync_agent is not None
-            and is_remote_image_mode(self._cloud_image_access_mode)
+            and self._cloud_image_access_mode in {"cloud_only", "hybrid"}
         )
 
     def _pull_remote_completion_from_cloud(self, *, force: bool = False) -> None:
@@ -1759,8 +1768,8 @@ class MainWindow(QMainWindow):
         if isinstance(raw, dict):
             for key, value in raw.items():
                 image_name = str(key or "").strip()
-                value_norm = normalize_completion_status(value)
-                if not image_name or value_norm not in VALID_COMPLETION_STATUSES:
+                value_norm = str(value or "").strip().lower()
+                if not image_name or value_norm not in {"in_progress", "completed", "yolo", "to_rotate"}:
                     continue
                 if known_image_names and image_name not in known_image_names:
                     ignored_orphan_statuses += 1
@@ -1775,7 +1784,7 @@ class MainWindow(QMainWindow):
             )
 
     def _refresh_remote_completion_if_needed(self, status: dict[str, object], mode: str) -> None:
-        if not is_remote_image_mode(mode):
+        if mode not in {"cloud_only", "hybrid"}:
             return
         if self._label_mgr.is_dirty:
             return
@@ -1846,10 +1855,10 @@ class MainWindow(QMainWindow):
         statuses_to_sync: dict[str, str] = {}
         for image_name, status in (project.image_completion or {}).items():
             name = str(image_name or "").strip()
-            state = normalize_completion_status(status)
+            state = str(status or "").strip().lower()
             if not name or name not in valid_names:
                 continue
-            if state not in VALID_COMPLETION_STATUSES:
+            if state not in {"in_progress", "completed", "yolo", "to_rotate"}:
                 continue
             statuses_to_sync[name] = state
 
@@ -2586,7 +2595,19 @@ class MainWindow(QMainWindow):
                 self._refresh_sync_indicator()
                 return
 
-        config = build_cloud_sync_config(self._cloud_sync_settings)
+        config = CloudSyncConfig(
+            enabled=bool(self._cloud_sync_settings.get("enabled", False)),
+            server_url=str(self._cloud_sync_settings.get("server_url", "")),
+            project_id=str(self._cloud_sync_settings.get("project_id", "")),
+            project_password=str(self._cloud_sync_settings.get("project_password", "")),
+            username=str(self._cloud_sync_settings.get("username", "")),
+            user_password=str(self._cloud_sync_settings.get("user_password", "")),
+            poll_seconds=float(self._cloud_sync_settings.get("poll_seconds", 1.2) or 1.2),
+            image_cache_dir=str(self._cloud_sync_settings.get("image_cache_dir", "")),
+            image_cache_max_mb=int(self._cloud_sync_settings.get("image_cache_max_mb", 2048) or 2048),
+            image_cache_ttl_hours=int(self._cloud_sync_settings.get("image_cache_ttl_hours", 24) or 24),
+            image_prefetch_count=int(self._cloud_sync_settings.get("image_prefetch_count", 8) or 8),
+        )
         if not config.is_valid():
             self._sync_status_cache = {
                 "connected": False,
@@ -2604,10 +2625,10 @@ class MainWindow(QMainWindow):
             agent.start()
             self._sync_agent = agent
             summary = agent.get_project_summary()
-            self._cloud_image_access_mode = normalize_image_access_mode(summary.get("imageAccessMode"))
+            self._cloud_image_access_mode = str(summary.get("imageAccessMode") or "local")
             self._setup_cloud_image_provider(project_folder, config)
             self._update_sync_active_file_lock()
-            if is_remote_image_mode(self._cloud_image_access_mode):
+            if self._cloud_image_access_mode in {"cloud_only", "hybrid"}:
                 self._pull_remote_completion_from_cloud(force=True)
             self._lbl_hint.setText("Cloud sync started")
         except Exception as exc:  # noqa: BLE001
@@ -2627,7 +2648,7 @@ class MainWindow(QMainWindow):
         self._last_seen_status_seq = -1
         if self._cloud_image_provider is not None:
             try:
-                if is_cloud_only_mode(self._cloud_image_access_mode):
+                if self._cloud_image_access_mode == "cloud_only":
                     self._cloud_image_provider.clear_cache()
                 self._cloud_image_provider.stop()
             except Exception:
@@ -2651,7 +2672,7 @@ class MainWindow(QMainWindow):
         self._cloud_image_provider = None
 
         # If sync is not attached yet (or was just torn down), stay on local provider.
-        if not is_remote_image_mode(self._cloud_image_access_mode) or self._sync_agent is None:
+        if self._cloud_image_access_mode == "local" or self._sync_agent is None:
             self._image_provider = LocalFilesystemImageProvider()
             return
 
@@ -2684,7 +2705,7 @@ class MainWindow(QMainWindow):
             cache_max_mb=int(config.image_cache_max_mb),
             cache_ttl_hours=int(config.image_cache_ttl_hours),
         )
-        if is_cloud_only_mode(self._cloud_image_access_mode):
+        if self._cloud_image_access_mode == "cloud_only":
             # Strict cloud-only mode: do not keep old local image cache across runs.
             try:
                 provider.clear_cache()
@@ -2701,61 +2722,83 @@ class MainWindow(QMainWindow):
 
         self._cloud_image_provider = provider
         self._image_provider = provider
-        if is_cloud_only_mode(self._cloud_image_access_mode):
+        if self._cloud_image_access_mode == "cloud_only":
             self._load_cloud_manifest_images()
 
     def _on_sync_status_update(self, status: dict[str, object]) -> None:
-        self._sync_status_cache = merge_sync_status_with_provider(status, self._image_provider)
+        merged = dict(status)
+        provider = self._image_provider
+        if provider is not None:
+            merged["imageCache"] = provider.cache_stats()
+            merged["imageTelemetry"] = provider.telemetry()
+        self._sync_status_cache = merged
 
     def _refresh_sync_indicator(self) -> None:
         status = self._sync_status_cache or {}
         connected = bool(status.get("connected", False))
         if not connected:
             error = str(status.get("lastError", "")).strip()
-            disconnected = disconnected_sync_state(
-                error=error,
-                cloud_workflow_enabled=self._is_cloud_project_workflow_enabled(),
-            )
-            self._lbl_sync.setText(disconnected["sync_text"])
-            self._lbl_sync.setStyleSheet(disconnected["sync_style"])
-            self._lbl_cloud_mode.setText(disconnected["cloud_mode_text"])
-            self._lbl_cloud_mode.setStyleSheet(disconnected["cloud_mode_style"])
+            self._lbl_sync.setText("SYNC: setup required" if not error else "SYNC: error")
+            self._lbl_sync.setStyleSheet("padding: 0 8px; color: #de7f7f;")
+            self._lbl_cloud_mode.setText("IMAGES: local")
+            self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #7b9db8;")
             if self._lbl_login is not None:
-                self._lbl_login.setText(disconnected["login_text"])
-                self._lbl_login.setStyleSheet(disconnected["login_style"])
+                if self._is_cloud_project_workflow_enabled():
+                    self._lbl_login.setText("LOGIN: required" if not error else "LOGIN: failed")
+                    self._lbl_login.setStyleSheet("padding: 0 8px; color: #de7f7f; font-weight: bold;")
+                else:
+                    self._lbl_login.setText("LOGIN: local")
+                    self._lbl_login.setStyleSheet("padding: 0 8px; color: #8fa6b8;")
             self._refresh_cloud_menu_state(connected=False, error=error)
             self._refresh_navigation_toolbar()
             return
 
         users = int(status.get("onlineUsers", 0) or 0)
+        active = str(status.get("activeFile", "")).strip()
+        suffix = f" [{Path(active).name}]" if active else ""
         pending_status_sync = int(status.get("pendingStatusSync", 0) or 0)
         status_syncing = bool(status.get("statusSyncing", False))
-        sync_text, sync_style = connected_sync_primary_text(
-            users=users,
-            active_file=str(status.get("activeFile", "")),
-            pending_status_sync=pending_status_sync,
-            status_syncing=status_syncing,
-        )
-        self._lbl_sync.setText(sync_text)
-        self._lbl_sync.setStyleSheet(sync_style)
+        if status_syncing or pending_status_sync > 0:
+            self._lbl_sync.setText(
+                f"SYNC: syncing statuses ({pending_status_sync} pending){suffix}",
+            )
+            self._lbl_sync.setStyleSheet("padding: 0 8px; color: #74a2d4;")
+        else:
+            self._lbl_sync.setText(f"SYNC: live ({users} online){suffix}")
+            self._lbl_sync.setStyleSheet("padding: 0 8px; color: #86cc9f;")
         if self._lbl_login is not None:
             username = str(status.get("username", "") or self._cloud_sync_settings.get("username", "")).strip()
             self._lbl_login.setText(f"LOGIN: {username}" if username else "LOGIN: signed in")
             self._lbl_login.setStyleSheet("padding: 0 8px; color: #86cc9f; font-weight: bold;")
-        mode = normalize_image_access_mode(status.get("imageAccessMode") or self._cloud_image_access_mode)
+        mode = str(status.get("imageAccessMode") or self._cloud_image_access_mode or "local")
         previous_mode = self._cloud_image_access_mode
         self._cloud_image_access_mode = mode
         if previous_mode != mode:
             project_folder = self._project_mgr.get_project_folder()
             if project_folder is not None and self._sync_agent is not None:
-                config = build_cloud_sync_config(self._cloud_sync_settings)
+                config = CloudSyncConfig(
+                    enabled=bool(self._cloud_sync_settings.get("enabled", False)),
+                    server_url=str(self._cloud_sync_settings.get("server_url", "")),
+                    project_id=str(self._cloud_sync_settings.get("project_id", "")),
+                    project_password=str(self._cloud_sync_settings.get("project_password", "")),
+                    username=str(self._cloud_sync_settings.get("username", "")),
+                    user_password=str(self._cloud_sync_settings.get("user_password", "")),
+                    poll_seconds=float(self._cloud_sync_settings.get("poll_seconds", 1.2) or 1.2),
+                    image_cache_dir=str(self._cloud_sync_settings.get("image_cache_dir", "")),
+                    image_cache_max_mb=int(self._cloud_sync_settings.get("image_cache_max_mb", 2048) or 2048),
+                    image_cache_ttl_hours=int(self._cloud_sync_settings.get("image_cache_ttl_hours", 24) or 24),
+                    image_prefetch_count=int(self._cloud_sync_settings.get("image_prefetch_count", 8) or 8),
+                )
                 self._setup_cloud_image_provider(project_folder, config)
-        cloud_text, cloud_style = connected_cloud_mode_state(
-            cloud_only=is_cloud_only_mode(mode),
-            hybrid=is_hybrid_image_mode(mode),
-        )
-        self._lbl_cloud_mode.setText(cloud_text)
-        self._lbl_cloud_mode.setStyleSheet(cloud_style)
+        if mode == "cloud_only":
+            self._lbl_cloud_mode.setText("IMAGES: Cloud-Only")
+            self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #63b38f;")
+        elif mode == "hybrid":
+            self._lbl_cloud_mode.setText("IMAGES: Hybrid")
+            self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #74a2d4;")
+        else:
+            self._lbl_cloud_mode.setText("IMAGES: local")
+            self._lbl_cloud_mode.setStyleSheet("padding: 0 8px; color: #7b9db8;")
 
         self._refresh_remote_images_if_needed(status, mode)
         self._refresh_remote_completion_if_needed(status, mode)
@@ -2776,14 +2819,19 @@ class MainWindow(QMainWindow):
         self._cloud_menu.setTitle("&Cloud")
 
         enabled = self._is_cloud_sync_enabled()
-        icon_kind, status_text = cloud_menu_status_text(connected=connected, enabled=enabled, error=error)
-        icon_map = {
-            "apply": QStyle.StandardPixmap.SP_DialogApplyButton,
-            "warning": QStyle.StandardPixmap.SP_MessageBoxWarning,
-            "reload": QStyle.StandardPixmap.SP_BrowserReload,
-            "cancel": QStyle.StandardPixmap.SP_DialogCancelButton,
-        }
-        icon = self.style().standardIcon(icon_map.get(icon_kind, QStyle.StandardPixmap.SP_DialogCancelButton))
+        if connected:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+            status_text = "Status: connected"
+        elif enabled and error:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
+            compact_error = error if len(error) <= 60 else (error[:57] + "...")
+            status_text = f"Status: error - open settings ({compact_error})"
+        elif enabled:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+            status_text = "Status: connecting"
+        else:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
+            status_text = "Status: disabled (configure in Cloud Sync Settings)"
 
         self._act_cloud_status.setIcon(icon)
         self._act_cloud_status.setText(status_text)
@@ -3003,7 +3051,7 @@ class MainWindow(QMainWindow):
                 current_status = project.get_image_completion(current_img.name)
                 if not current_status:
                     project.set_image_completion(current_img.name, "in_progress")
-                    if not is_cloud_only_mode(self._cloud_image_access_mode):
+                    if self._cloud_image_access_mode != "cloud_only":
                         self._project_mgr.persist_image_completion(
                             current_img.name,
                             "in_progress",
@@ -3050,23 +3098,26 @@ class MainWindow(QMainWindow):
         if not project or img is None:
             return
 
-        persist_fn = None
-        if should_persist_completion_locally(self._cloud_image_access_mode):
-            persist_fn = lambda p, s: self._project_mgr.persist_image_completion(p.name, s, p)
-        push_fn = None
-        if self._should_push_status_to_cloud() and self._sync_agent is not None:
-            push_fn = self._sync_agent.set_image_status
-        apply_completion_status_to_images(
-            [img],
-            status=status,
-            set_project_completion=project.set_image_completion,
-            persist_local_completion=persist_fn,
-            push_cloud_completion=push_fn,
-        )
+        project.set_image_completion(img.name, status)
+        if self._cloud_image_access_mode != "cloud_only":
+            self._project_mgr.persist_image_completion(img.name, status, img)
+        if self._should_push_status_to_cloud():
+            agent = self._sync_agent
+            if agent is not None:
+                try:
+                    agent.set_image_status(img.name, status)
+                except Exception as exc:  # noqa: BLE001
+                    self._lbl_hint.setText(f"Cloud status update failed: {exc}")
         self._project_mgr.save_user_state()
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()
-        label = completion_status_label(status)
+        status_labels = {
+            "in_progress": "In Progress",
+            "completed": "Completed",
+            "yolo": "YOLO",
+            "to_rotate": "To Rotate",
+        }
+        label = status_labels.get(status, status)
         self._lbl_hint.setText(f"{img.name}: {label}")
 
     def _set_selected_images_completion(self, status: str) -> None:
@@ -3074,24 +3125,25 @@ class MainWindow(QMainWindow):
         if not project:
             return
 
-        selected = ensure_selected_images(self._browser.selected_images(), self._image_mgr.current_image)
+        selected = self._browser.selected_images()
         if not selected:
-            return
+            img = self._image_mgr.current_image
+            if img is None:
+                return
+            selected = [img]
 
         selected_names = {p.name for p in selected}
-        persist_fn = None
-        if should_persist_completion_locally(self._cloud_image_access_mode):
-            persist_fn = lambda p, s: self._project_mgr.persist_image_completion(p.name, s, p)
-        push_fn = None
-        if self._should_push_status_to_cloud() and self._sync_agent is not None:
-            push_fn = self._sync_agent.set_image_status
-        apply_completion_status_to_images(
-            selected,
-            status=status,
-            set_project_completion=project.set_image_completion,
-            persist_local_completion=persist_fn,
-            push_cloud_completion=push_fn,
-        )
+        for img_path in selected:
+            project.set_image_completion(img_path.name, status)
+            if self._cloud_image_access_mode != "cloud_only":
+                self._project_mgr.persist_image_completion(img_path.name, status, img_path)
+            if self._should_push_status_to_cloud():
+                agent = self._sync_agent
+                if agent is not None:
+                    try:
+                        agent.set_image_status(img_path.name, status)
+                    except Exception as exc:  # noqa: BLE001
+                        self._lbl_hint.setText(f"Cloud status update failed: {exc}")
 
         self._project_mgr.save_user_state()
 
@@ -3100,14 +3152,25 @@ class MainWindow(QMainWindow):
                 self._browser.refresh_item(idx)
 
         self._update_completion_action()
-        self._lbl_hint.setText(selection_completion_hint(selected, status))
+        status_labels = {
+            "in_progress": "In Progress",
+            "completed": "Completed",
+            "yolo": "YOLO",
+            "to_rotate": "To Rotate",
+        }
+        label = status_labels.get(status, status)
+        n = len(selected)
+        if n == 1:
+            self._lbl_hint.setText(f"{selected[0].name}: {label}")
+        else:
+            self._lbl_hint.setText(f"{n} images set as {label}")
 
     def _toggle_current_image_completion(self) -> None:
         img = self._image_mgr.current_image
         if img is None:
             return
         current = self._get_image_completion_status(img)
-        target = toggle_completion_target(current)
+        target = "in_progress" if current == "completed" else "completed"
         self._set_current_image_completion(target)
 
     def _update_completion_action(self) -> None:
@@ -3119,18 +3182,33 @@ class MainWindow(QMainWindow):
             return
 
         img = self._image_mgr.current_image
-        current = self._get_image_completion_status(img) if img is not None else ""
-        action_state = completion_actions_state(has_image=(img is not None), current_status=current)
+        if img is None:
+            if has_completed_action:
+                self._act_set_completed.setEnabled(False)
+            if has_in_progress_action:
+                self._act_set_in_progress.setEnabled(False)
+            if has_yolo_action:
+                self._act_set_yolo.setEnabled(False)
+            if has_toggle_action:
+                self._act_toggle_completion.setEnabled(False)
+                self._act_toggle_completion.setText("Mark Current Image &Completed")
+            return
+
+        current = self._get_image_completion_status(img)
 
         if has_completed_action:
-            self._act_set_completed.setEnabled(bool(action_state["set_completed_enabled"]))
+            self._act_set_completed.setEnabled(current != "completed")
         if has_in_progress_action:
-            self._act_set_in_progress.setEnabled(bool(action_state["set_in_progress_enabled"]))
+            self._act_set_in_progress.setEnabled(current != "in_progress")
         if has_yolo_action:
-            self._act_set_yolo.setEnabled(bool(action_state["set_yolo_enabled"]))
+            self._act_set_yolo.setEnabled(current != "yolo")
+
         if has_toggle_action:
-            self._act_toggle_completion.setEnabled(bool(action_state["toggle_enabled"]))
-            self._act_toggle_completion.setText(str(action_state["toggle_text"]))
+            self._act_toggle_completion.setEnabled(True)
+            if current == "completed":
+                self._act_toggle_completion.setText("Mark Current Image &In Progress")
+            else:
+                self._act_toggle_completion.setText("Mark Current Image &Completed")
 
     def _auto_mark_current_image_in_progress(self) -> None:
         """Default completion state when first labels appear on an image."""
@@ -3138,23 +3216,23 @@ class MainWindow(QMainWindow):
         img = self._image_mgr.current_image
         if not project or img is None:
             return
-        current = project.get_image_completion(img.name)
-        if not should_auto_mark_in_progress(has_labels=bool(self._label_mgr.labels), current_status=current):
+        if not self._label_mgr.labels:
             return
 
-        persist_fn = None
-        if should_persist_completion_locally(self._cloud_image_access_mode):
-            persist_fn = lambda p, s: self._project_mgr.persist_image_completion(p.name, s, p)
-        push_fn = None
-        if self._should_push_status_to_cloud() and self._sync_agent is not None:
-            push_fn = self._sync_agent.set_image_status
-        apply_completion_status_to_images(
-            [img],
-            status="in_progress",
-            set_project_completion=project.set_image_completion,
-            persist_local_completion=persist_fn,
-            push_cloud_completion=push_fn,
-        )
+        current = project.get_image_completion(img.name)
+        if current:
+            return
+
+        project.set_image_completion(img.name, "in_progress")
+        if self._cloud_image_access_mode != "cloud_only":
+            self._project_mgr.persist_image_completion(img.name, "in_progress", img)
+        if self._should_push_status_to_cloud():
+            agent = self._sync_agent
+            if agent is not None:
+                try:
+                    agent.set_image_status(img.name, "in_progress")
+                except Exception:
+                    pass
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()
 
@@ -3210,20 +3288,20 @@ class MainWindow(QMainWindow):
     def _load_dataset_yaml(self, yaml_path: Path) -> None:
         if not self._maybe_save_before_leaving():
             return
-        load_error = load_dataset_yaml_safe(self._dataset, yaml_path)
-        if load_error is not None:
-            QMessageBox.critical(self, "Error", f"Failed to load YAML:\n{load_error}")
+        try:
+            self._dataset.load_from_yaml(yaml_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to load YAML:\n{exc}")
             return
-        apply_dataset_class_names(
-            list(self._dataset.class_names),
-            set_class_panel=self._class_panel.set_classes,
-            set_canvas_names=self._canvas.set_class_names,
-            set_label_list_names=self._label_list.set_class_names,
-        )
+        self._class_panel.set_classes(self._dataset.class_names)
+        self._canvas.set_class_names(self._dataset.class_names)
+        self._label_list.set_class_names(self._dataset.class_names)
 
         # Update project if one is open
         project = self._project_mgr.current_project
-        if update_project_dataset_metadata(project, yaml_path, list(self._dataset.class_names)):
+        if project:
+            project.yaml_path = str(yaml_path)
+            project.class_names = list(self._dataset.class_names)
             self._schedule_project_autosave()
 
         self._load_split_images("train")
@@ -3234,21 +3312,20 @@ class MainWindow(QMainWindow):
         self._load_split_images(split)
 
     def _load_split_images(self, split: str) -> None:
-        images = split_images_for_key(split, self._dataset.train_images, self._dataset.val_images)
+        images = self._dataset.train_images if split == "train" else self._dataset.val_images
         self._all_images = list(images)
 
         self._normalize_project_completion_states()
 
         # Apply team filter if active
         project = self._project_mgr.current_project
-        filtered = visible_split_images(
-            self._all_images,
-            active_team_member=(project.active_team_member if project else ""),
-            is_distributed=(project.is_distributed() if project else False),
-            get_member_images=(project.get_member_images if project else None),
-        )
-        self._image_mgr.load_split(filtered, split)
-        self._browser.set_images(filtered)
+        if project and project.active_team_member and project.is_distributed():
+            filtered = project.get_member_images(project.active_team_member, self._all_images)
+            self._image_mgr.load_split(filtered, split)
+            self._browser.set_images(filtered)
+        else:
+            self._image_mgr.load_split(images, split)
+            self._browser.set_images(images)
 
         self._update_window_title()
         self._load_current_image()
@@ -3306,45 +3383,41 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_act_load_model"):
             return
 
-        text, tooltip = model_indicator_state(self._model_path, list(self._model_class_filter or []))
-        self._act_load_model.setText(text)
-        self._act_load_model.setToolTip(tooltip)
+        if self._model_path:
+            model_name = Path(self._model_path).name
+            self._act_load_model.setText("✓ &Load Model…")
+            if self._model_class_filter:
+                classes = ", ".join(str(v) for v in self._model_class_filter)
+                self._act_load_model.setToolTip(f"Loaded: {model_name} | Classes: {classes}")
+            else:
+                self._act_load_model.setToolTip(f"Loaded: {model_name} | Classes: all")
+        else:
+            self._act_load_model.setText("&Load Model…")
+            self._act_load_model.setToolTip("No model loaded")
 
     def _run_on_current(self) -> None:
         inference_ok, inference_error = is_inference_available()
+        if not inference_ok:
+            self._show_inference_missing_message(inference_error)
+            return
+        if not self._model_path:
+            QMessageBox.warning(self, "No model", "Load a model first via Model > Load Model…")
+            return
         img = self._image_mgr.current_image
-        can_run, reason = validate_inference_run(
-            inference_ok=inference_ok,
-            inference_error=inference_error,
-            model_path=self._model_path,
-            current_image=img,
-        )
-        if not can_run:
-            if reason == "model-missing":
-                QMessageBox.warning(self, "No model", "Load a model first via Model > Load Model...")
-                return
-            if reason == "image-missing":
-                return
-            self._show_inference_missing_message(reason)
+        if img is None:
             return
 
         self._lbl_hint.setText("Running model…")
         QApplication.processEvents()
-        request = build_inference_request(
+
+        self._predictor.predict_async(
             model_path=self._model_path,
             image_path=img,
             conf=self._model_conf,
-            class_filter=list(self._model_class_filter or []),
-            use_obb=self._use_obb,
-        )
-        self._predictor.predict_async(
-            model_path=request["model_path"],
-            image_path=request["image_path"],
-            conf=request["conf"],
-            class_filter=request["class_filter"],
+            class_filter=(self._model_class_filter or None),
             on_done=self._on_inference_done,
             on_error=self._on_inference_error,
-            use_obb=request["use_obb"],
+            use_obb=self._use_obb,
         )
 
     def _on_inference_done(self, labels) -> None:
@@ -3352,17 +3425,15 @@ class MainWindow(QMainWindow):
             self._lbl_hint.setText("Model added 0 label(s).")
             return
 
-        added_count = apply_inference_labels(
-            labels,
-            add_label_to_manager=self._label_mgr.add_label,
-            add_label_to_canvas=self._canvas.add_label_item,
-        )
+        for label in labels:
+            self._label_mgr.add_label(label)
+            self._canvas.add_label_item(label)
 
         cmd = AddLabelsCommand(
             labels=labels,
             canvas=self._canvas,
             label_mgr=self._label_mgr,
-            action_label=f"Add {added_count} labels (model)",
+            action_label=f"Add {len(labels)} labels (model)",
         )
         self._undo_stack.push(cmd)
 
@@ -3370,19 +3441,33 @@ class MainWindow(QMainWindow):
         self._refresh_label_list()
         self._update_dirty_indicator()
         self._autosave_timer.start()
-        self._lbl_hint.setText(labels_added_hint(added_count))
+        self._lbl_hint.setText(f"Model added {len(labels)} label(s).")
 
     def _on_inference_error(self, msg: str) -> None:
         self._lbl_hint.setText("Model error.")
         QMessageBox.critical(self, "Inference error", msg)
 
     def _show_inference_missing_message(self, inference_error: str = "") -> None:
-        title, text = build_missing_inference_message(
-            inference_error=inference_error,
-            sys_executable=sys.executable,
-            diag_log_path=str(get_inference_diag_log_path()),
+        details = f"\n\nDetail: {inference_error}" if inference_error else ""
+        runtime = f"\n\nInterpreteur actuel:\n    {sys.executable}"
+        diag_log = f"\n\nLog diagnostic:\n    {get_inference_diag_log_path()}"
+        win1114_help = ""
+        if "WinError 1114" in inference_error:
+            win1114_help = (
+                "\n\nCorrection WinError 1114 (DLL):\n"
+                "1) Redemarrez VS Code puis relancez l'application avec l'interpreteur du projet (.venv).\n"
+                "2) Si besoin, reinstallez torch CPU dans cet environnement:\n"
+                "    python -m pip install --upgrade --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cpu\n"
+                "3) Installez/reparez Microsoft Visual C++ Redistributable 2015-2022 (x64), puis redemarrez Windows."
+            )
+        QMessageBox.warning(
+            self,
+            "ultralytics indisponible",
+            "Le module d'inference 'ultralytics' n'est pas disponible dans l'environnement Python actuel.\n\n"
+            "Installez-le dans CE MEME environnement avec:\n"
+            "    python -m pip install -r requirements-inference.txt"
+            f"{runtime}{diag_log}{details}{win1114_help}",
         )
-        QMessageBox.warning(self, title, text)
 
     def _run_on_all(self) -> None:
         inference_ok, inference_error = is_inference_available()
@@ -3401,10 +3486,17 @@ class MainWindow(QMainWindow):
         skipped_completed = 0
         skipped_yolo = 0
         if project:
-            images, skipped_completed, skipped_yolo = filter_images_for_run_all(
-                list(all_images),
-                lambda image_path: str(project.get_image_completion(image_path.name) or ""),
-            )
+            filtered: list[Path] = []
+            for img in all_images:
+                status = str(project.get_image_completion(img.name) or "").strip().lower()
+                if status == "completed":
+                    skipped_completed += 1
+                    continue
+                if status == "yolo":
+                    skipped_yolo += 1
+                    continue
+                filtered.append(img)
+            images = filtered
 
         if not images:
             self._lbl_hint.setText(
@@ -3457,7 +3549,7 @@ class MainWindow(QMainWindow):
 
                 if project:
                     project.set_image_completion(img_path.name, "yolo")
-                    if not is_cloud_only_mode(self._cloud_image_access_mode):
+                    if self._cloud_image_access_mode != "cloud_only":
                         self._project_mgr.persist_image_completion(img_path.name, "yolo", img_path)
                     if self._should_push_status_to_cloud():
                         agent = self._sync_agent
@@ -4479,7 +4571,7 @@ Status menu — Set selected images as To Rotate<br>
         known_images = int(health.get("known_images", len(known_image_names)))
         cloud_section = ""
 
-        if self._sync_agent is not None and is_cloud_only_mode(self._cloud_image_access_mode):
+        if self._sync_agent is not None and self._cloud_image_access_mode == "cloud_only":
             try:
                 payload = self._sync_agent.get_image_status_map()
                 statuses = payload.get("statuses") if isinstance(payload, dict) else {}
@@ -4487,8 +4579,8 @@ Status menu — Set selected images as To Rotate<br>
                 cloud_matched = 0
                 if isinstance(statuses, dict):
                     for image_name, state in statuses.items():
-                        state_norm = normalize_completion_status(state)
-                        if state_norm in VALID_COMPLETION_STATUSES and str(image_name) in known_image_names:
+                        state_norm = str(state or "").strip().lower()
+                        if state_norm in {"in_progress", "completed", "yolo", "to_rotate"} and str(image_name) in known_image_names:
                             cloud_matched += 1
                 cloud_orphan = max(0, cloud_total - cloud_matched)
                 cloud_section = (
