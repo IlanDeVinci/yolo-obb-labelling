@@ -985,58 +985,6 @@ def _collect_project_image_rows_from_db(project_id: str) -> dict[str, dict[str, 
 
     out: dict[str, dict[str, Any]] = {}
 
-
-@app.post("/api/admin/labels/upload")
-async def admin_upload_label_file(
-    file: UploadFile = File(...),
-    path: str = Form(...),
-    expected_project_id: str = Form(default=""),
-    session: SessionContext = Depends(_admin_only),
-) -> dict[str, Any]:
-    if expected_project_id and expected_project_id.strip() != session.project_id:
-        raise HTTPException(status_code=409, detail="Active session project changed. Refresh and try again.")
-
-    normalized = _normalize_path(path)
-    lower = normalized.lower()
-    if not lower.endswith(".txt") or "/labels/" not in lower:
-        raise HTTPException(status_code=400, detail="Label path must be a .txt file under labels/")
-
-    raw = await file.read()
-    if len(raw) > MAX_FILE_BYTES:
-        raise HTTPException(status_code=413, detail=f"File exceeds max size {MAX_FILE_BYTES} bytes")
-
-    now = _now_ms()
-    sha1 = hashlib.sha1(raw).hexdigest()
-    content_b64 = base64.b64encode(raw).decode("ascii")
-
-    with _db_lock:
-        _CONN.execute(
-            """
-            INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
-            VALUES (?, ?, 0, ?, ?, ?, ?)
-            ON CONFLICT(project_id, path) DO UPDATE SET
-              deleted=0,
-              mtime_ms=excluded.mtime_ms,
-              sha1=excluded.sha1,
-              content_base64=excluded.content_base64,
-              updated_at=excluded.updated_at
-            """,
-            (session.project_id, normalized, now, sha1, content_b64, now),
-        )
-        _CONN.execute(
-            "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
-            (session.project_id, session.username, session.token, normalized, now, sha1, content_b64, now),
-        )
-        _CONN.commit()
-
-    return {
-        "ok": True,
-        "uploaded": True,
-        "projectId": session.project_id,
-        "path": normalized,
-        "size": len(raw),
-        "sha1": sha1,
-    }
     for row in rows:
         path = str(row["path"] or "")
         if not path or not _is_image_path(path):
