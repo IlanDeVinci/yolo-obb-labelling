@@ -10,6 +10,14 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
         rel="stylesheet" />
+    <script>
+        try {
+            const storedTheme = localStorage.getItem('syncThemeMode') || 'dark';
+            document.documentElement.setAttribute('data-theme', storedTheme === 'light' ? 'light' : 'dark');
+        } catch (_) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    </script>
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 
@@ -62,6 +70,15 @@
         <symbol id="i-layout" viewBox="0 0 24 24">
             <path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5Zm6 0v14"
                 stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-theme" viewBox="0 0 24 24">
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8Z" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" fill="none" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" />
         </symbol>
     </svg>
 
@@ -167,6 +184,12 @@
                     </button>
                 </nav>
                 <div class="sidebar-actions">
+                    <button id="themeModeBtn" type="button" class="btn ghost icon-btn">
+                        <svg>
+                            <use id="themeModeIconUse" href="#i-theme"></use>
+                        </svg>
+                        <span id="themeModeLabel">Theme: Dark</span>
+                    </button>
                     <button id="compactModeBtn" type="button" class="btn ghost icon-btn">
                         <svg>
                             <use href="#i-layout"></use>
@@ -560,6 +583,9 @@
         const loginHint = document.getElementById('loginHint');
         const compactModeBtn = document.getElementById('compactModeBtn');
         const compactModeLabel = document.getElementById('compactModeLabel');
+        const themeModeBtn = document.getElementById('themeModeBtn');
+        const themeModeLabel = document.getElementById('themeModeLabel');
+        const themeModeIconUse = document.getElementById('themeModeIconUse');
         const imagesSortBy = document.getElementById('imagesSortBy');
         const imagesSortOrder = document.getElementById('imagesSortOrder');
         const imagesDeleteLabels = document.getElementById('imagesDeleteLabels');
@@ -590,6 +616,7 @@
         let activeNormalizeJobId = '';
 
         const DASH_PAGE_STORAGE_KEY = 'syncDashPage';
+        const THEME_MODE_STORAGE_KEY = 'syncThemeMode';
         let token = localStorage.getItem('syncToken') || '';
         let currentUser = localStorage.getItem('syncUsername') || '';
         let currentProjectId = '';
@@ -602,6 +629,7 @@
         let selectedZipFile = null;
         let autoSyncAfterFolderPick = false;
         let compactPreference = localStorage.getItem('syncCompactMode') || 'auto';
+        let themePreference = localStorage.getItem(THEME_MODE_STORAGE_KEY) || 'dark';
         let adminImages = [];
         const slideshowState = {
             open: false,
@@ -647,6 +675,30 @@
             }
             localStorage.setItem('syncCompactMode', compactPreference);
             applyCompactMode();
+        }
+
+        function updateThemeModeLabel() {
+            if (!themeModeLabel) return;
+            themeModeLabel.textContent = themePreference === 'light' ? 'Theme: Light' : 'Theme: Dark';
+        }
+
+        function updateThemeModeIcon() {
+            if (!themeModeIconUse) return;
+            const isLight = themePreference === 'light';
+            themeModeIconUse.setAttribute('href', isLight ? '#i-sun' : '#i-theme');
+        }
+
+        function applyThemeMode() {
+            const mode = themePreference === 'light' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', mode);
+            updateThemeModeLabel();
+            updateThemeModeIcon();
+        }
+
+        function cycleThemeModePreference() {
+            themePreference = themePreference === 'dark' ? 'light' : 'dark';
+            localStorage.setItem(THEME_MODE_STORAGE_KEY, themePreference);
+            applyThemeMode();
         }
 
         function setMessage(text, isError = false, persist = false) {
@@ -1614,6 +1666,7 @@
         document.getElementById('refreshBtn').addEventListener('click', () => refreshAll(false));
         document.getElementById('logoutBtn').addEventListener('click', () => handleLogout());
         compactModeBtn.addEventListener('click', cycleCompactModePreference);
+        themeModeBtn.addEventListener('click', cycleThemeModePreference);
 
         dashNav.addEventListener('click', (event) => {
             const target = event.target;
@@ -2121,6 +2174,7 @@
 
         async function init() {
             setLoggedInState(false);
+            applyThemeMode();
             applyCompactMode();
             refreshUploadProjectBadge();
             setDashboardPage(activeDashPage);
