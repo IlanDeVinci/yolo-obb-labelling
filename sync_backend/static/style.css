@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg-1: #f4efe6;
   --bg-2: #e6f3ef;
   --panel: #fffdfa;
@@ -1036,101 +1036,103 @@ html[data-theme="dark"] .slideshow-stage {
   justify-content: center;
 }
 
-body.compact-mode .slideshow-panel {
-  gap: 8px;
-  padding: 10px;
-}
+/* Automatic compacting for small laptop viewports */
+@media (max-width: 1366px), (max-height: 820px) {
+  .app-shell {
+    width: min(1260px, 100%);
+    padding: 14px;
+    gap: 10px;
+  }
 
-body.compact-mode .slideshow-stage {
-  min-height: 0;
-}
+  .auth-surface {
+    gap: 10px;
+    margin-top: 1.5vh;
+  }
 
-/* Compact mode for smaller laptop displays and optional manual toggle */
-body.compact-mode .app-shell {
-  width: min(1260px, 100%);
-  padding: 14px;
-  gap: 10px;
-}
+  .glass-card,
+  .panel-card {
+    border-radius: 14px;
+  }
 
-body.compact-mode .auth-surface {
-  gap: 10px;
-  margin-top: 1.5vh;
-}
+  .glass-card {
+    padding: 14px;
+  }
 
-body.compact-mode .glass-card,
-body.compact-mode .panel-card {
-  border-radius: 14px;
-}
+  .dashboard {
+    grid-template-columns: minmax(210px, 240px) 1fr;
+    gap: 10px;
+  }
 
-body.compact-mode .glass-card {
-  padding: 14px;
-}
+  .sidebar,
+  .content {
+    padding: 12px;
+  }
 
-body.compact-mode .dashboard {
-  grid-template-columns: minmax(210px, 240px) 1fr;
-  gap: 10px;
-}
+  .sidebar,
+  .sidebar-top,
+  .dash-nav,
+  .sidebar-actions,
+  .page-view,
+  .stack,
+  .row,
+  .cards,
+  .overview-grid,
+  .grid-2,
+  .mini-metrics {
+    gap: 8px;
+  }
 
-body.compact-mode .sidebar,
-body.compact-mode .content {
-  padding: 12px;
-}
+  .btn {
+    padding: 8px 11px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+  }
 
-body.compact-mode .sidebar,
-body.compact-mode .sidebar-top,
-body.compact-mode .dash-nav,
-body.compact-mode .sidebar-actions,
-body.compact-mode .page-view,
-body.compact-mode .stack,
-body.compact-mode .row,
-body.compact-mode .cards,
-body.compact-mode .overview-grid,
-body.compact-mode .grid-2,
-body.compact-mode .mini-metrics {
-  gap: 8px;
-}
+  input,
+  select {
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
 
-body.compact-mode .btn {
-  padding: 8px 11px;
-  border-radius: 10px;
-  font-size: 0.9rem;
-}
+  .nav-btn {
+    padding: 8px 10px;
+  }
 
-body.compact-mode input,
-body.compact-mode select {
-  padding: 8px 10px;
-  border-radius: 10px;
-}
+  .uploader-shell,
+  .sub-card,
+  .zip-shell,
+  .card-mini {
+    padding: 10px;
+    border-radius: 12px;
+  }
 
-body.compact-mode .nav-btn {
-  padding: 8px 10px;
-}
+  table {
+    min-width: 620px;
+  }
 
-body.compact-mode .uploader-shell,
-body.compact-mode .sub-card,
-body.compact-mode .zip-shell,
-body.compact-mode .card-mini {
-  padding: 10px;
-  border-radius: 12px;
-}
+  th,
+  td {
+    padding: 7px 8px;
+    font-size: 0.88rem;
+  }
 
-body.compact-mode table {
-  min-width: 620px;
-}
+  .small {
+    font-size: 0.84rem;
+  }
 
-body.compact-mode th,
-body.compact-mode td {
-  padding: 7px 8px;
-  font-size: 0.88rem;
-}
+  .msg {
+    padding: 8px 11px;
+    border-radius: 10px;
+  }
 
-body.compact-mode .small {
-  font-size: 0.84rem;
-}
+  .slideshow-panel {
+    gap: 8px;
+    padding: 10px;
+  }
 
-body.compact-mode .msg {
-  padding: 8px 11px;
-  border-radius: 10px;
+  .slideshow-stage {
+    min-height: 0;
+  }
 }
 
 .hidden {
@@ -1189,10 +1191,6 @@ body.is-admin .nav-btn.admin-only {
   .dash-nav {
     grid-template-columns: repeat(4, minmax(130px, 1fr));
   }
-
-  body.compact-mode .dashboard {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 860px) {
@@ -1217,19 +1215,6 @@ body.is-admin .nav-btn.admin-only {
     grid-template-columns: 1fr 1fr;
   }
 
-  body.compact-mode .app-shell {
-    padding: 12px;
-  }
-
-  body.compact-mode .grid-2,
-  body.compact-mode .overview-grid {
-    grid-template-columns: 1fr;
-  }
-
-  body.compact-mode .cards {
-    grid-template-columns: repeat(2, minmax(120px, 1fr));
-  }
-
   .slideshow-panel {
     width: 100vw;
     height: 100vh;
@@ -1246,9 +1231,50 @@ body.is-admin .nav-btn.admin-only {
     display: grid;
     grid-template-columns: 1fr 1fr;
   }
+
+  .row {
+    margin-bottom: 6px;
+  }
+
+  #imagesOpsStatus {
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .images-ops-progress {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  #imagesOpsPercent {
+    flex: 0 0 auto;
+  }
 }
 
 @media (max-width: 560px) {
+  .app-shell {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .auth-surface {
+    margin-top: 0;
+  }
+
+  .glass-card,
+  .panel-card,
+  .sub-card,
+  .uploader-shell,
+  .zip-shell,
+  .card-mini {
+    border-radius: 12px;
+  }
+
+  .sidebar,
+  .content {
+    padding: 10px;
+  }
+
   .cards {
     grid-template-columns: 1fr;
   }
@@ -1257,11 +1283,44 @@ body.is-admin .nav-btn.admin-only {
     grid-template-columns: 1fr;
   }
 
+  .sidebar-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sidebar-actions .btn {
+    justify-content: center;
+    min-height: 42px;
+  }
+
+  .nav-btn {
+    min-height: 42px;
+  }
+
+  table {
+    min-width: 540px;
+  }
+
+  .msg {
+    left: 10px;
+    right: 10px;
+    top: 10px;
+    max-width: none;
+  }
+
   .slideshow-controls {
     grid-template-columns: 1fr;
   }
 
   .slideshow-foot {
     grid-template-columns: 1fr;
+  }
+
+  .slideshow-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .slideshow-controls input[type="number"] {
+    width: 100%;
   }
 }

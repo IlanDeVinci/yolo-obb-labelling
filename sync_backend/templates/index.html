@@ -67,10 +67,6 @@
             <path d="M7 18a4 4 0 1 1 .8-7.9A5 5 0 0 1 18 10a3.5 3.5 0 1 1 .5 8H7Z" stroke="currentColor"
                 stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
         </symbol>
-        <symbol id="i-layout" viewBox="0 0 24 24">
-            <path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5Zm6 0v14"
-                stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" />
-        </symbol>
         <symbol id="i-theme" viewBox="0 0 24 24">
             <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8Z" stroke="currentColor" stroke-width="2" fill="none"
                 stroke-linecap="round" stroke-linejoin="round" />
@@ -190,12 +186,6 @@
                             <use id="themeModeIconUse" href="#i-theme"></use>
                         </svg>
                         <span id="themeModeLabel">Theme: Dark</span>
-                    </button>
-                    <button id="compactModeBtn" type="button" class="btn ghost icon-btn">
-                        <svg>
-                            <use href="#i-layout"></use>
-                        </svg>
-                        <span id="compactModeLabel">Layout: Auto</span>
                     </button>
                     <button id="refreshBtn" type="button" class="btn ghost icon-btn">
                         <svg>
@@ -687,8 +677,6 @@
         const projectIdSelect = document.getElementById('projectIdSelect');
         const projectPasswordWrap = document.getElementById('projectPasswordWrap');
         const loginHint = document.getElementById('loginHint');
-        const compactModeBtn = document.getElementById('compactModeBtn');
-        const compactModeLabel = document.getElementById('compactModeLabel');
         const themeModeBtn = document.getElementById('themeModeBtn');
         const themeModeLabel = document.getElementById('themeModeLabel');
         const themeModeIconUse = document.getElementById('themeModeIconUse');
@@ -737,7 +725,6 @@
         let dbColumns = [];
         let selectedZipFile = null;
         let autoSyncAfterFolderPick = false;
-        let compactPreference = localStorage.getItem('syncCompactMode') || 'auto';
         let themePreference = localStorage.getItem(THEME_MODE_STORAGE_KEY) || 'dark';
         let adminImages = [];
         const slideshowState = {
@@ -754,37 +741,6 @@
             basePaths: [],
         };
         const imageSuffixes = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']);
-
-        function shouldUseAutoCompactMode() {
-            return window.innerWidth <= 1366 || window.innerHeight <= 820;
-        }
-
-        function updateCompactModeLabel() {
-            const map = {
-                auto: 'Layout: Auto',
-                on: 'Layout: Compact',
-                off: 'Layout: Comfortable',
-            };
-            compactModeLabel.textContent = map[compactPreference] || map.auto;
-        }
-
-        function applyCompactMode() {
-            const useCompact = compactPreference === 'on' || (compactPreference === 'auto' && shouldUseAutoCompactMode());
-            document.body.classList.toggle('compact-mode', useCompact);
-            updateCompactModeLabel();
-        }
-
-        function cycleCompactModePreference() {
-            if (compactPreference === 'auto') {
-                compactPreference = 'on';
-            } else if (compactPreference === 'on') {
-                compactPreference = 'off';
-            } else {
-                compactPreference = 'auto';
-            }
-            localStorage.setItem('syncCompactMode', compactPreference);
-            applyCompactMode();
-        }
 
         function updateThemeModeLabel() {
             if (!themeModeLabel) return;
@@ -1932,7 +1888,6 @@
 
         document.getElementById('refreshBtn').addEventListener('click', () => refreshAll(false));
         document.getElementById('logoutBtn').addEventListener('click', () => handleLogout());
-        compactModeBtn.addEventListener('click', cycleCompactModePreference);
         themeModeBtn.addEventListener('click', cycleThemeModePreference);
 
         dashNav.addEventListener('click', (event) => {
@@ -2585,7 +2540,6 @@
         async function init() {
             setLoggedInState(false);
             applyThemeMode();
-            applyCompactMode();
             refreshUploadProjectBadge();
             setDashboardPage(activeDashPage);
             updateAuthPanelSignOutVisibility();
@@ -2613,7 +2567,6 @@
         }
 
         window.addEventListener('resize', () => {
-            applyCompactMode();
             if (slideshowState.open) {
                 refreshSlideOverlay().catch(() => { });
             }
