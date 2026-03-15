@@ -779,6 +779,11 @@ th {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  object-position: center;
+}
+
+.slideshow-stage.is-portrait #slideImage {
+  max-width: min(56vw, 72vh);
 }
 
 #slideOverlay {

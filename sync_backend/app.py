@@ -136,6 +136,13 @@ class SignedWritePayload(BaseModel):
     contentType: str | None = None
 
 
+class SignedUploadCommitPayload(BaseModel):
+    path: str
+    sha1: str = ""
+    sizeBytes: int = Field(default=0, ge=0)
+    mtimeMs: int = Field(default=0, ge=0)
+
+
 class PrefetchBatchPayload(BaseModel):
     currentPath: str | None = None
     count: int = Field(default=10, ge=1, le=200)
@@ -577,6 +584,19 @@ def _init_db() -> None:
               content_base64 TEXT NOT NULL,
               created_at INTEGER NOT NULL
             );
+                                                CREATE TABLE IF NOT EXISTS image_label_index (
+                                                        project_id TEXT NOT NULL,
+                                                        image_stem TEXT NOT NULL,
+                                                        image_name TEXT NOT NULL,
+                                                        bb_label_path TEXT NOT NULL DEFAULT '',
+                                                        obb_label_path TEXT NOT NULL DEFAULT '',
+                                                        bb_label_text TEXT NOT NULL DEFAULT '',
+                                                        obb_label_text TEXT NOT NULL DEFAULT '',
+                                                        bb_label_rows INTEGER NOT NULL DEFAULT 0,
+                                                        obb_label_rows INTEGER NOT NULL DEFAULT 0,
+                                                        updated_at INTEGER NOT NULL,
+                                                        PRIMARY KEY(project_id, image_stem)
+                                                );
                         CREATE TABLE IF NOT EXISTS image_status (
                             project_id TEXT NOT NULL,
                             image_name TEXT NOT NULL,
@@ -807,7 +827,13 @@ def _image_read_url(project_id: str, path: str, *, expires_seconds: int) -> str:
     return _s3_signed_get_url(project_id, path, expires_seconds=expires_seconds)
 
 
-def _optimized_image_data_url(raw: bytes, *, max_width: int, quality: int) -> tuple[str, str]:
+def _optimized_image_data_url(
+    raw: bytes,
+    *,
+    max_width: int,
+    max_height: int = 0,
+    quality: int,
+) -> tuple[str, str]:
     if Image is None:
         raise RuntimeError("Pillow unavailable")
     img = Image.open(io.BytesIO(raw))
@@ -819,10 +845,19 @@ def _optimized_image_data_url(raw: bytes, *, max_width: int, quality: int) -> tu
 
     width, height = img.size
     target_width = max(320, min(int(max_width), 3840))
+    target_height_limit = max(0, min(int(max_height or 0), 3840))
+
+    scale_candidates: list[float] = []
     if width > target_width:
-        ratio = float(target_width) / float(max(1, width))
-        target_height = max(1, int(round(float(height) * ratio)))
-        img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        scale_candidates.append(float(target_width) / float(max(1, width)))
+    if target_height_limit > 0 and height > target_height_limit:
+        scale_candidates.append(float(target_height_limit) / float(max(1, height)))
+
+    if scale_candidates:
+        ratio = min(scale_candidates)
+        resized_width = max(1, int(round(float(width) * ratio)))
+        resized_height = max(1, int(round(float(height) * ratio)))
+        img = img.resize((resized_width, resized_height), Image.Resampling.LANCZOS)
 
     q = max(55, min(int(quality), 95))
     out = io.BytesIO()
@@ -985,6 +1020,179 @@ def _parse_yolo_label_rows(raw_text: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _split_label_text_by_format(raw_text: str) -> tuple[str, str, int, int]:
+    bb_lines: list[str] = []
+    obb_lines: list[str] = []
+
+    for line in str(raw_text or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        parts = stripped.split()
+        if len(parts) < 5:
+            continue
+        try:
+            int(parts[0])
+            [float(v) for v in parts[1:]]
+        except Exception:
+            continue
+        if len(parts) >= 9:
+            obb_lines.append(stripped)
+        else:
+            bb_lines.append(stripped)
+
+    return (
+        "\n".join(bb_lines),
+        "\n".join(obb_lines),
+        len(bb_lines),
+        len(obb_lines),
+    )
+
+
+def _is_bb_label_path(path: str) -> bool:
+    return "/labels/bb/" in str(path or "").lower()
+
+
+def _is_obb_label_path(path: str) -> bool:
+    return "/labels/obb/" in str(path or "").lower()
+
+
+def _label_stem_from_path(path: str) -> str:
+    return Path(str(path or "")).stem.strip()
+
+
+def _update_image_label_index_for_label_path(
+    project_id: str,
+    *,
+    label_path: str,
+    deleted: bool,
+    content_base64: str,
+    updated_at: int,
+) -> None:
+    if not _is_label_text_path(label_path):
+        return
+
+    image_stem = _label_stem_from_path(label_path)
+    if not image_stem:
+        return
+
+    row = _CONN.execute(
+        "SELECT image_name, bb_label_path, obb_label_path, bb_label_text, obb_label_text, bb_label_rows, obb_label_rows FROM image_label_index WHERE project_id = ? AND image_stem = ?",
+        (project_id, image_stem),
+    ).fetchone()
+
+    image_name = image_stem
+    bb_label_path = ""
+    obb_label_path = ""
+    bb_label_text = ""
+    obb_label_text = ""
+    bb_label_rows = 0
+    obb_label_rows = 0
+
+    if row is not None:
+        image_name = str(row["image_name"] or image_stem)
+        bb_label_path = str(row["bb_label_path"] or "")
+        obb_label_path = str(row["obb_label_path"] or "")
+        bb_label_text = str(row["bb_label_text"] or "")
+        obb_label_text = str(row["obb_label_text"] or "")
+        bb_label_rows = int(row["bb_label_rows"] or 0)
+        obb_label_rows = int(row["obb_label_rows"] or 0)
+
+    path_norm = str(label_path).strip().replace("\\", "/")
+    is_bb = _is_bb_label_path(path_norm)
+    is_obb = _is_obb_label_path(path_norm)
+
+    if deleted:
+        if is_bb:
+            bb_label_path = ""
+            bb_label_text = ""
+            bb_label_rows = 0
+        elif is_obb:
+            obb_label_path = ""
+            obb_label_text = ""
+            obb_label_rows = 0
+        else:
+            bb_label_path = ""
+            obb_label_path = ""
+            bb_label_text = ""
+            obb_label_text = ""
+            bb_label_rows = 0
+            obb_label_rows = 0
+    else:
+        raw_text = ""
+        if content_base64:
+            try:
+                raw_text = base64.b64decode(content_base64.encode("ascii"), validate=False).decode("utf-8", errors="replace")
+            except Exception:
+                raw_text = ""
+
+        split_bb_text, split_obb_text, split_bb_rows, split_obb_rows = _split_label_text_by_format(raw_text)
+
+        if is_bb:
+            bb_label_path = path_norm
+            bb_label_text = raw_text
+            bb_label_rows = int(split_bb_rows)
+        elif is_obb:
+            obb_label_path = path_norm
+            obb_label_text = raw_text
+            obb_label_rows = int(split_obb_rows)
+        else:
+            if split_bb_rows > 0:
+                bb_label_path = path_norm
+                bb_label_text = split_bb_text
+                bb_label_rows = int(split_bb_rows)
+            if split_obb_rows > 0:
+                obb_label_path = path_norm
+                obb_label_text = split_obb_text
+                obb_label_rows = int(split_obb_rows)
+
+    if not bb_label_path and not obb_label_path and bb_label_rows <= 0 and obb_label_rows <= 0:
+        _CONN.execute(
+            "DELETE FROM image_label_index WHERE project_id = ? AND image_stem = ?",
+            (project_id, image_stem),
+        )
+        return
+
+    _CONN.execute(
+        """
+        INSERT INTO image_label_index (
+            project_id,
+            image_stem,
+            image_name,
+            bb_label_path,
+            obb_label_path,
+            bb_label_text,
+            obb_label_text,
+            bb_label_rows,
+            obb_label_rows,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, image_stem) DO UPDATE SET
+            image_name=excluded.image_name,
+            bb_label_path=excluded.bb_label_path,
+            obb_label_path=excluded.obb_label_path,
+            bb_label_text=excluded.bb_label_text,
+            obb_label_text=excluded.obb_label_text,
+            bb_label_rows=excluded.bb_label_rows,
+            obb_label_rows=excluded.obb_label_rows,
+            updated_at=excluded.updated_at
+        """,
+        (
+            project_id,
+            image_stem,
+            image_name,
+            bb_label_path,
+            obb_label_path,
+            bb_label_text,
+            obb_label_text,
+            int(bb_label_rows),
+            int(obb_label_rows),
+            int(updated_at or _now_ms()),
+        ),
+    )
+
+
 def _fetch_project_image_status_map(project_id: str) -> dict[str, str]:
     rows = _CONN.execute(
         "SELECT image_name, status FROM image_status WHERE project_id = ?",
@@ -1059,6 +1267,13 @@ def _record_deleted_file(project_id: str, *, username: str, source_token: str, p
     _CONN.execute(
         "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 1, ?, '', '', ?)",
         (project_id, username, source_token, path, mtime_ms, mtime_ms),
+    )
+    _update_image_label_index_for_label_path(
+        project_id,
+        label_path=path,
+        deleted=True,
+        content_base64="",
+        updated_at=mtime_ms,
     )
 
 
@@ -1670,6 +1885,59 @@ def get_signed_image_write_url(
     }
 
 
+@app.post("/api/images/commit-upload")
+def commit_signed_image_upload(
+    payload: SignedUploadCommitPayload,
+    session: SessionContext = Depends(_auth_from_header),
+) -> dict[str, Any]:
+    _ensure_s3_image_mode(session)
+    normalized = _normalize_path(payload.path)
+    if not _is_image_path(normalized):
+        raise HTTPException(status_code=400, detail="Path must reference an image file")
+
+    if not _s3_image_exists(session.project_id, normalized):
+        raise HTTPException(status_code=404, detail="Uploaded image was not found in S3")
+
+    sha1 = str(payload.sha1 or "").strip().lower()
+    if sha1 and not all(ch in "0123456789abcdef" for ch in sha1):
+        raise HTTPException(status_code=400, detail="Invalid sha1 format")
+
+    now = _now_ms()
+    mtime_ms = int(payload.mtimeMs or now)
+    if mtime_ms <= 0:
+        mtime_ms = now
+
+    with _db_lock:
+        _CONN.execute(
+            """
+            INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
+            VALUES (?, ?, 0, ?, ?, '', ?)
+            ON CONFLICT(project_id, path) DO UPDATE SET
+              deleted=0,
+              mtime_ms=excluded.mtime_ms,
+              sha1=excluded.sha1,
+              content_base64='',
+              updated_at=excluded.updated_at
+            """,
+            (session.project_id, normalized, mtime_ms, sha1, now),
+        )
+        _CONN.execute(
+            "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, '', ?)",
+            (session.project_id, session.username, session.token, normalized, mtime_ms, sha1, now),
+        )
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "path": normalized,
+        "sha1": sha1,
+        "sizeBytes": int(payload.sizeBytes or 0),
+        "mtimeMs": mtime_ms,
+        "committedAt": now,
+    }
+
+
 @app.post("/api/images/prefetch")
 def request_prefetch_batch(
     payload: PrefetchBatchPayload,
@@ -1739,10 +2007,17 @@ def get_image_status_map(session: SessionContext = Depends(_auth_from_header)) -
             }
         )
 
+    latest_status_row = _CONN.execute(
+        "SELECT COALESCE(MAX(updated_at), 0) AS s FROM image_status WHERE project_id = ?",
+        (session.project_id,),
+    ).fetchone()
+    latest_status_seq = int(latest_status_row["s"] if latest_status_row else 0)
+
     return {
         "ok": True,
         "projectId": session.project_id,
         "count": len(statuses),
+        "latestStatusSeq": latest_status_seq,
         "statuses": statuses,
         "items": meta,
     }
@@ -2471,6 +2746,7 @@ def admin_cancel_normalize_images_job(
 def admin_get_image_view(
     path: str,
     maxWidth: int = 0,
+    maxHeight: int = 0,
     quality: int = 82,
     session: SessionContext = Depends(_admin_only),
 ) -> dict[str, Any]:
@@ -2479,6 +2755,7 @@ def admin_get_image_view(
         raise HTTPException(status_code=400, detail="Path must reference an image file")
 
     requested_max_width = max(0, min(int(maxWidth or 0), 3840))
+    requested_max_height = max(0, min(int(maxHeight or 0), 3840))
     requested_quality = max(55, min(int(quality or 82), 95))
 
     # Prefer S3 for latest object if available.
@@ -2490,6 +2767,7 @@ def admin_get_image_view(
                     content_type, url = _optimized_image_data_url(
                         raw,
                         max_width=requested_max_width,
+                        max_height=requested_max_height,
                         quality=requested_quality,
                     )
                     return {
@@ -2499,6 +2777,7 @@ def admin_get_image_view(
                         "contentType": content_type,
                         "url": url,
                         "maxWidth": requested_max_width,
+                        "maxHeight": requested_max_height,
                         "quality": requested_quality,
                     }
                 except Exception:
@@ -2530,6 +2809,7 @@ def admin_get_image_view(
             content_type, url = _optimized_image_data_url(
                 raw,
                 max_width=requested_max_width,
+                max_height=requested_max_height,
                 quality=requested_quality,
             )
             return {
@@ -2539,6 +2819,7 @@ def admin_get_image_view(
                 "contentType": content_type,
                 "url": url,
                 "maxWidth": requested_max_width,
+                "maxHeight": requested_max_height,
                 "quality": requested_quality,
             }
         except Exception:
@@ -2898,6 +3179,13 @@ def sync_upsert(
                     now,
                 ),
             )
+            _update_image_label_index_for_label_path(
+                session.project_id,
+                label_path=path,
+                deleted=bool(item.deleted),
+                content_base64=content_b64,
+                updated_at=now,
+            )
             if item.deleted and is_image:
                 image_name = Path(path).name.strip()
                 if image_name:
@@ -3004,6 +3292,10 @@ def sync_status(session: SessionContext = Depends(_auth_from_header)) -> dict[st
         "SELECT COALESCE(MAX(seq), 0) AS s FROM changes WHERE project_id = ?",
         (session.project_id,),
     ).fetchone()
+    latest_status_row = _CONN.execute(
+        "SELECT COALESCE(MAX(updated_at), 0) AS s FROM image_status WHERE project_id = ?",
+        (session.project_id,),
+    ).fetchone()
 
     backups = sorted(BACKUP_DIR.glob("sync-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
     backup_items = [
@@ -3028,6 +3320,7 @@ def sync_status(session: SessionContext = Depends(_auth_from_header)) -> dict[st
         "activeFile": session.active_file,
         "onlineUsers": int(users_online_row["c"] if users_online_row else 0),
         "latestSeq": int(change_row["s"] if change_row else 0),
+        "latestStatusSeq": int(latest_status_row["s"] if latest_status_row else 0),
         "locks": lock_items,
         "recentBackups": backup_items,
         "sessionTtlSeconds": SESSION_TTL_SECONDS,

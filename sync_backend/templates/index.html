@@ -515,7 +515,7 @@
                     <button id="slidePrevBtn" type="button" class="btn ghost">Prev</button>
                     <button id="slideNextBtn" type="button" class="btn ghost">Next</button>
                     <button id="slideMarkCompletedBtn" type="button" class="btn solid">Mark Completed (C)</button>
-                    <button id="slideMarkInProgressBtn" type="button" class="btn ghost">Mark In Progress (I)</button>
+                    <button id="slideMarkInProgressBtn" type="button" class="btn ghost">Mark In Progress (V)</button>
                     <button id="slideDeleteBtn" type="button" class="btn danger">Delete Image (Del)</button>
                 </footer>
             </section>
@@ -1028,7 +1028,9 @@
 
             let payload = slideshowState.imageViewByPath.get(current.path) || null;
             if (!payload) {
-                payload = await api(`/api/admin/images/view?path=${encodeURIComponent(current.path)}&maxWidth=1920&quality=82`);
+                const maxWidth = Math.max(640, Math.min(2200, Math.floor(window.innerWidth * 0.9)));
+                const maxHeight = Math.max(520, Math.min(2200, Math.floor(window.innerHeight * 0.8)));
+                payload = await api(`/api/admin/images/view?path=${encodeURIComponent(current.path)}&maxWidth=${maxWidth}&maxHeight=${maxHeight}&quality=82`);
                 slideshowState.imageViewByPath.set(current.path, payload);
                 if (slideshowState.imageViewByPath.size > 80) {
                     const firstKey = slideshowState.imageViewByPath.keys().next().value;
@@ -1044,6 +1046,10 @@
                 slideImage.onerror = () => reject(new Error('Failed to load image for slideshow'));
                 slideImage.src = payload.url;
             });
+
+            const naturalW = Number(slideImage.naturalWidth || 0);
+            const naturalH = Number(slideImage.naturalHeight || 0);
+            slideStage.classList.toggle('is-portrait', naturalH > naturalW && naturalW > 0);
 
             await refreshSlideOverlay();
         }
@@ -2003,7 +2009,7 @@
                 event.preventDefault();
                 return;
             }
-            if (key === 'i') {
+            if (key === 'v') {
                 const current = getCurrentSlideItem();
                 if (!current) return;
                 setImageStatusForPath(current.path, 'in_progress').catch((error) => setMessage(error.message || String(error), true));

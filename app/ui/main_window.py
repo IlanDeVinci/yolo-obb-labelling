@@ -159,7 +159,7 @@ class MainWindow(QMainWindow):
         # Build UI
         self._build_ui()
         self._build_menus()
-        self.menuBar().setVisible(False)
+        self._hide_legacy_menu_bar()
         self._build_navigation_toolbar()
         self._build_status_bar()
         self._wire_signals()
@@ -572,6 +572,14 @@ class MainWindow(QMainWindow):
         )
         status_menu.addAction(self._act_set_to_rotate)
 
+    def _hide_legacy_menu_bar(self) -> None:
+        """Keep QAction shortcuts but remove the legacy text menubar from view."""
+        mb = self.menuBar()
+        mb.setNativeMenuBar(False)
+        mb.setVisible(False)
+        mb.setMaximumHeight(0)
+        mb.setMinimumHeight(0)
+
     def _build_navigation_toolbar(self) -> None:
         """Primary top navigation (single visible navbar)."""
         toolbar = QToolBar("Main Navigation", self)
@@ -589,7 +597,7 @@ class MainWindow(QMainWindow):
             return
         toolbar.setVisible(True)
 
-        connected = bool((self._sync_status_cache or {}).get("connected", False))
+        connected = self._is_cloud_connected()
         mode = str(self._cloud_image_access_mode or "local")
         cloud_configured = self._is_cloud_project_workflow_enabled()
         is_cloud_ui = cloud_configured or (connected and mode in {"cloud_only", "hybrid"})
@@ -623,9 +631,12 @@ class MainWindow(QMainWindow):
         data_menu = QMenu(self)
         if is_cloud_ui:
             data_menu.addAction("Delete Selected Images...", self._delete_selected_images)
-            data_menu.addAction("Upload New Images to Cloud...", self._open_cloud_upload_center)
-            data_menu.addAction("Refresh Cloud Image List", self._manual_refresh_cloud_images)
-            data_menu.addAction("Upload Existing Local Images", self._sync_local_images_to_s3)
+            if connected:
+                data_menu.addAction("Upload New Images to Cloud...", self._open_cloud_upload_center)
+                data_menu.addAction("Refresh Cloud Image List", self._manual_refresh_cloud_images)
+                data_menu.addAction("Upload Existing Local Images", self._sync_local_images_to_s3)
+            else:
+                data_menu.addAction("Sign In to Cloud Sync...", lambda: self._prompt_cloud_login_for_sync(force=True))
         else:
             data_menu.addAction("Delete Selected Images...", self._delete_selected_images)
             data_menu.addAction("Import Images...", self._import_images)
@@ -674,16 +685,17 @@ class MainWindow(QMainWindow):
         if is_cloud_ui:
             collab_menu = QMenu(self)
             collab_menu.addAction("Sign In to Cloud Sync...", lambda: self._prompt_cloud_login_for_sync(force=True))
-            if self._can_open_cloud_settings():
+            if connected and self._can_open_cloud_settings():
                 collab_menu.addAction("Cloud Sync Settings...", self._open_cloud_sync_settings)
                 collab_menu.addAction("Regenerate Project Cloud Bootstrap", self._regenerate_project_cloud_bootstrap)
             else:
                 collab_menu.addAction("Cloud Account Login...", self._open_cloud_user_login_dialog)
             collab_menu.addAction("Cloud Sync Status...", self._show_cloud_sync_status)
-            act_sync_labels = collab_menu.addAction("Sync Local Labels Now (Cloud DB)", self._sync_all_local_labels_to_cloud_db)
-            act_sync_labels.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
-            collab_menu.addAction("Clear Cloud Cache", self._clear_cloud_image_cache)
-            collab_menu.addAction("Purge Local Cloud Data", self._purge_all_local_cloud_data)
+            if connected:
+                act_sync_labels = collab_menu.addAction("Sync Local Labels Now (Cloud DB)", self._sync_all_local_labels_to_cloud_db)
+                act_sync_labels.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
+                collab_menu.addAction("Clear Cloud Cache", self._clear_cloud_image_cache)
+                collab_menu.addAction("Purge Local Cloud Data", self._purge_all_local_cloud_data)
             collab_menu.addAction("Status Store Health", self._show_status_store_health)
             add_menu_button("Cloud", QStyle.StandardPixmap.SP_DriveNetIcon, collab_menu, "Cloud sync and cache management")
         else:
@@ -712,7 +724,7 @@ class MainWindow(QMainWindow):
         add_menu_button("Help", QStyle.StandardPixmap.SP_DialogHelpButton, help_menu, "Guides, shortcuts, and troubleshooting")
 
     def _show_toolbar_icon_legend(self) -> None:
-        connected = bool((self._sync_status_cache or {}).get("connected", False))
+        connected = self._is_cloud_connected()
         mode = str(self._cloud_image_access_mode or "local")
         cloud_mode = self._is_cloud_project_workflow_enabled() or (connected and mode in {"cloud_only", "hybrid"})
         cloud_label = "Cloud" if cloud_mode else "Local"
@@ -1719,20 +1731,16 @@ class MainWindow(QMainWindow):
     def _is_strict_cloud_remote_mode(self) -> bool:
         return bool(self._sync_agent is not None and self._cloud_image_access_mode == "cloud_only")
 
-    def _refresh_remote_completion_if_needed(self, status: dict[str, object], mode: str) -> None:
-        if mode != "cloud_only":
-            return
-        if self._label_mgr.is_dirty:
+    def _should_push_status_to_cloud(self) -> bool:
+        return bool(
+            self._sync_agent is not None
+            and self._cloud_image_access_mode in {"cloud_only", "hybrid"}
+        )
+
+    def _pull_remote_completion_from_cloud(self, *, force: bool = False) -> None:
+        if not force and self._label_mgr.is_dirty:
             return
 
-        try:
-            latest_seq = int(status.get("latestSeq", 0) or 0)
-        except Exception:
-            latest_seq = 0
-        if latest_seq <= self._last_seen_status_seq:
-            return
-
-        self._last_seen_status_seq = latest_seq
         agent = self._sync_agent
         project = self._project_mgr.current_project
         if agent is None or project is None:
@@ -1743,6 +1751,15 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # noqa: BLE001
             self._lbl_hint.setText(f"Cloud status refresh failed: {exc}")
             return
+
+        if isinstance(payload, dict):
+            try:
+                latest_status_seq = int(
+                    payload.get("latestStatusSeq", self._last_seen_status_seq) or 0,
+                )
+                self._last_seen_status_seq = max(self._last_seen_status_seq, latest_status_seq)
+            except Exception:
+                pass
 
         raw = payload.get("statuses") if isinstance(payload, dict) else {}
         mapped: dict[str, str] = {}
@@ -1757,15 +1774,30 @@ class MainWindow(QMainWindow):
                 if known_image_names and image_name not in known_image_names:
                     ignored_orphan_statuses += 1
                     continue
-                if image_name and value_norm in {"in_progress", "completed", "yolo", "to_rotate"}:
-                    mapped[image_name] = value_norm
+                mapped[image_name] = value_norm
 
         project.image_completion = mapped
         self._browser.set_images(self._image_mgr.images)
         if ignored_orphan_statuses:
             self._lbl_hint.setText(
-                f"Ignored {ignored_orphan_statuses} stale cloud status entr{'y' if ignored_orphan_statuses == 1 else 'ies'}"
+                f"Ignored {ignored_orphan_statuses} stale cloud status entr{'y' if ignored_orphan_statuses == 1 else 'ies'}",
             )
+
+    def _refresh_remote_completion_if_needed(self, status: dict[str, object], mode: str) -> None:
+        if mode not in {"cloud_only", "hybrid"}:
+            return
+        if self._label_mgr.is_dirty:
+            return
+
+        try:
+            latest_seq = int(status.get("latestStatusSeq", status.get("latestSeq", 0)) or 0)
+        except Exception:
+            latest_seq = 0
+        if latest_seq <= self._last_seen_status_seq:
+            return
+
+        self._last_seen_status_seq = latest_seq
+        self._pull_remote_completion_from_cloud(force=False)
 
     def _current_image_name_set(self) -> set[str]:
         images = self._all_images if self._all_images else self._image_mgr.images
@@ -1784,6 +1816,13 @@ class MainWindow(QMainWindow):
         """Admin utility: push all local project image statuses to backend DB in chunked batches."""
         if not self._is_cloud_project_workflow_enabled():
             QMessageBox.information(self, "Cloud Status Sync", "This project is currently using local mode.")
+            return
+        if not self._is_cloud_connected():
+            QMessageBox.information(
+                self,
+                "Cloud Status Sync",
+                "Cloud sync is not connected. Sign in first.",
+            )
             return
 
         agent = self._sync_agent
@@ -1937,6 +1976,13 @@ class MainWindow(QMainWindow):
         if not self._is_cloud_project_workflow_enabled():
             QMessageBox.information(self, "Cloud Label Sync", "This project is currently using local mode.")
             return
+        if not self._is_cloud_connected():
+            QMessageBox.information(
+                self,
+                "Cloud Label Sync",
+                "Cloud sync is not connected. Sign in first.",
+            )
+            return
 
         agent = self._sync_agent
         if agent is None:
@@ -2087,6 +2133,14 @@ class MainWindow(QMainWindow):
         )
 
     def _sync_local_images_to_s3(self) -> None:
+        if self._is_cloud_project_workflow_enabled() and not self._is_cloud_connected():
+            QMessageBox.information(
+                self,
+                "Cloud Sync",
+                "Sign in to cloud sync before uploading images.",
+            )
+            return
+
         agent = self._sync_agent
         if agent is None:
             self._start_project_sync_if_enabled()
@@ -2227,6 +2281,14 @@ class MainWindow(QMainWindow):
         )
 
     def _open_cloud_upload_center(self) -> None:
+        if self._is_cloud_project_workflow_enabled() and not self._is_cloud_connected():
+            QMessageBox.information(
+                self,
+                "Cloud Upload",
+                "Sign in to cloud sync before opening upload tools.",
+            )
+            return
+
         agent = self._sync_agent
         if agent is None:
             self._start_project_sync_if_enabled()
@@ -2566,6 +2628,8 @@ class MainWindow(QMainWindow):
             self._cloud_image_access_mode = str(summary.get("imageAccessMode") or "local")
             self._setup_cloud_image_provider(project_folder, config)
             self._update_sync_active_file_lock()
+            if self._cloud_image_access_mode in {"cloud_only", "hybrid"}:
+                self._pull_remote_completion_from_cloud(force=True)
             self._lbl_hint.setText("Cloud sync started")
         except Exception as exc:  # noqa: BLE001
             self._sync_agent = None
@@ -2692,8 +2756,16 @@ class MainWindow(QMainWindow):
         users = int(status.get("onlineUsers", 0) or 0)
         active = str(status.get("activeFile", "")).strip()
         suffix = f" [{Path(active).name}]" if active else ""
-        self._lbl_sync.setText(f"SYNC: live ({users} online){suffix}")
-        self._lbl_sync.setStyleSheet("padding: 0 8px; color: #86cc9f;")
+        pending_status_sync = int(status.get("pendingStatusSync", 0) or 0)
+        status_syncing = bool(status.get("statusSyncing", False))
+        if status_syncing or pending_status_sync > 0:
+            self._lbl_sync.setText(
+                f"SYNC: syncing statuses ({pending_status_sync} pending){suffix}",
+            )
+            self._lbl_sync.setStyleSheet("padding: 0 8px; color: #74a2d4;")
+        else:
+            self._lbl_sync.setText(f"SYNC: live ({users} online){suffix}")
+            self._lbl_sync.setStyleSheet("padding: 0 8px; color: #86cc9f;")
         if self._lbl_login is not None:
             username = str(status.get("username", "") or self._cloud_sync_settings.get("username", "")).strip()
             self._lbl_login.setText(f"LOGIN: {username}" if username else "LOGIN: signed in")
@@ -2735,6 +2807,9 @@ class MainWindow(QMainWindow):
 
     def _is_cloud_sync_enabled(self) -> bool:
         return bool(self._cloud_sync_settings.get("enabled", False))
+
+    def _is_cloud_connected(self) -> bool:
+        return bool((self._sync_status_cache or {}).get("connected", False))
 
     def _refresh_cloud_menu_state(self, *, connected: bool, error: str) -> None:
         if self._act_cloud_status is None or self._cloud_menu is None:
@@ -2976,19 +3051,19 @@ class MainWindow(QMainWindow):
                 current_status = project.get_image_completion(current_img.name)
                 if not current_status:
                     project.set_image_completion(current_img.name, "in_progress")
-                    if self._is_strict_cloud_remote_mode():
+                    if self._cloud_image_access_mode != "cloud_only":
+                        self._project_mgr.persist_image_completion(
+                            current_img.name,
+                            "in_progress",
+                            current_img,
+                        )
+                    if self._should_push_status_to_cloud():
                         agent = self._sync_agent
                         if agent is not None:
                             try:
                                 agent.set_image_status(current_img.name, "in_progress")
                             except Exception:
                                 pass
-                    else:
-                        self._project_mgr.persist_image_completion(
-                            current_img.name,
-                            "in_progress",
-                            current_img,
-                        )
 
             project.current_index = self._image_mgr.current_index
             project.class_names = self._class_panel.class_names()
@@ -3024,15 +3099,15 @@ class MainWindow(QMainWindow):
             return
 
         project.set_image_completion(img.name, status)
-        if self._is_strict_cloud_remote_mode():
+        if self._cloud_image_access_mode != "cloud_only":
+            self._project_mgr.persist_image_completion(img.name, status, img)
+        if self._should_push_status_to_cloud():
             agent = self._sync_agent
             if agent is not None:
                 try:
                     agent.set_image_status(img.name, status)
                 except Exception as exc:  # noqa: BLE001
                     self._lbl_hint.setText(f"Cloud status update failed: {exc}")
-        else:
-            self._project_mgr.persist_image_completion(img.name, status, img)
         self._project_mgr.save_user_state()
         self._browser.refresh_item(self._image_mgr.current_index)
         self._update_completion_action()
@@ -3060,15 +3135,15 @@ class MainWindow(QMainWindow):
         selected_names = {p.name for p in selected}
         for img_path in selected:
             project.set_image_completion(img_path.name, status)
-            if self._is_strict_cloud_remote_mode():
+            if self._cloud_image_access_mode != "cloud_only":
+                self._project_mgr.persist_image_completion(img_path.name, status, img_path)
+            if self._should_push_status_to_cloud():
                 agent = self._sync_agent
                 if agent is not None:
                     try:
                         agent.set_image_status(img_path.name, status)
                     except Exception as exc:  # noqa: BLE001
                         self._lbl_hint.setText(f"Cloud status update failed: {exc}")
-            else:
-                self._project_mgr.persist_image_completion(img_path.name, status, img_path)
 
         self._project_mgr.save_user_state()
 
@@ -3149,7 +3224,9 @@ class MainWindow(QMainWindow):
             return
 
         project.set_image_completion(img.name, "in_progress")
-        if self._is_strict_cloud_remote_mode():
+        if self._cloud_image_access_mode != "cloud_only":
+            self._project_mgr.persist_image_completion(img.name, "in_progress", img)
+        if self._should_push_status_to_cloud():
             agent = self._sync_agent
             if agent is not None:
                 try:
@@ -3472,15 +3549,15 @@ class MainWindow(QMainWindow):
 
                 if project:
                     project.set_image_completion(img_path.name, "yolo")
-                    if self._is_strict_cloud_remote_mode():
+                    if self._cloud_image_access_mode != "cloud_only":
+                        self._project_mgr.persist_image_completion(img_path.name, "yolo", img_path)
+                    if self._should_push_status_to_cloud():
                         agent = self._sync_agent
                         if agent is not None:
                             try:
                                 agent.set_image_status(img_path.name, "yolo")
                             except Exception:
                                 pass
-                    else:
-                        self._project_mgr.persist_image_completion(img_path.name, "yolo", img_path)
             except Exception as exc:
                 QMessageBox.warning(self, "Error", f"Error on {img_path.name}:\n{exc}")
             finally:

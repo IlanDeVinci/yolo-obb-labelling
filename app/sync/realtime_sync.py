@@ -82,9 +82,11 @@ class RealtimeSyncAgent:
         self._state_dir = self._project_root / ".sync"
         self._state_dir.mkdir(parents=True, exist_ok=True)
         self._cursor_file = self._state_dir / "cursor.json"
+        self._pending_status_file = self._state_dir / "pending-status.json"
 
         self._snapshot: dict[str, dict[str, Any]] = {}
         self._cursor = self._load_cursor()
+        self._pending_status_updates: dict[str, str] = self._load_pending_status_updates()
         self._token = ""
         self._last_heartbeat_at = 0.0
         self._active_file: str | None = None
@@ -110,6 +112,10 @@ class RealtimeSyncAgent:
             "locks": [],
             "recentBackups": [],
             "imageAccessMode": "local",
+            "latestSeq": 0,
+            "latestStatusSeq": 0,
+            "pendingStatusSync": len(self._pending_status_updates),
+            "statusSyncing": False,
         }
 
     @property
@@ -125,6 +131,13 @@ class RealtimeSyncAgent:
         self._thread.start()
 
     def stop(self, timeout_s: float = 2.5) -> None:
+        try:
+            self._ensure_auth()
+            self._flush_pending_status_updates()
+            self._push_local_changes_once()
+        except Exception:
+            pass
+
         self._stop_event.set()
         thread = self._thread
         if thread is not None:
@@ -197,16 +210,9 @@ class RealtimeSyncAgent:
             self._last_heartbeat_at = now
             self._set_status(connected=True, activeFile=hb.get("activeFile"))
 
-        updates = self._collect_local_changes()
-        if updates:
-            result = self._request_json("/api/sync/upsert", body={"updates": updates})
-            self._cursor = max(self._cursor, int(result.get("latestSeq", self._cursor)))
-            self._save_cursor(self._cursor)
-            self._set_status(
-                cursor=self._cursor,
-                appliedLocal=self._status.get("appliedLocal", 0) + int(result.get("applied", 0)),
-                rejected=self._status.get("rejected", 0) + len(result.get("rejected", [])),
-            )
+        self._push_local_changes_once()
+
+        self._flush_pending_status_updates()
 
         incoming = self._fetch_remote_changes()
         changes = incoming.get("changes") if isinstance(incoming, dict) else []
@@ -229,8 +235,26 @@ class RealtimeSyncAgent:
             role=str(status.get("role", "") or ""),
             isAdmin=bool(status.get("isAdmin")) if status.get("isAdmin") is not None else None,
             imageAccessMode=self._image_access_mode,
+            latestSeq=int(status.get("latestSeq", 0) or 0),
+            latestStatusSeq=int(status.get("latestStatusSeq", 0) or 0),
             lastError="",
             lastSyncAt=int(time.time()),
+            pendingStatusSync=len(self._pending_status_updates),
+            statusSyncing=False,
+        )
+
+    def _push_local_changes_once(self) -> None:
+        updates = self._collect_local_changes()
+        if not updates:
+            return
+
+        result = self._request_json("/api/sync/upsert", body={"updates": updates})
+        self._cursor = max(self._cursor, int(result.get("latestSeq", self._cursor)))
+        self._save_cursor(self._cursor)
+        self._set_status(
+            cursor=self._cursor,
+            appliedLocal=self._status.get("appliedLocal", 0) + int(result.get("applied", 0)),
+            rejected=self._status.get("rejected", 0) + len(result.get("rejected", [])),
         )
 
     def _login(self) -> None:
@@ -491,7 +515,19 @@ class RealtimeSyncAgent:
             request = urllib.request.Request(url, data=payload, headers=headers, method="PUT")
             try:
                 with urllib.request.urlopen(request, timeout=40):
-                    return signed
+                    sha1 = hashlib.sha1(payload).hexdigest()
+                    committed = self._request_json(
+                        "/api/images/commit-upload",
+                        body={
+                            "path": path,
+                            "sha1": sha1,
+                            "sizeBytes": int(len(payload)),
+                            "mtimeMs": int(time.time() * 1000),
+                        },
+                    )
+                    merged = dict(signed)
+                    merged["committed"] = committed
+                    return merged
             except urllib.error.HTTPError as error:
                 transient = int(error.code) in {408, 429, 500, 502, 503, 504}
                 if transient and attempt < 2:
@@ -522,10 +558,50 @@ class RealtimeSyncAgent:
         return self._request_json("/api/image-status")
 
     def set_image_status(self, image_name: str, status: str) -> dict[str, Any]:
+        name = str(image_name or "").strip()
+        state = str(status or "").strip().lower()
+        if not name:
+            raise RuntimeError("image_name is required")
+        if state not in {"in_progress", "completed", "yolo", "to_rotate"}:
+            raise RuntimeError(f"Invalid status: {state}")
+
         self._ensure_auth()
-        return self._request_json(
-            "/api/image-status",
-            body={"imageName": str(image_name or ""), "status": str(status or "")},
+        self._pending_status_updates[name] = state
+        self._save_pending_status_updates()
+        self._set_status(pendingStatusSync=len(self._pending_status_updates), statusSyncing=True)
+
+        self._flush_pending_status_updates()
+        return {
+            "ok": True,
+            "imageName": name,
+            "status": state,
+            "queued": name in self._pending_status_updates,
+            "pending": len(self._pending_status_updates),
+        }
+
+    def _flush_pending_status_updates(self) -> None:
+        if not self._pending_status_updates:
+            self._set_status(pendingStatusSync=0, statusSyncing=False)
+            return
+
+        self._set_status(statusSyncing=True, pendingStatusSync=len(self._pending_status_updates))
+        remaining = dict(self._pending_status_updates)
+        for image_name, status in list(self._pending_status_updates.items()):
+            try:
+                self._request_json(
+                    "/api/image-status",
+                    body={"imageName": image_name, "status": status},
+                )
+                remaining.pop(image_name, None)
+            except Exception:
+                # Keep unsent updates in queue for next poll cycle.
+                continue
+
+        self._pending_status_updates = remaining
+        self._save_pending_status_updates()
+        self._set_status(
+            pendingStatusSync=len(self._pending_status_updates),
+            statusSyncing=bool(self._pending_status_updates),
         )
 
     def admin_sync_all_image_statuses(self, statuses: dict[str, str]) -> dict[str, Any]:
@@ -718,6 +794,42 @@ class RealtimeSyncAgent:
         payload = {"cursor": int(cursor), "updatedAt": int(time.time() * 1000)}
         try:
             self._cursor_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _load_pending_status_updates(self) -> dict[str, str]:
+        if not self._pending_status_file.exists():
+            return {}
+        try:
+            data = json.loads(self._pending_status_file.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+        raw_items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(raw_items, dict):
+            return {}
+
+        out: dict[str, str] = {}
+        for key, value in raw_items.items():
+            image_name = str(key or "").strip()
+            status = str(value or "").strip().lower()
+            if not image_name:
+                continue
+            if status not in {"in_progress", "completed", "yolo", "to_rotate"}:
+                continue
+            out[image_name] = status
+        return out
+
+    def _save_pending_status_updates(self) -> None:
+        payload = {
+            "updatedAt": int(time.time() * 1000),
+            "items": self._pending_status_updates,
+        }
+        try:
+            self._pending_status_file.write_text(
+                json.dumps(payload, indent=2),
+                encoding="utf-8",
+            )
         except OSError:
             pass
 
