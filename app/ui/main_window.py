@@ -680,6 +680,8 @@ class MainWindow(QMainWindow):
             else:
                 collab_menu.addAction("Cloud Account Login...", self._open_cloud_user_login_dialog)
             collab_menu.addAction("Cloud Sync Status...", self._show_cloud_sync_status)
+            act_sync_labels = collab_menu.addAction("Sync Local Labels Now (Cloud DB)", self._sync_all_local_labels_to_cloud_db)
+            act_sync_labels.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
             collab_menu.addAction("Clear Cloud Cache", self._clear_cloud_image_cache)
             collab_menu.addAction("Purge Local Cloud Data", self._purge_all_local_cloud_data)
             collab_menu.addAction("Status Store Health", self._show_status_store_health)
