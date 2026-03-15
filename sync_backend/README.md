@@ -34,7 +34,7 @@ http://localhost:8095/
 
 - `SYNC_DB_PATH` (default `/data/sync.db` in container)
 - `SYNC_BACKUP_DIR` (default `/data/backups`)
-- `SYNC_SESSION_TTL_SECONDS` (default `45`)
+- `SYNC_SESSION_TTL_SECONDS` (default `900`)
 - `SYNC_BACKUP_RETENTION_DAYS` (default `14`)
 - `SYNC_MAX_FILE_BYTES` (default `8388608`)
 - `SYNC_MAX_ZIP_UPLOAD_BYTES` (default `536870912`)
@@ -149,6 +149,8 @@ After bootstrap succeeds, keep the token set. It still protects the endpoint aga
 - `POST /api/admin/images/upload-zip` (server-side bulk zip ingest for huge batches)
 - `GET /api/admin/labels/summary` (admin label sync visibility check)
 - `POST /api/admin/images/normalize-jpeg` (admin bulk re-encode images as JPEG)
+- `POST /api/admin/images/normalize-jpeg/start` (admin async JPEG normalization job start)
+- `GET /api/admin/images/normalize-jpeg/jobs/{jobId}` (admin normalization job progress/status)
 - `POST /api/admin/project/image-access`
 - `GET /api/admin/project/image-access`
 - `DELETE /api/users/{username}`

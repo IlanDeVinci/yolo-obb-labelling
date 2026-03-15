@@ -444,6 +444,7 @@
                                 Images</button>
                             <button id="purgeModeLabelsBtn" type="button" class="btn ghost">Purge BB/OBB Label
                                 Files</button>
+                            <span id="imagesOpsStatus" class="muted small">No background operation running.</span>
                             <span id="imagesSummary" class="muted small">No image data loaded.</span>
                         </div>
                     </article>
@@ -549,6 +550,7 @@
         const imagesDeleteLabels = document.getElementById('imagesDeleteLabels');
         const imagesSelectAll = document.getElementById('imagesSelectAll');
         const imagesSummary = document.getElementById('imagesSummary');
+        const imagesOpsStatus = document.getElementById('imagesOpsStatus');
         const slideshowModal = document.getElementById('slideshowModal');
         const slideStage = document.getElementById('slideStage');
         const slideImage = document.getElementById('slideImage');
@@ -561,6 +563,9 @@
         const slideShuffle = document.getElementById('slideShuffle');
         const slideAutoplay = document.getElementById('slideAutoplay');
         const slideInterval = document.getElementById('slideInterval');
+        const normalizeImagesBtn = document.getElementById('normalizeImagesBtn');
+
+        let messageTimer = null;
 
         const DASH_PAGE_STORAGE_KEY = 'syncDashPage';
         let token = localStorage.getItem('syncToken') || '';
@@ -621,9 +626,24 @@
             applyCompactMode();
         }
 
-        function setMessage(text, isError = false) {
+        function setMessage(text, isError = false, persist = false) {
+            if (messageTimer) {
+                clearTimeout(messageTimer);
+                messageTimer = null;
+            }
             msg.textContent = text || '';
-            msg.className = isError ? 'msg err' : 'msg';
+            msg.className = isError ? 'msg err show' : 'msg show';
+            if (!persist && text) {
+                messageTimer = setTimeout(() => {
+                    msg.className = isError ? 'msg err' : 'msg';
+                }, 5600);
+            }
+        }
+
+        function setImagesOpsStatus(text, isError = false) {
+            if (!imagesOpsStatus) return;
+            imagesOpsStatus.textContent = text || '';
+            imagesOpsStatus.classList.toggle('err', !!isError);
         }
 
         function fmtDate(ms) {
@@ -1639,25 +1659,63 @@
             }
         });
 
-        document.getElementById('normalizeImagesBtn').addEventListener('click', async () => {
+        normalizeImagesBtn.addEventListener('click', async () => {
             try {
                 const yes = confirm('Normalize all project images to JPEG encoding in cloud storage/DB? This can take a while.');
                 if (!yes) return;
-                const result = await api('/api/admin/images/normalize-jpeg', 'POST', {
+
+                normalizeImagesBtn.disabled = true;
+                normalizeImagesBtn.textContent = 'Normalizing...';
+                setImagesOpsStatus('Starting JPEG normalization job...');
+                setMessage('JPEG normalization started. Progress will appear in Images operations status.', false, true);
+
+                const started = await api('/api/admin/images/normalize-jpeg/start', 'POST', {
                     paths: [],
                     quality: 90,
                 });
-                const failed = Number(result.failed || 0);
-                const sample = Array.isArray(result.failedItems) && result.failedItems.length
-                    ? ` First failure: ${result.failedItems[0].path} (${result.failedItems[0].error}).`
+
+                const jobId = String(started.jobId || '').trim();
+                if (!jobId) {
+                    throw new Error('Normalization job did not return a job ID');
+                }
+
+                let finalResult = null;
+                while (true) {
+                    const job = await api(`/api/admin/images/normalize-jpeg/jobs/${encodeURIComponent(jobId)}`);
+                    const processed = Number(job.processed || 0);
+                    const requested = Number(job.requested || 0);
+                    const converted = Number(job.converted || 0);
+                    const failed = Number(job.failed || 0);
+                    const currentPath = String(job.currentPath || '');
+                    const pathSuffix = currentPath ? ` | ${currentPath}` : '';
+                    setImagesOpsStatus(`JPEG normalize: ${processed}/${requested} processed, converted=${converted}, failed=${failed}${pathSuffix}`, job.status === 'error');
+
+                    if (job.status === 'done') {
+                        finalResult = job.result || job;
+                        break;
+                    }
+                    if (job.status === 'error') {
+                        throw new Error(String(job.error || 'Normalization job failed'));
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
+
+                const failed = Number(finalResult.failed || 0);
+                const sample = Array.isArray(finalResult.failedItems) && finalResult.failedItems.length
+                    ? ` First failure: ${finalResult.failedItems[0].path} (${finalResult.failedItems[0].error}).`
                     : '';
                 setMessage(
-                    `JPEG normalization done. requested=${result.requested || 0}, converted=${result.converted || 0}, failed=${failed}.${sample}`,
+                    `JPEG normalization done. requested=${finalResult.requested || 0}, converted=${finalResult.converted || 0}, failed=${failed}.${sample}`,
                     failed > 0
                 );
+                setImagesOpsStatus(`JPEG normalization completed. converted=${finalResult.converted || 0}, failed=${failed}.`, failed > 0);
                 await loadAdminImages();
             } catch (e) {
                 setMessage(e.message, true);
+                setImagesOpsStatus(`JPEG normalization failed: ${String(e.message || e)}`, true);
+            } finally {
+                normalizeImagesBtn.disabled = false;
+                normalizeImagesBtn.textContent = 'Normalize To JPEG';
             }
         });
 

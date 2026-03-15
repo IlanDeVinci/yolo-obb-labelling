@@ -50,7 +50,7 @@ except Exception:  # pragma: no cover - optional dependency in local dev
 
 DB_PATH = Path(os.environ.get("SYNC_DB_PATH", "./data/sync.db")).resolve()
 BACKUP_DIR = Path(os.environ.get("SYNC_BACKUP_DIR", "./data/backups")).resolve()
-SESSION_TTL_SECONDS = max(20, int(os.environ.get("SYNC_SESSION_TTL_SECONDS", "45")))
+SESSION_TTL_SECONDS = max(20, int(os.environ.get("SYNC_SESSION_TTL_SECONDS", "900")))
 BACKUP_RETENTION_DAYS = max(2, int(os.environ.get("SYNC_BACKUP_RETENTION_DAYS", "14")))
 MAX_FILE_BYTES = max(64 * 1024, int(os.environ.get("SYNC_MAX_FILE_BYTES", str(8 * 1024 * 1024))))
 MAX_ZIP_UPLOAD_BYTES = max(1024 * 1024, int(os.environ.get("SYNC_MAX_ZIP_UPLOAD_BYTES", str(512 * 1024 * 1024))))
@@ -92,6 +92,9 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 _db_lock = threading.Lock()
 _stop_event = threading.Event()
 _s3_client = None
+_normalize_jobs_lock = threading.Lock()
+_normalize_jobs: dict[str, dict[str, Any]] = {}
+_NORMALIZE_JOB_RETENTION_MS = 2 * 60 * 60 * 1000
 
 
 class BootstrapPayload(BaseModel):
@@ -227,6 +230,158 @@ def _is_image_path(path: str) -> bool:
 def _is_label_text_path(path: str) -> bool:
     lower = str(path or "").lower()
     return lower.endswith(".txt") and "/labels/" in lower
+
+
+def _resolve_normalize_image_paths(project_id: str, requested_paths: list[str] | None) -> list[str]:
+    requested = requested_paths or []
+    if requested:
+        paths: list[str] = []
+        seen: set[str] = set()
+        for raw in requested:
+            path = _normalize_path(str(raw or ""))
+            if not _is_image_path(path):
+                continue
+            if path in seen:
+                continue
+            seen.add(path)
+            paths.append(path)
+        return paths
+
+    merged = _collect_project_image_rows_from_db(project_id)
+    if _is_s3_enabled():
+        try:
+            merged.update(_collect_project_image_rows_from_s3(project_id))
+        except Exception:
+            pass
+    return sorted(merged.keys(), key=lambda v: v.lower())
+
+
+def _normalize_images_to_jpeg_core(
+    *,
+    project_id: str,
+    username: str,
+    source_token: str,
+    quality: int,
+    paths: list[str],
+    progress_cb: Any | None = None,
+) -> dict[str, Any]:
+    if Image is None:
+        raise HTTPException(status_code=501, detail="Pillow is required for image normalization")
+
+    if not paths:
+        return {
+            "ok": True,
+            "projectId": project_id,
+            "requested": 0,
+            "converted": 0,
+            "failed": 0,
+            "failedItems": [],
+            "quality": quality,
+        }
+
+    use_s3_for_image = _project_uses_s3_images(project_id)
+    converted = 0
+    processed = 0
+    failed_items: list[dict[str, str]] = []
+    total = len(paths)
+
+    with _db_lock:
+        for path in paths:
+            processed += 1
+            try:
+                raw: bytes
+                if use_s3_for_image and _is_s3_enabled() and _s3_image_exists(project_id, path):
+                    raw = _s3_get_image_bytes(project_id, path)
+                else:
+                    row = _CONN.execute(
+                        "SELECT content_base64 FROM files WHERE project_id = ? AND path = ? AND deleted = 0",
+                        (project_id, path),
+                    ).fetchone()
+                    if row is None:
+                        raise RuntimeError("Image not found in DB")
+                    content_b64 = str(row["content_base64"] or "")
+                    if not content_b64:
+                        raise RuntimeError("Image bytes unavailable in DB")
+                    raw = base64.b64decode(content_b64.encode("ascii"), validate=False)
+
+                image = Image.open(io.BytesIO(raw))
+                image.load()
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
+
+                buffer = io.BytesIO()
+                image.save(buffer, format="JPEG", quality=quality, optimize=True)
+                jpeg_bytes = buffer.getvalue()
+                sha1 = hashlib.sha1(jpeg_bytes).hexdigest()
+                now = _now_ms()
+
+                content_b64 = ""
+                if use_s3_for_image and _is_s3_enabled():
+                    _s3_put_image(project_id, path, jpeg_bytes)
+                else:
+                    content_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
+
+                _CONN.execute(
+                    """
+                    INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
+                    VALUES (?, ?, 0, ?, ?, ?, ?)
+                    ON CONFLICT(project_id, path) DO UPDATE SET
+                      deleted=0,
+                      mtime_ms=excluded.mtime_ms,
+                      sha1=excluded.sha1,
+                      content_base64=excluded.content_base64,
+                      updated_at=excluded.updated_at
+                    """,
+                    (project_id, path, now, sha1, content_b64, now),
+                )
+                _CONN.execute(
+                    "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+                    (project_id, username, source_token, path, now, sha1, content_b64, now),
+                )
+                converted += 1
+            except UnidentifiedImageError:
+                if len(failed_items) < 100:
+                    failed_items.append({"path": path, "error": "unrecognized-image-format"})
+            except Exception as exc:  # noqa: BLE001
+                if len(failed_items) < 100:
+                    failed_items.append({"path": path, "error": str(exc)})
+
+            if callable(progress_cb):
+                try:
+                    progress_cb(
+                        {
+                            "processed": processed,
+                            "total": total,
+                            "converted": converted,
+                            "failed": processed - converted,
+                            "currentPath": path,
+                        }
+                    )
+                except Exception:
+                    pass
+
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": project_id,
+        "requested": total,
+        "converted": converted,
+        "failed": total - converted,
+        "failedItems": failed_items,
+        "quality": quality,
+    }
+
+
+def _prune_normalize_jobs() -> None:
+    now = _now_ms()
+    stale_ids = [
+        job_id
+        for job_id, job in _normalize_jobs.items()
+        if now - int(job.get("updatedAt", now)) > _NORMALIZE_JOB_RETENTION_MS
+    ]
+    for job_id in stale_ids:
+        _normalize_jobs.pop(job_id, None)
 
 
 def _sanitize_archive_member_path(value: str) -> str:
@@ -2021,117 +2176,128 @@ def admin_normalize_images_to_jpeg(
     payload: AdminNormalizeImagesPayload,
     session: SessionContext = Depends(_admin_only),
 ) -> dict[str, Any]:
-    if Image is None:
-        raise HTTPException(status_code=501, detail="Pillow is required for image normalization")
-
     quality = max(60, min(int(payload.quality or 90), 95))
-    requested = payload.paths or []
+    paths = _resolve_normalize_image_paths(session.project_id, payload.paths)
+    return _normalize_images_to_jpeg_core(
+        project_id=session.project_id,
+        username=session.username,
+        source_token=session.token,
+        quality=quality,
+        paths=paths,
+    )
 
-    if requested:
-        paths: list[str] = []
-        seen: set[str] = set()
-        for raw in requested:
-            path = _normalize_path(str(raw or ""))
-            if not _is_image_path(path):
-                continue
-            if path in seen:
-                continue
-            seen.add(path)
-            paths.append(path)
-    else:
-        merged = _collect_project_image_rows_from_db(session.project_id)
-        if _is_s3_enabled():
-            try:
-                merged.update(_collect_project_image_rows_from_s3(session.project_id))
-            except Exception:
-                pass
-        paths = sorted(merged.keys(), key=lambda v: v.lower())
 
-    if not paths:
-        return {
-            "ok": True,
+@app.post("/api/admin/images/normalize-jpeg/start")
+def admin_start_normalize_images_to_jpeg(
+    payload: AdminNormalizeImagesPayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    quality = max(60, min(int(payload.quality or 90), 95))
+    paths = _resolve_normalize_image_paths(session.project_id, payload.paths)
+    job_id = secrets.token_hex(12)
+    now = _now_ms()
+
+    with _normalize_jobs_lock:
+        _prune_normalize_jobs()
+        _normalize_jobs[job_id] = {
+            "jobId": job_id,
             "projectId": session.project_id,
-            "requested": 0,
+            "createdBy": session.username,
+            "status": "running",
+            "requested": len(paths),
+            "processed": 0,
             "converted": 0,
             "failed": 0,
-            "failedItems": [],
+            "quality": quality,
+            "currentPath": "",
+            "startedAt": now,
+            "updatedAt": now,
+            "finishedAt": 0,
+            "result": None,
+            "error": "",
         }
 
-    use_s3_for_image = _project_uses_s3_images(session.project_id)
-    converted = 0
-    failed_items: list[dict[str, str]] = []
+    def _progress(update: dict[str, Any]) -> None:
+        with _normalize_jobs_lock:
+            job = _normalize_jobs.get(job_id)
+            if not job:
+                return
+            job["processed"] = int(update.get("processed", 0) or 0)
+            job["requested"] = int(update.get("total", job.get("requested", 0)) or 0)
+            job["converted"] = int(update.get("converted", 0) or 0)
+            job["failed"] = int(update.get("failed", 0) or 0)
+            job["currentPath"] = str(update.get("currentPath") or "")
+            job["updatedAt"] = _now_ms()
 
-    with _db_lock:
-        for path in paths:
-            try:
-                raw: bytes
-                if use_s3_for_image and _is_s3_enabled() and _s3_image_exists(session.project_id, path):
-                    raw = _s3_get_image_bytes(session.project_id, path)
-                else:
-                    row = _CONN.execute(
-                        "SELECT content_base64 FROM files WHERE project_id = ? AND path = ? AND deleted = 0",
-                        (session.project_id, path),
-                    ).fetchone()
-                    if row is None:
-                        raise RuntimeError("Image not found in DB")
-                    content_b64 = str(row["content_base64"] or "")
-                    if not content_b64:
-                        raise RuntimeError("Image bytes unavailable in DB")
-                    raw = base64.b64decode(content_b64.encode("ascii"), validate=False)
+    def _worker() -> None:
+        try:
+            result = _normalize_images_to_jpeg_core(
+                project_id=session.project_id,
+                username=session.username,
+                source_token=session.token,
+                quality=quality,
+                paths=paths,
+                progress_cb=_progress,
+            )
+            with _normalize_jobs_lock:
+                job = _normalize_jobs.get(job_id)
+                if job:
+                    job["status"] = "done"
+                    job["result"] = result
+                    job["processed"] = int(result.get("requested", 0) or 0)
+                    job["requested"] = int(result.get("requested", 0) or 0)
+                    job["converted"] = int(result.get("converted", 0) or 0)
+                    job["failed"] = int(result.get("failed", 0) or 0)
+                    job["finishedAt"] = _now_ms()
+                    job["updatedAt"] = job["finishedAt"]
+        except Exception as exc:  # noqa: BLE001
+            with _normalize_jobs_lock:
+                job = _normalize_jobs.get(job_id)
+                if job:
+                    job["status"] = "error"
+                    job["error"] = str(exc)
+                    job["finishedAt"] = _now_ms()
+                    job["updatedAt"] = job["finishedAt"]
 
-                image = Image.open(io.BytesIO(raw))
-                image.load()
-                if image.mode != "RGB":
-                    image = image.convert("RGB")
-
-                buffer = io.BytesIO()
-                image.save(buffer, format="JPEG", quality=quality, optimize=True)
-                jpeg_bytes = buffer.getvalue()
-                sha1 = hashlib.sha1(jpeg_bytes).hexdigest()
-                now = _now_ms()
-
-                content_b64 = ""
-                if use_s3_for_image and _is_s3_enabled():
-                    _s3_put_image(session.project_id, path, jpeg_bytes)
-                else:
-                    content_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
-
-                _CONN.execute(
-                    """
-                    INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
-                    VALUES (?, ?, 0, ?, ?, ?, ?)
-                    ON CONFLICT(project_id, path) DO UPDATE SET
-                      deleted=0,
-                      mtime_ms=excluded.mtime_ms,
-                      sha1=excluded.sha1,
-                      content_base64=excluded.content_base64,
-                      updated_at=excluded.updated_at
-                    """,
-                    (session.project_id, path, now, sha1, content_b64, now),
-                )
-                _CONN.execute(
-                    "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
-                    (session.project_id, session.username, session.token, path, now, sha1, content_b64, now),
-                )
-                converted += 1
-            except UnidentifiedImageError:
-                if len(failed_items) < 100:
-                    failed_items.append({"path": path, "error": "unrecognized-image-format"})
-            except Exception as exc:  # noqa: BLE001
-                if len(failed_items) < 100:
-                    failed_items.append({"path": path, "error": str(exc)})
-
-        _CONN.commit()
+    thread = threading.Thread(target=_worker, name=f"normalize-job-{job_id}", daemon=True)
+    thread.start()
 
     return {
         "ok": True,
-        "projectId": session.project_id,
+        "jobId": job_id,
+        "status": "running",
         "requested": len(paths),
-        "converted": converted,
-        "failed": len(paths) - converted,
-        "failedItems": failed_items,
         "quality": quality,
     }
+
+
+@app.get("/api/admin/images/normalize-jpeg/jobs/{job_id}")
+def admin_get_normalize_images_job(
+    job_id: str,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    with _normalize_jobs_lock:
+        _prune_normalize_jobs()
+        job = _normalize_jobs.get(str(job_id or ""))
+        if not job or str(job.get("projectId") or "") != session.project_id:
+            raise HTTPException(status_code=404, detail="Normalization job not found")
+        return {
+            "ok": True,
+            "jobId": str(job.get("jobId") or ""),
+            "status": str(job.get("status") or "running"),
+            "projectId": str(job.get("projectId") or ""),
+            "requested": int(job.get("requested") or 0),
+            "processed": int(job.get("processed") or 0),
+            "converted": int(job.get("converted") or 0),
+            "failed": int(job.get("failed") or 0),
+            "quality": int(job.get("quality") or 90),
+            "currentPath": str(job.get("currentPath") or ""),
+            "error": str(job.get("error") or ""),
+            "startedAt": int(job.get("startedAt") or 0),
+            "updatedAt": int(job.get("updatedAt") or 0),
+            "finishedAt": int(job.get("finishedAt") or 0),
+            "result": job.get("result"),
+        }
 
 
 @app.get("/api/admin/images/view")

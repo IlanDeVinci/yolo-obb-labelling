@@ -544,6 +544,118 @@ class RealtimeSyncAgent:
             body={"items": items},
         )
 
+    def sync_all_local_label_files(
+        self,
+        *,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        """Push all local label .txt files through lock-safe sync/upsert.
+
+        This uses explicit per-file locks required by the backend for label files,
+        so concurrent multi-user edits remain protected.
+        """
+        self._ensure_auth()
+
+        label_files: list[Path] = []
+        labels_root = self._project_root / "labels"
+        if labels_root.exists() and labels_root.is_dir():
+            for path in labels_root.rglob("*.txt"):
+                if path.is_file():
+                    label_files.append(path)
+
+        label_files.sort(key=lambda p: str(p).lower())
+        total = len(label_files)
+        if total == 0:
+            return {
+                "ok": True,
+                "total": 0,
+                "applied": 0,
+                "rejected": 0,
+                "lockedByOther": 0,
+                "canceled": False,
+                "errors": [],
+            }
+
+        applied = 0
+        rejected = 0
+        locked_by_other = 0
+        errors: list[dict[str, str]] = []
+        canceled = False
+
+        for idx, abs_path in enumerate(label_files, start=1):
+            if callable(cancel_check) and cancel_check():
+                canceled = True
+                break
+
+            rel_path = self._normalize_rel(str(abs_path.relative_to(self._project_root)))
+            rel_path = rel_path.replace("\\", "/")
+
+            if callable(progress_callback):
+                try:
+                    progress_callback(idx, total, rel_path)
+                except Exception:
+                    pass
+
+            try:
+                self._activate_lock(rel_path)
+            except Exception as exc:  # noqa: BLE001
+                message = str(exc)
+                if "locked by" in message.lower() or "409" in message:
+                    locked_by_other += 1
+                else:
+                    rejected += 1
+                if len(errors) < 100:
+                    errors.append({"path": rel_path, "error": message})
+                continue
+
+            try:
+                payload = abs_path.read_bytes()
+                sha1 = hashlib.sha1(payload).hexdigest()
+                mtime_ms = int(abs_path.stat().st_mtime * 1000)
+                result = self._request_json(
+                    "/api/sync/upsert",
+                    body={
+                        "updates": [
+                            {
+                                "path": rel_path,
+                                "deleted": False,
+                                "mtimeMs": mtime_ms,
+                                "sha1": sha1,
+                                "contentBase64": base64.b64encode(payload).decode("ascii"),
+                            }
+                        ]
+                    },
+                )
+                applied += int(result.get("applied", 0) or 0)
+                rejected_items = result.get("rejected") if isinstance(result, dict) else []
+                if isinstance(rejected_items, list) and rejected_items:
+                    rejected += len(rejected_items)
+                    if len(errors) < 100:
+                        for item in rejected_items[: 100 - len(errors)]:
+                            path = str(item.get("path") or rel_path)
+                            reason = str(item.get("reason") or "rejected")
+                            errors.append({"path": path, "error": reason})
+            except Exception as exc:  # noqa: BLE001
+                rejected += 1
+                if len(errors) < 100:
+                    errors.append({"path": rel_path, "error": str(exc)})
+            finally:
+                try:
+                    self._activate_lock(None)
+                except Exception:
+                    pass
+
+        return {
+            "ok": True,
+            "total": total,
+            "applied": applied,
+            "rejected": rejected,
+            "lockedByOther": locked_by_other,
+            "canceled": canceled,
+            "errors": errors,
+        }
+
     def submit_deletions(self, paths: list[str]) -> dict[str, Any]:
         """Push explicit delete updates for project-relative paths."""
         self._ensure_auth()

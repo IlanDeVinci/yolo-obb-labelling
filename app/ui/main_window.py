@@ -491,6 +491,10 @@ class MainWindow(QMainWindow):
         self._act_cloud_sync_all_statuses.triggered.connect(self._sync_all_local_statuses_to_cloud_db)
         cloud_menu.addAction(self._act_cloud_sync_all_statuses)
 
+        self._act_cloud_sync_all_labels = QAction("Sync All Local Labels to Cloud DB (Lock-Safe)", self)
+        self._act_cloud_sync_all_labels.triggered.connect(self._sync_all_local_labels_to_cloud_db)
+        cloud_menu.addAction(self._act_cloud_sync_all_labels)
+
         # ---- Equipe ----
         team_menu = mb.addMenu("&Equipe")
         self._team_menu = team_menu
@@ -1923,6 +1927,102 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    def _sync_all_local_labels_to_cloud_db(self) -> None:
+        """Push all local label txt files to cloud DB using per-file lock-safe upserts."""
+        if not self._is_cloud_project_workflow_enabled():
+            QMessageBox.information(self, "Cloud Label Sync", "This project is currently using local mode.")
+            return
+
+        agent = self._sync_agent
+        if agent is None:
+            self._start_project_sync_if_enabled()
+            agent = self._sync_agent
+        if agent is None:
+            QMessageBox.warning(
+                self,
+                "Cloud Label Sync",
+                "Cloud sync is not connected. Sign in first, then retry.",
+            )
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Cloud Label Sync",
+            "Sync all local label files from /labels/**.txt to cloud DB now?\n\n"
+            "This uses per-file locking to stay safe with multiple users.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        progress = QProgressDialog("Syncing local labels...", "Cancel", 0, 0, self)
+        progress.setWindowTitle("Cloud Label Sync")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
+        def _on_progress(current: int, total: int, rel_path: str) -> None:
+            progress.setMaximum(max(1, int(total)))
+            progress.setValue(int(current))
+            progress.setLabelText(f"Syncing label {current}/{total}: {rel_path}")
+            QApplication.processEvents()
+
+        try:
+            result = agent.sync_all_local_label_files(
+                progress_callback=_on_progress,
+                cancel_check=progress.wasCanceled,
+            )
+        except Exception as exc:  # noqa: BLE001
+            progress.close()
+            QMessageBox.warning(self, "Cloud Label Sync", f"Bulk label sync failed:\n{exc}")
+            return
+        finally:
+            progress.close()
+
+        total = int(result.get("total", 0) or 0)
+        applied = int(result.get("applied", 0) or 0)
+        rejected = int(result.get("rejected", 0) or 0)
+        locked = int(result.get("lockedByOther", 0) or 0)
+        canceled = bool(result.get("canceled", False))
+        errors = result.get("errors") if isinstance(result.get("errors"), list) else []
+
+        if canceled:
+            self._lbl_hint.setText(
+                f"Cloud label sync canceled: applied={applied}, rejected={rejected}, locked={locked}, total={total}"
+            )
+            QMessageBox.information(
+                self,
+                "Cloud Label Sync",
+                (
+                    "Label sync canceled.\n\n"
+                    f"Total files: {total}\n"
+                    f"Applied: {applied}\n"
+                    f"Rejected: {rejected}\n"
+                    f"Locked by others: {locked}"
+                ),
+            )
+            return
+
+        self._lbl_hint.setText(
+            f"Cloud label sync complete: applied={applied}, rejected={rejected}, locked={locked}, total={total}"
+        )
+        details = ""
+        if errors:
+            first = errors[0]
+            details = f"\n\nFirst error: {first.get('path', '-')}: {first.get('error', '-')}"
+        QMessageBox.information(
+            self,
+            "Cloud Label Sync",
+            (
+                "Bulk label sync completed.\n\n"
+                f"Total files: {total}\n"
+                f"Applied: {applied}\n"
+                f"Rejected: {rejected}\n"
+                f"Locked by others: {locked}"
+                f"{details}"
+            ),
+        )
+
     def _purge_all_local_cloud_data(self) -> None:
         project_folder = self._project_mgr.get_project_folder()
         if project_folder is None:
@@ -2658,6 +2758,8 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "_act_cloud_sync_all_statuses") and self._act_cloud_sync_all_statuses is not None:
             self._act_cloud_sync_all_statuses.setEnabled(bool(connected and self._is_cloud_admin_user()))
+        if hasattr(self, "_act_cloud_sync_all_labels") and self._act_cloud_sync_all_labels is not None:
+            self._act_cloud_sync_all_labels.setEnabled(bool(connected))
 
         team_allowed = not self._is_cloud_project_workflow_enabled()
         if self._team_menu is not None:
