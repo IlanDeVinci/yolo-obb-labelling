@@ -151,6 +151,7 @@ After bootstrap succeeds, keep the token set. It still protects the endpoint aga
 - `POST /api/admin/images/normalize-jpeg` (admin bulk re-encode images as JPEG)
 - `POST /api/admin/images/normalize-jpeg/start` (admin async JPEG normalization job start)
 - `GET /api/admin/images/normalize-jpeg/jobs/{jobId}` (admin normalization job progress/status)
+- `POST /api/admin/images/normalize-jpeg/jobs/{jobId}/cancel` (admin request cancellation of running normalization)
 - `POST /api/admin/project/image-access`
 - `GET /api/admin/project/image-access`
 - `DELETE /api/users/{username}`

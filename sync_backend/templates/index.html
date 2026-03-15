@@ -442,6 +442,8 @@
                                 Statuses</button>
                             <button id="labelsSummaryBtn" type="button" class="btn ghost">Check Label Sync</button>
                             <button id="normalizeImagesBtn" type="button" class="btn ghost">Normalize To JPEG</button>
+                            <button id="cancelNormalizeBtn" type="button" class="btn ghost" disabled>Cancel
+                                Normalize</button>
                             <button id="labelSyncHelpBtn" type="button" class="btn ghost">How To Sync Local
                                 Labels</button>
                             <button id="deleteSelectedImagesBtn" type="button" class="btn danger">Delete Selected
@@ -520,6 +522,13 @@
         </div>
     </main>
 
+    <div id="globalLoadingOverlay" class="global-loading hidden" aria-live="polite" aria-busy="true">
+        <div class="global-loading-card">
+            <div class="global-spinner" aria-hidden="true"></div>
+            <p id="globalLoadingText">Loading...</p>
+        </div>
+    </div>
+
     <script>
         const msg = document.getElementById('msg');
         const authPanel = document.getElementById('authPanel');
@@ -572,9 +581,13 @@
         const slideAutoplay = document.getElementById('slideAutoplay');
         const slideInterval = document.getElementById('slideInterval');
         const normalizeImagesBtn = document.getElementById('normalizeImagesBtn');
+        const cancelNormalizeBtn = document.getElementById('cancelNormalizeBtn');
         const signOutExistingBtn = document.getElementById('signOutExistingBtn');
+        const globalLoadingOverlay = document.getElementById('globalLoadingOverlay');
+        const globalLoadingText = document.getElementById('globalLoadingText');
 
         let messageTimer = null;
+        let activeNormalizeJobId = '';
 
         const DASH_PAGE_STORAGE_KEY = 'syncDashPage';
         let token = localStorage.getItem('syncToken') || '';
@@ -669,6 +682,12 @@
             if (!signOutExistingBtn) return;
             const hasSession = !!token;
             signOutExistingBtn.classList.toggle('hidden', !hasSession);
+        }
+
+        function setGlobalLoading(active, text = 'Loading...') {
+            if (!globalLoadingOverlay || !globalLoadingText) return;
+            globalLoadingText.textContent = text;
+            globalLoadingOverlay.classList.toggle('hidden', !active);
         }
 
         function fmtDate(ms) {
@@ -829,7 +848,11 @@
                 </tr>
             `).join('');
             const s3Only = adminImages.filter((item) => item.presentInS3 && !item.indexedInDb).length;
-            imagesSummary.textContent = `${adminImages.length} images loaded. s3-only=${s3Only} (present in S3, missing DB index row).`;
+            if (s3Only === 0) {
+                imagesSummary.textContent = `${adminImages.length} images loaded. S3 and DB index are in sync.`;
+            } else {
+                imagesSummary.textContent = `${adminImages.length} images loaded. s3-only=${s3Only} (present in S3, missing DB index row).`;
+            }
             if (imagesSelectAll) imagesSelectAll.checked = false;
         }
 
@@ -1532,6 +1555,7 @@
 
         document.getElementById('loginBox').addEventListener('submit', async (event) => {
             event.preventDefault();
+            setGlobalLoading(true, 'Logging in...');
             try {
                 if (!projectIdSelect.value) {
                     await loadProjectOptions();
@@ -1559,6 +1583,8 @@
                 updateAuthPanelSignOutVisibility();
             } catch (e) {
                 setMessage(e.message, true);
+            } finally {
+                setGlobalLoading(false);
             }
         });
 
@@ -1692,7 +1718,7 @@
 
         document.getElementById('labelSyncHelpBtn').addEventListener('click', () => {
             setMessage(
-                'Local labels sync is in desktop app: Cloud -> Sync All Local Labels to Cloud DB (Lock-Safe). Keep cloud sync connected, then run it once.',
+                'Local labels sync is in desktop app: Cloud -> Sync Local Labels Now (Cloud DB). Keep cloud sync connected, then run it once.',
                 false,
                 true
             );
@@ -1718,12 +1744,29 @@
                 if (!jobId) {
                     throw new Error('Normalization job did not return a job ID');
                 }
+                activeNormalizeJobId = jobId;
+                cancelNormalizeBtn.disabled = false;
 
                 setImagesOpsProgress(0, Number(started.requested || 1));
 
                 let finalResult = null;
+                let transientErrors = 0;
                 while (true) {
-                    const job = await api(`/api/admin/images/normalize-jpeg/jobs/${encodeURIComponent(jobId)}`);
+                    let job = null;
+                    try {
+                        job = await api(`/api/admin/images/normalize-jpeg/jobs/${encodeURIComponent(jobId)}`);
+                        transientErrors = 0;
+                    } catch (pollErr) {
+                        const msgText = String(pollErr && pollErr.message ? pollErr.message : pollErr);
+                        const isTransient = /HTTP\s*504|HTTP\s*503|timed out|timeout|NetworkError|Failed to fetch/i.test(msgText);
+                        if (isTransient && transientErrors < 25) {
+                            transientErrors += 1;
+                            setImagesOpsStatus(`Waiting for normalization status... retry ${transientErrors}/25`, false);
+                            await new Promise((resolve) => setTimeout(resolve, 1500));
+                            continue;
+                        }
+                        throw pollErr;
+                    }
                     const processed = Number(job.processed || 0);
                     const requested = Number(job.requested || 0);
                     const converted = Number(job.converted || 0);
@@ -1737,6 +1780,10 @@
                         finalResult = job.result || job;
                         break;
                     }
+                    if (job.status === 'canceled') {
+                        finalResult = job.result || job;
+                        break;
+                    }
                     if (job.status === 'error') {
                         throw new Error(String(job.error || 'Normalization job failed'));
                     }
@@ -1744,10 +1791,24 @@
                 }
 
                 const failed = Number(finalResult.failed || 0);
-                setImagesOpsProgress(Number(finalResult.requested || 0), Number(finalResult.requested || 1));
+                const requestedFinal = Number(finalResult.requested || 0);
+                const processedFinal = Number(finalResult.processed || requestedFinal || 0);
+                setImagesOpsProgress(processedFinal, Number(requestedFinal || 1));
                 const sample = Array.isArray(finalResult.failedItems) && finalResult.failedItems.length
                     ? ` First failure: ${finalResult.failedItems[0].path} (${finalResult.failedItems[0].error}).`
                     : '';
+                if (finalResult.canceled) {
+                    const canceledBy = String(finalResult.cancelRequestedBy || '');
+                    const canceledAt = Number(finalResult.canceledAt || 0);
+                    const canceledAtText = canceledAt ? ` at ${fmtDate(canceledAt)}` : '';
+                    const canceledByText = canceledBy ? ` by ${canceledBy}` : '';
+                    setMessage(
+                        `JPEG normalization canceled${canceledByText}${canceledAtText}. processed=${processedFinal}/${requestedFinal}, converted=${finalResult.converted || 0}, failed=${failed}.${sample}`,
+                        true
+                    );
+                    setImagesOpsStatus(`JPEG normalization canceled${canceledByText}${canceledAtText}.`, true);
+                    return;
+                }
                 setMessage(
                     `JPEG normalization done. requested=${finalResult.requested || 0}, converted=${finalResult.converted || 0}, failed=${failed}.${sample}`,
                     failed > 0
@@ -1758,8 +1819,32 @@
                 setMessage(e.message, true);
                 setImagesOpsStatus(`JPEG normalization failed: ${String(e.message || e)}`, true);
             } finally {
+                activeNormalizeJobId = '';
+                cancelNormalizeBtn.disabled = true;
                 normalizeImagesBtn.disabled = false;
                 normalizeImagesBtn.textContent = 'Normalize To JPEG';
+            }
+        });
+
+        cancelNormalizeBtn.addEventListener('click', async () => {
+            try {
+                if (!activeNormalizeJobId) {
+                    setMessage('No active normalization job to cancel.', true);
+                    return;
+                }
+                const yes = confirm('Cancel the running JPEG normalization job?');
+                if (!yes) return;
+                cancelNormalizeBtn.disabled = true;
+                const canceled = await api(`/api/admin/images/normalize-jpeg/jobs/${encodeURIComponent(activeNormalizeJobId)}/cancel`, 'POST', {});
+                const who = String(canceled.cancelRequestedBy || '');
+                const at = Number(canceled.canceledAt || 0);
+                const whoText = who ? ` by ${who}` : '';
+                const atText = at ? ` at ${fmtDate(at)}` : '';
+                setImagesOpsStatus('Cancel requested for normalization job. Waiting for worker to stop...', false);
+                setMessage(`Cancel requested${whoText}${atText}. Waiting for worker to stop...`, false);
+            } catch (e) {
+                cancelNormalizeBtn.disabled = false;
+                setMessage(e.message, true);
             }
         });
 

@@ -271,6 +271,7 @@ def _normalize_images_to_jpeg_core(
     quality: int,
     paths: list[str],
     progress_cb: Any | None = None,
+    should_cancel_cb: Any | None = None,
 ) -> dict[str, Any]:
     if Image is None:
         raise HTTPException(status_code=501, detail="Pillow is required for image normalization")
@@ -291,43 +292,52 @@ def _normalize_images_to_jpeg_core(
     processed = 0
     failed_items: list[dict[str, str]] = []
     total = len(paths)
+    canceled = False
 
-    with _db_lock:
-        for path in paths:
-            processed += 1
+    for path in paths:
+        if callable(should_cancel_cb):
             try:
-                raw: bytes
-                if use_s3_for_image and _is_s3_enabled() and _s3_image_exists(project_id, path):
-                    raw = _s3_get_image_bytes(project_id, path)
-                else:
+                if bool(should_cancel_cb()):
+                    canceled = True
+                    break
+            except Exception:
+                pass
+        processed += 1
+        try:
+            raw: bytes
+            if use_s3_for_image and _is_s3_enabled() and _s3_image_exists(project_id, path):
+                raw = _s3_get_image_bytes(project_id, path)
+            else:
+                with _db_lock:
                     row = _CONN.execute(
                         "SELECT content_base64 FROM files WHERE project_id = ? AND path = ? AND deleted = 0",
                         (project_id, path),
                     ).fetchone()
-                    if row is None:
-                        raise RuntimeError("Image not found in DB")
-                    content_b64 = str(row["content_base64"] or "")
-                    if not content_b64:
-                        raise RuntimeError("Image bytes unavailable in DB")
-                    raw = base64.b64decode(content_b64.encode("ascii"), validate=False)
+                if row is None:
+                    raise RuntimeError("Image not found in DB")
+                content_b64 = str(row["content_base64"] or "")
+                if not content_b64:
+                    raise RuntimeError("Image bytes unavailable in DB")
+                raw = base64.b64decode(content_b64.encode("ascii"), validate=False)
 
-                image = Image.open(io.BytesIO(raw))
-                image.load()
-                if image.mode != "RGB":
-                    image = image.convert("RGB")
+            image = Image.open(io.BytesIO(raw))
+            image.load()
+            if image.mode != "RGB":
+                image = image.convert("RGB")
 
-                buffer = io.BytesIO()
-                image.save(buffer, format="JPEG", quality=quality, optimize=True)
-                jpeg_bytes = buffer.getvalue()
-                sha1 = hashlib.sha1(jpeg_bytes).hexdigest()
-                now = _now_ms()
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=quality, optimize=True)
+            jpeg_bytes = buffer.getvalue()
+            sha1 = hashlib.sha1(jpeg_bytes).hexdigest()
+            now = _now_ms()
 
-                content_b64 = ""
-                if use_s3_for_image and _is_s3_enabled():
-                    _s3_put_image(project_id, path, jpeg_bytes)
-                else:
-                    content_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
+            content_b64 = ""
+            if use_s3_for_image and _is_s3_enabled():
+                _s3_put_image(project_id, path, jpeg_bytes)
+            else:
+                content_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
 
+            with _db_lock:
                 _CONN.execute(
                     """
                     INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
@@ -345,38 +355,39 @@ def _normalize_images_to_jpeg_core(
                     "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
                     (project_id, username, source_token, path, now, sha1, content_b64, now),
                 )
-                converted += 1
-            except UnidentifiedImageError:
-                if len(failed_items) < 100:
-                    failed_items.append({"path": path, "error": "unrecognized-image-format"})
-            except Exception as exc:  # noqa: BLE001
-                if len(failed_items) < 100:
-                    failed_items.append({"path": path, "error": str(exc)})
+                _CONN.commit()
+            converted += 1
+        except UnidentifiedImageError:
+            if len(failed_items) < 100:
+                failed_items.append({"path": path, "error": "unrecognized-image-format"})
+        except Exception as exc:  # noqa: BLE001
+            if len(failed_items) < 100:
+                failed_items.append({"path": path, "error": str(exc)})
 
-            if callable(progress_cb):
-                try:
-                    progress_cb(
-                        {
-                            "processed": processed,
-                            "total": total,
-                            "converted": converted,
-                            "failed": processed - converted,
-                            "currentPath": path,
-                        }
-                    )
-                except Exception:
-                    pass
-
-        _CONN.commit()
+        if callable(progress_cb):
+            try:
+                progress_cb(
+                    {
+                        "processed": processed,
+                        "total": total,
+                        "converted": converted,
+                        "failed": processed - converted,
+                        "currentPath": path,
+                    }
+                )
+            except Exception:
+                pass
 
     return {
         "ok": True,
         "projectId": project_id,
         "requested": total,
+        "processed": processed,
         "converted": converted,
         "failed": total - converted,
         "failedItems": failed_items,
         "quality": quality,
+        "canceled": canceled,
     }
 
 
@@ -2200,7 +2211,7 @@ def admin_start_normalize_images_to_jpeg(
     session: SessionContext = Depends(_admin_only),
 ) -> dict[str, Any]:
     quality = max(60, min(int(payload.quality or 90), 95))
-    paths = _resolve_normalize_image_paths(session.project_id, payload.paths)
+    requested_paths = list(payload.paths or [])
     job_id = secrets.token_hex(12)
     now = _now_ms()
 
@@ -2211,7 +2222,7 @@ def admin_start_normalize_images_to_jpeg(
             "projectId": session.project_id,
             "createdBy": session.username,
             "status": "running",
-            "requested": len(paths),
+            "requested": 0,
             "processed": 0,
             "converted": 0,
             "failed": 0,
@@ -2222,6 +2233,9 @@ def admin_start_normalize_images_to_jpeg(
             "finishedAt": 0,
             "result": None,
             "error": "",
+            "cancelRequested": False,
+            "cancelRequestedBy": "",
+            "canceledAt": 0,
         }
 
     def _progress(update: dict[str, Any]) -> None:
@@ -2238,6 +2252,20 @@ def admin_start_normalize_images_to_jpeg(
 
     def _worker() -> None:
         try:
+            paths = _resolve_normalize_image_paths(session.project_id, requested_paths)
+            with _normalize_jobs_lock:
+                job = _normalize_jobs.get(job_id)
+                if job:
+                    job["requested"] = len(paths)
+                    job["updatedAt"] = _now_ms()
+
+            def _should_cancel() -> bool:
+                with _normalize_jobs_lock:
+                    job = _normalize_jobs.get(job_id)
+                    if not job:
+                        return True
+                    return bool(job.get("cancelRequested", False))
+
             result = _normalize_images_to_jpeg_core(
                 project_id=session.project_id,
                 username=session.username,
@@ -2245,18 +2273,21 @@ def admin_start_normalize_images_to_jpeg(
                 quality=quality,
                 paths=paths,
                 progress_cb=_progress,
+                should_cancel_cb=_should_cancel,
             )
             with _normalize_jobs_lock:
                 job = _normalize_jobs.get(job_id)
                 if job:
-                    job["status"] = "done"
+                    job["status"] = "canceled" if bool(result.get("canceled", False)) else "done"
                     job["result"] = result
-                    job["processed"] = int(result.get("requested", 0) or 0)
+                    job["processed"] = int(result.get("processed", 0) or 0)
                     job["requested"] = int(result.get("requested", 0) or 0)
                     job["converted"] = int(result.get("converted", 0) or 0)
-                    job["failed"] = int(result.get("failed", 0) or 0)
+                    job["failed"] = int(max(0, result.get("processed", 0) - result.get("converted", 0)) or 0)
                     job["finishedAt"] = _now_ms()
                     job["updatedAt"] = job["finishedAt"]
+                    if job["status"] == "canceled" and not int(job.get("canceledAt") or 0):
+                        job["canceledAt"] = job["finishedAt"]
         except Exception as exc:  # noqa: BLE001
             with _normalize_jobs_lock:
                 job = _normalize_jobs.get(job_id)
@@ -2273,7 +2304,7 @@ def admin_start_normalize_images_to_jpeg(
         "ok": True,
         "jobId": job_id,
         "status": "running",
-        "requested": len(paths),
+        "requested": 0,
         "quality": quality,
     }
 
@@ -2304,6 +2335,47 @@ def admin_get_normalize_images_job(
             "updatedAt": int(job.get("updatedAt") or 0),
             "finishedAt": int(job.get("finishedAt") or 0),
             "result": job.get("result"),
+            "cancelRequested": bool(job.get("cancelRequested", False)),
+            "cancelRequestedBy": str(job.get("cancelRequestedBy") or ""),
+            "canceledAt": int(job.get("canceledAt") or 0),
+        }
+
+
+@app.post("/api/admin/images/normalize-jpeg/jobs/{job_id}/cancel")
+def admin_cancel_normalize_images_job(
+    job_id: str,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    with _normalize_jobs_lock:
+        _prune_normalize_jobs()
+        job = _normalize_jobs.get(str(job_id or ""))
+        if not job or str(job.get("projectId") or "") != session.project_id:
+            raise HTTPException(status_code=404, detail="Normalization job not found")
+
+        status = str(job.get("status") or "running")
+        if status in {"done", "error", "canceled"}:
+            return {
+                "ok": True,
+                "jobId": str(job.get("jobId") or ""),
+                "status": status,
+                "cancelRequested": bool(job.get("cancelRequested", False)),
+                "cancelRequestedBy": str(job.get("cancelRequestedBy") or ""),
+                "canceledAt": int(job.get("canceledAt") or 0),
+                "alreadyFinished": True,
+            }
+
+        job["cancelRequested"] = True
+        job["cancelRequestedBy"] = session.username
+        if not int(job.get("canceledAt") or 0):
+            job["canceledAt"] = _now_ms()
+        job["updatedAt"] = _now_ms()
+        return {
+            "ok": True,
+            "jobId": str(job.get("jobId") or ""),
+            "status": str(job.get("status") or "running"),
+            "cancelRequested": True,
+            "cancelRequestedBy": session.username,
+            "canceledAt": int(job.get("canceledAt") or 0),
         }
 
 

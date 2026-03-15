@@ -659,6 +659,47 @@ th {
   overflow: hidden;
 }
 
+.global-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(17, 27, 23, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.global-loading-card {
+  min-width: 220px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #d8e0da;
+  background: #fffdf9;
+  box-shadow: 0 20px 38px rgba(18, 29, 25, 0.25);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.global-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 3px solid #c9ddd6;
+  border-top-color: #0d7662;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .slideshow-modal {
   position: fixed;
   inset: 0;

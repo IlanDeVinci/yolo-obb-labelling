@@ -417,9 +417,11 @@ class RealtimeSyncAgent:
         payload = json.dumps(body or {}).encode("utf-8") if body is not None else None
         request = urllib.request.Request(url, data=payload, headers=headers)
 
-        for attempt in range(3):
+        max_attempts = 5
+        timeout_seconds = 28
+        for attempt in range(max_attempts):
             try:
-                with urllib.request.urlopen(request, timeout=12) as response:
+                with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
                     raw = response.read().decode("utf-8")
                 parsed = json.loads(raw)
                 return parsed if isinstance(parsed, dict) else {}
@@ -436,13 +438,13 @@ class RealtimeSyncAgent:
                     detail = str(error)
 
                 is_transient = int(error.code) in {408, 429, 500, 502, 503, 504}
-                if is_transient and attempt < 2:
-                    time.sleep(0.35 * (attempt + 1))
+                if is_transient and attempt < (max_attempts - 1):
+                    time.sleep(0.45 * (attempt + 1))
                     continue
                 raise RuntimeError(f"HTTP {error.code} on {endpoint}: {detail}") from error
             except urllib.error.URLError as error:
-                if attempt < 2:
-                    time.sleep(0.35 * (attempt + 1))
+                if attempt < (max_attempts - 1):
+                    time.sleep(0.45 * (attempt + 1))
                     continue
                 raise RuntimeError(f"Request failed: {error}") from error
         return {}
