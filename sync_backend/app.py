@@ -4,6 +4,7 @@ import base64
 import datetime as dt
 import hashlib
 import hmac
+import io
 import json
 import mimetypes
 import os
@@ -25,6 +26,14 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+
+try:
+    from PIL import Image, UnidentifiedImageError
+except Exception:  # pragma: no cover - optional dependency in local dev
+    Image = None
+
+    class UnidentifiedImageError(Exception):
+        pass
 
 try:
     import boto3
@@ -168,6 +177,11 @@ class AdminImageStatusReconcilePayload(BaseModel):
     removeOrphans: bool = False
 
 
+class AdminNormalizeImagesPayload(BaseModel):
+    paths: list[str] = Field(default_factory=list)
+    quality: int = Field(default=90, ge=60, le=95)
+
+
 @dataclass
 class SessionContext:
     token: str
@@ -208,6 +222,11 @@ def _requires_explicit_lock(path: str) -> bool:
 
 def _is_image_path(path: str) -> bool:
     return Path(path).suffix.lower() in IMAGE_SUFFIXES
+
+
+def _is_label_text_path(path: str) -> bool:
+    lower = str(path or "").lower()
+    return lower.endswith(".txt") and "/labels/" in lower
 
 
 def _sanitize_archive_member_path(value: str) -> str:
@@ -276,6 +295,17 @@ def _s3_get_image_base64(project_id: str, path: str) -> str:
     body = response.get("Body")
     raw = body.read() if body is not None else b""
     return base64.b64encode(raw).decode("ascii")
+
+
+def _s3_get_image_bytes(project_id: str, path: str) -> bytes:
+    client = _get_s3_client()
+    if client is None:
+        raise RuntimeError("S3 client unavailable")
+
+    key = _s3_object_key(project_id, path)
+    response = client.get_object(Bucket=S3_BUCKET, Key=key)
+    body = response.get("Body")
+    return body.read() if body is not None else b""
 
 
 def _hash_password(raw_password: str) -> str:
@@ -1933,6 +1963,174 @@ def admin_reconcile_image_status(
         "imageCount": len(image_names),
         "added": added,
         "removed": removed,
+    }
+
+
+@app.get("/api/admin/labels/summary")
+def admin_label_summary(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
+    rows = _CONN.execute(
+        "SELECT path, content_base64 FROM files WHERE project_id = ? AND deleted = 0 ORDER BY path ASC",
+        (session.project_id,),
+    ).fetchall()
+
+    label_paths: list[str] = []
+    images_with_labels: set[str] = set()
+    parsed_rows = 0
+
+    for row in rows:
+        path = str(row["path"] or "")
+        if not _is_label_text_path(path):
+            continue
+        label_paths.append(path)
+        stem = Path(path).stem
+        if stem:
+            images_with_labels.add(stem)
+        content_b64 = str(row["content_base64"] or "")
+        if not content_b64:
+            continue
+        try:
+            raw_text = base64.b64decode(content_b64.encode("ascii"), validate=False).decode("utf-8", errors="replace")
+        except Exception:
+            raw_text = ""
+        parsed_rows += len(_parse_yolo_label_rows(raw_text))
+
+    image_rows = _collect_project_image_rows_from_db(session.project_id)
+    if _is_s3_enabled():
+        try:
+            image_rows.update(_collect_project_image_rows_from_s3(session.project_id))
+        except Exception:
+            pass
+
+    image_stems = {Path(path).stem for path in image_rows.keys() if Path(path).stem}
+    missing_labels = sum(1 for stem in image_stems if stem not in images_with_labels)
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "totalImages": len(image_stems),
+        "labelFiles": len(label_paths),
+        "imagesWithLabels": len(images_with_labels),
+        "imagesMissingLabels": missing_labels,
+        "parsedLabelRows": parsed_rows,
+        "sampleLabelPaths": label_paths[:20],
+    }
+
+
+@app.post("/api/admin/images/normalize-jpeg")
+def admin_normalize_images_to_jpeg(
+    payload: AdminNormalizeImagesPayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    if Image is None:
+        raise HTTPException(status_code=501, detail="Pillow is required for image normalization")
+
+    quality = max(60, min(int(payload.quality or 90), 95))
+    requested = payload.paths or []
+
+    if requested:
+        paths: list[str] = []
+        seen: set[str] = set()
+        for raw in requested:
+            path = _normalize_path(str(raw or ""))
+            if not _is_image_path(path):
+                continue
+            if path in seen:
+                continue
+            seen.add(path)
+            paths.append(path)
+    else:
+        merged = _collect_project_image_rows_from_db(session.project_id)
+        if _is_s3_enabled():
+            try:
+                merged.update(_collect_project_image_rows_from_s3(session.project_id))
+            except Exception:
+                pass
+        paths = sorted(merged.keys(), key=lambda v: v.lower())
+
+    if not paths:
+        return {
+            "ok": True,
+            "projectId": session.project_id,
+            "requested": 0,
+            "converted": 0,
+            "failed": 0,
+            "failedItems": [],
+        }
+
+    use_s3_for_image = _project_uses_s3_images(session.project_id)
+    converted = 0
+    failed_items: list[dict[str, str]] = []
+
+    with _db_lock:
+        for path in paths:
+            try:
+                raw: bytes
+                if use_s3_for_image and _is_s3_enabled() and _s3_image_exists(session.project_id, path):
+                    raw = _s3_get_image_bytes(session.project_id, path)
+                else:
+                    row = _CONN.execute(
+                        "SELECT content_base64 FROM files WHERE project_id = ? AND path = ? AND deleted = 0",
+                        (session.project_id, path),
+                    ).fetchone()
+                    if row is None:
+                        raise RuntimeError("Image not found in DB")
+                    content_b64 = str(row["content_base64"] or "")
+                    if not content_b64:
+                        raise RuntimeError("Image bytes unavailable in DB")
+                    raw = base64.b64decode(content_b64.encode("ascii"), validate=False)
+
+                image = Image.open(io.BytesIO(raw))
+                image.load()
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
+
+                buffer = io.BytesIO()
+                image.save(buffer, format="JPEG", quality=quality, optimize=True)
+                jpeg_bytes = buffer.getvalue()
+                sha1 = hashlib.sha1(jpeg_bytes).hexdigest()
+                now = _now_ms()
+
+                content_b64 = ""
+                if use_s3_for_image and _is_s3_enabled():
+                    _s3_put_image(session.project_id, path, jpeg_bytes)
+                else:
+                    content_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
+
+                _CONN.execute(
+                    """
+                    INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
+                    VALUES (?, ?, 0, ?, ?, ?, ?)
+                    ON CONFLICT(project_id, path) DO UPDATE SET
+                      deleted=0,
+                      mtime_ms=excluded.mtime_ms,
+                      sha1=excluded.sha1,
+                      content_base64=excluded.content_base64,
+                      updated_at=excluded.updated_at
+                    """,
+                    (session.project_id, path, now, sha1, content_b64, now),
+                )
+                _CONN.execute(
+                    "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+                    (session.project_id, session.username, session.token, path, now, sha1, content_b64, now),
+                )
+                converted += 1
+            except UnidentifiedImageError:
+                if len(failed_items) < 100:
+                    failed_items.append({"path": path, "error": "unrecognized-image-format"})
+            except Exception as exc:  # noqa: BLE001
+                if len(failed_items) < 100:
+                    failed_items.append({"path": path, "error": str(exc)})
+
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "requested": len(paths),
+        "converted": converted,
+        "failed": len(paths) - converted,
+        "failedItems": failed_items,
+        "quality": quality,
     }
 
 

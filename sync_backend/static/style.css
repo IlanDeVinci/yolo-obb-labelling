@@ -646,13 +646,14 @@ th {
 
 .slideshow-panel {
   position: relative;
-  width: min(1180px, calc(100vw - 26px));
-  max-height: calc(100vh - 26px);
+  width: 100vw;
+  height: 100vh;
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 10px;
-  padding: 12px;
-  border-radius: 16px;
-  border: 1px solid #d7ddd7;
+  padding: 10px;
+  border-radius: 0;
+  border: 0;
   background: #fbfdfc;
   box-shadow: 0 34px 64px rgba(17, 28, 24, 0.36);
   overflow: hidden;
@@ -678,8 +679,8 @@ th {
 
 .slideshow-stage {
   position: relative;
-  min-height: 340px;
-  max-height: min(68vh, 760px);
+  min-height: 0;
+  height: 100%;
   border-radius: 12px;
   border: 1px solid #d8e2db;
   background: #1a2320;
@@ -689,8 +690,8 @@ th {
 }
 
 #slideImage {
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 
@@ -712,7 +713,7 @@ body.compact-mode .slideshow-panel {
 }
 
 body.compact-mode .slideshow-stage {
-  min-height: 280px;
+  min-height: 0;
 }
 
 /* Compact mode for smaller laptop displays and optional manual toggle */
@@ -901,8 +902,8 @@ body.is-admin .nav-btn.admin-only {
   }
 
   .slideshow-panel {
-    width: calc(100vw - 16px);
-    max-height: calc(100vh - 16px);
+    width: 100vw;
+    height: 100vh;
     padding: 10px;
   }
 

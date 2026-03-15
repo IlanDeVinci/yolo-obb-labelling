@@ -147,6 +147,8 @@ After bootstrap succeeds, keep the token set. It still protects the endpoint aga
 - `POST /api/admin/image-status/sync-all` (admin-only bulk status sync from desktop local statuses)
 - `POST /api/admin/images/upload` (multipart upload for backend dashboard)
 - `POST /api/admin/images/upload-zip` (server-side bulk zip ingest for huge batches)
+- `GET /api/admin/labels/summary` (admin label sync visibility check)
+- `POST /api/admin/images/normalize-jpeg` (admin bulk re-encode images as JPEG)
 - `POST /api/admin/project/image-access`
 - `GET /api/admin/project/image-access`
 - `DELETE /api/users/{username}`

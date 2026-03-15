@@ -438,6 +438,8 @@
                             <button id="openSlideshowBtn" type="button" class="btn solid">Open Slideshow</button>
                             <button id="reconcileStatusesBtn" type="button" class="btn ghost">Sync Missing
                                 Statuses</button>
+                            <button id="labelsSummaryBtn" type="button" class="btn ghost">Check Label Sync</button>
+                            <button id="normalizeImagesBtn" type="button" class="btn ghost">Normalize To JPEG</button>
                             <button id="deleteSelectedImagesBtn" type="button" class="btn danger">Delete Selected
                                 Images</button>
                             <button id="purgeModeLabelsBtn" type="button" class="btn ghost">Purge BB/OBB Label
@@ -548,6 +550,7 @@
         const imagesSelectAll = document.getElementById('imagesSelectAll');
         const imagesSummary = document.getElementById('imagesSummary');
         const slideshowModal = document.getElementById('slideshowModal');
+        const slideStage = document.getElementById('slideStage');
         const slideImage = document.getElementById('slideImage');
         const slideOverlay = document.getElementById('slideOverlay');
         const slideTitle = document.getElementById('slideTitle');
@@ -583,6 +586,7 @@
             autoplay: false,
             intervalMs: 2200,
             labelsByPath: new Map(),
+            basePaths: [],
         };
         const imageSuffixes = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']);
 
@@ -829,19 +833,65 @@
             return slideshowState.items[idx] || null;
         }
 
+        function shuffleCopy(items) {
+            const out = items.slice();
+            for (let i = out.length - 1; i > 0; i -= 1) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const tmp = out[i];
+                out[i] = out[j];
+                out[j] = tmp;
+            }
+            return out;
+        }
+
+        function rebuildSlideshowItems(preservePath = '') {
+            const byPath = new Map(adminImages.map((item) => [item.path, item]));
+            let ordered = slideshowState.basePaths.map((path) => byPath.get(path)).filter(Boolean);
+            if (!ordered.length) {
+                ordered = adminImages.slice();
+                slideshowState.basePaths = ordered.map((item) => item.path);
+            }
+
+            if (slideshowState.shuffle && ordered.length > 1) {
+                if (preservePath) {
+                    const current = ordered.find((item) => item.path === preservePath) || null;
+                    const rest = ordered.filter((item) => item.path !== preservePath);
+                    ordered = current ? [current, ...shuffleCopy(rest)] : shuffleCopy(ordered);
+                } else {
+                    ordered = shuffleCopy(ordered);
+                }
+            }
+
+            slideshowState.items = ordered;
+            if (!ordered.length) {
+                slideshowState.index = 0;
+                return;
+            }
+
+            const idx = preservePath ? ordered.findIndex((item) => item.path === preservePath) : -1;
+            slideshowState.index = idx >= 0 ? idx : 0;
+        }
+
         function drawSlideLabels(labels) {
             const canvas = slideOverlay;
             const img = slideImage;
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
 
-            const w = Number(img.clientWidth || 0);
-            const h = Number(img.clientHeight || 0);
-            if (!w || !h) return;
+            const stageRect = slideStage.getBoundingClientRect();
+            const imageRect = img.getBoundingClientRect();
+            const stageW = Math.max(1, Math.round(Number(stageRect.width || 0)));
+            const stageH = Math.max(1, Math.round(Number(stageRect.height || 0)));
+            canvas.width = stageW;
+            canvas.height = stageH;
+            ctx.clearRect(0, 0, stageW, stageH);
 
-            canvas.width = w;
-            canvas.height = h;
-            ctx.clearRect(0, 0, w, h);
+            const drawW = Number(imageRect.width || 0);
+            const drawH = Number(imageRect.height || 0);
+            if (!drawW || !drawH) return;
+
+            const offsetX = Number(imageRect.left || 0) - Number(stageRect.left || 0);
+            const offsetY = Number(imageRect.top || 0) - Number(stageRect.top || 0);
             ctx.lineWidth = 2;
             ctx.font = '12px "IBM Plex Mono", monospace';
 
@@ -852,17 +902,17 @@
                 ctx.strokeStyle = color;
                 ctx.fillStyle = `${color}33`;
                 ctx.beginPath();
-                ctx.moveTo(pts[0] * w, pts[1] * h);
-                ctx.lineTo(pts[2] * w, pts[3] * h);
-                ctx.lineTo(pts[4] * w, pts[5] * h);
-                ctx.lineTo(pts[6] * w, pts[7] * h);
+                ctx.moveTo(offsetX + (pts[0] * drawW), offsetY + (pts[1] * drawH));
+                ctx.lineTo(offsetX + (pts[2] * drawW), offsetY + (pts[3] * drawH));
+                ctx.lineTo(offsetX + (pts[4] * drawW), offsetY + (pts[5] * drawH));
+                ctx.lineTo(offsetX + (pts[6] * drawW), offsetY + (pts[7] * drawH));
                 ctx.closePath();
                 ctx.stroke();
                 ctx.fill();
 
                 const classText = `c${Number(item.classId || 0)}`;
-                const tx = pts[0] * w;
-                const ty = Math.max(12, pts[1] * h - 4);
+                const tx = offsetX + (pts[0] * drawW);
+                const ty = Math.max(12, offsetY + (pts[1] * drawH) - 4);
                 ctx.fillStyle = color;
                 ctx.fillText(classText, tx, ty);
             }
@@ -951,7 +1001,8 @@
             });
 
             adminImages = adminImages.filter((item) => item.path !== current.path);
-            slideshowState.items = slideshowState.items.filter((item) => item.path !== current.path);
+            slideshowState.basePaths = slideshowState.basePaths.filter((path) => path !== current.path);
+            rebuildSlideshowItems();
             slideshowState.labelsByPath.delete(current.path);
             renderAdminImages(adminImages);
 
@@ -969,6 +1020,9 @@
         function closeSlideshow() {
             slideshowState.open = false;
             stopSlideshowAutoplay();
+            slideshowState.items = [];
+            slideshowState.basePaths = [];
+            slideshowState.index = 0;
             slideshowModal.classList.add('hidden');
             slideshowModal.setAttribute('aria-hidden', 'true');
             slideImage.src = '';
@@ -995,24 +1049,13 @@
             slideshowState.autoplay = !!slideAutoplay.checked;
             slideshowState.intervalMs = Math.max(400, Number(slideInterval.value || 2200));
             slideshowState.labelsByPath = new Map();
-
-            if (slideshowState.shuffle) {
-                baseItems = baseItems.slice();
-                for (let i = baseItems.length - 1; i > 0; i -= 1) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    const tmp = baseItems[i];
-                    baseItems[i] = baseItems[j];
-                    baseItems[j] = tmp;
-                }
-            }
-
-            slideshowState.items = baseItems;
-            slideshowState.index = 0;
+            slideshowState.basePaths = baseItems.map((item) => item.path).filter(Boolean);
+            rebuildSlideshowItems();
             slideshowState.open = true;
 
             slideshowModal.classList.remove('hidden');
             slideshowModal.setAttribute('aria-hidden', 'false');
-            await showSlideAt(0);
+            await showSlideAt(slideshowState.index);
             maybeStartSlideshowAutoplay();
         }
 
@@ -1585,6 +1628,39 @@
             }
         });
 
+        document.getElementById('labelsSummaryBtn').addEventListener('click', async () => {
+            try {
+                const result = await api('/api/admin/labels/summary');
+                setMessage(
+                    `Label sync summary: images=${result.totalImages || 0}, label-files=${result.labelFiles || 0}, with-labels=${result.imagesWithLabels || 0}, missing=${result.imagesMissingLabels || 0}, rows=${result.parsedLabelRows || 0}.`
+                );
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
+        document.getElementById('normalizeImagesBtn').addEventListener('click', async () => {
+            try {
+                const yes = confirm('Normalize all project images to JPEG encoding in cloud storage/DB? This can take a while.');
+                if (!yes) return;
+                const result = await api('/api/admin/images/normalize-jpeg', 'POST', {
+                    paths: [],
+                    quality: 90,
+                });
+                const failed = Number(result.failed || 0);
+                const sample = Array.isArray(result.failedItems) && result.failedItems.length
+                    ? ` First failure: ${result.failedItems[0].path} (${result.failedItems[0].error}).`
+                    : '';
+                setMessage(
+                    `JPEG normalization done. requested=${result.requested || 0}, converted=${result.converted || 0}, failed=${failed}.${sample}`,
+                    failed > 0
+                );
+                await loadAdminImages();
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
         document.getElementById('openSlideshowBtn').addEventListener('click', () => {
             openSlideshow().catch((error) => {
                 setMessage(error.message || String(error), true);
@@ -1677,6 +1753,10 @@
         });
         slideShuffle.addEventListener('change', () => {
             slideshowState.shuffle = !!slideShuffle.checked;
+            if (!slideshowState.open) return;
+            const current = getCurrentSlideItem();
+            rebuildSlideshowItems(current ? current.path : '');
+            showSlideAt(slideshowState.index).catch((error) => setMessage(error.message || String(error), true));
         });
         slideAutoplay.addEventListener('change', () => {
             slideshowState.autoplay = !!slideAutoplay.checked;
