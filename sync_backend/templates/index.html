@@ -43,8 +43,12 @@
                 stroke-linecap="round" stroke-linejoin="round" />
         </symbol>
         <symbol id="i-menu" viewBox="0 0 24 24">
-            <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" fill="none"
-                stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+                stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24">
+            <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+                stroke-linejoin="round" />
         </symbol>
         <symbol id="i-logout" viewBox="0 0 24 24">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor"
@@ -146,12 +150,11 @@
         </section>
 
         <section class="dashboard hidden" id="dashboardPanel">
-            <button id="sidebarToggleBtn" type="button" class="sidebar-toggle btn ghost icon-btn" aria-label="Open navigation menu"
-                aria-expanded="false" aria-controls="dashSidebar">
+            <button id="sidebarToggleBtn" type="button" class="sidebar-toggle btn ghost icon-btn"
+                aria-label="Open navigation menu" aria-expanded="false" aria-controls="dashSidebar">
                 <svg>
-                    <use href="#i-menu"></use>
+                    <use id="sidebarToggleIconUse" href="#i-menu"></use>
                 </svg>
-                <span>Menu</span>
             </button>
             <div id="sidebarOverlay" class="sidebar-overlay hidden" aria-hidden="true"></div>
 
@@ -418,7 +421,7 @@
                     <article class="sub-card admin-only">
                         <h4>Users</h4>
                         <div class="table-shell">
-                            <table>
+                            <table class="users-table">
                                 <thead>
                                     <tr>
                                         <th>Username</th>
@@ -462,7 +465,7 @@
                         </div>
                         <p id="backupMeta" class="muted small">Backups not loaded yet.</p>
                         <div class="table-shell">
-                            <table>
+                            <table class="backups-table">
                                 <thead>
                                     <tr>
                                         <th>Backup</th>
@@ -515,7 +518,7 @@
                         </div>
                         <p id="dbExplorerMeta" class="muted small">Database not loaded yet.</p>
                         <div class="table-shell">
-                            <table>
+                            <table class="db-rows-table">
                                 <thead id="dbRowsHead">
                                     <tr>
                                         <th>Row Data</th>
@@ -579,7 +582,7 @@
 
                     <article class="sub-card admin-only">
                         <div class="table-shell">
-                            <table>
+                            <table class="images-table">
                                 <thead>
                                     <tr>
                                         <th><input id="imagesSelectAll" type="checkbox" /></th>
@@ -654,6 +657,7 @@
         const authPanel = document.getElementById('authPanel');
         const dashboardPanel = document.getElementById('dashboardPanel');
         const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+        const sidebarToggleIconUse = document.getElementById('sidebarToggleIconUse');
         const sidebarOverlay = document.getElementById('sidebarOverlay');
         const bootstrapWrap = document.getElementById('bootstrapWrap');
         const bootstrapBox = document.getElementById('bootstrapBox');
@@ -844,6 +848,11 @@
         function updateSidebarToggleState(open) {
             if (!sidebarToggleBtn || !sidebarOverlay) return;
             sidebarToggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            sidebarToggleBtn.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+            sidebarToggleBtn.classList.toggle('is-open', open);
+            if (sidebarToggleIconUse) {
+                sidebarToggleIconUse.setAttribute('href', open ? '#i-close' : '#i-menu');
+            }
             sidebarOverlay.classList.toggle('hidden', !open);
         }
 
