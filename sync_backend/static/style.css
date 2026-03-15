@@ -228,6 +228,7 @@ h4 {
   align-items: center;
   flex-wrap: wrap;
   gap: 9px;
+  margin-bottom: 9px;
 }
 
 label {
