@@ -492,6 +492,7 @@ class MainWindow(QMainWindow):
         cloud_menu.addAction(self._act_cloud_sync_all_statuses)
 
         self._act_cloud_sync_all_labels = QAction("Sync Local Labels Now (Cloud DB)", self)
+        self._act_cloud_sync_all_labels.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
         self._act_cloud_sync_all_labels.setShortcut(QKeySequence("Ctrl+Shift+L"))
         self._act_cloud_sync_all_labels.setToolTip("Upload all local labels/*.txt to cloud DB with lock-safe writes")
         self._act_cloud_sync_all_labels.triggered.connect(self._sync_all_local_labels_to_cloud_db)

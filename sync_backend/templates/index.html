@@ -1398,6 +1398,7 @@
             await refreshAll(true);
         }
 
+
         async function syncEntireLocalFolder() {
             if (!token) {
                 setMessage('Login is required to sync local folder.', true);
@@ -1793,6 +1794,12 @@
                 const failed = Number(finalResult.failed || 0);
                 const requestedFinal = Number(finalResult.requested || 0);
                 const processedFinal = Number(finalResult.processed || requestedFinal || 0);
+                const inv = finalResult.cloudfrontInvalidation || null;
+                const invText = inv
+                    ? (inv.ok
+                        ? ` CloudFront invalidation queued (id=${inv.invalidationId || '-'}, paths=${inv.pathCount || 0}).`
+                        : ` CloudFront invalidation skipped/failed (${inv.reason || 'unknown'}).`)
+                    : '';
                 setImagesOpsProgress(processedFinal, Number(requestedFinal || 1));
                 const sample = Array.isArray(finalResult.failedItems) && finalResult.failedItems.length
                     ? ` First failure: ${finalResult.failedItems[0].path} (${finalResult.failedItems[0].error}).`
@@ -1803,14 +1810,14 @@
                     const canceledAtText = canceledAt ? ` at ${fmtDate(canceledAt)}` : '';
                     const canceledByText = canceledBy ? ` by ${canceledBy}` : '';
                     setMessage(
-                        `JPEG normalization canceled${canceledByText}${canceledAtText}. processed=${processedFinal}/${requestedFinal}, converted=${finalResult.converted || 0}, failed=${failed}.${sample}`,
+                        `JPEG normalization canceled${canceledByText}${canceledAtText}. processed=${processedFinal}/${requestedFinal}, converted=${finalResult.converted || 0}, failed=${failed}.${sample}${invText}`,
                         true
                     );
                     setImagesOpsStatus(`JPEG normalization canceled${canceledByText}${canceledAtText}.`, true);
                     return;
                 }
                 setMessage(
-                    `JPEG normalization done. requested=${finalResult.requested || 0}, converted=${finalResult.converted || 0}, failed=${failed}.${sample}`,
+                    `JPEG normalization done. requested=${finalResult.requested || 0}, converted=${finalResult.converted || 0}, failed=${failed}.${sample}${invText}`,
                     failed > 0
                 );
                 setImagesOpsStatus(`JPEG normalization completed. converted=${finalResult.converted || 0}, failed=${failed}.`, failed > 0);

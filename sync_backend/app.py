@@ -69,6 +69,7 @@ S3_REGION = os.environ.get("SYNC_S3_REGION", "").strip()
 SIGNED_URL_TTL_SECONDS = max(30, min(900, int(os.environ.get("SYNC_SIGNED_URL_TTL_SECONDS", "180"))))
 PREFETCH_MAX_BATCH = max(1, min(200, int(os.environ.get("SYNC_PREFETCH_MAX_BATCH", "40"))))
 CLOUDFRONT_BASE_URL = os.environ.get("SYNC_CLOUDFRONT_BASE_URL", "").strip().rstrip("/")
+CLOUDFRONT_DISTRIBUTION_ID = os.environ.get("SYNC_CLOUDFRONT_DISTRIBUTION_ID", "").strip()
 
 IMAGE_SUFFIXES = {
     ".jpg",
@@ -805,6 +806,48 @@ def _image_read_url(project_id: str, path: str, *, expires_seconds: int) -> str:
     return _s3_signed_get_url(project_id, path, expires_seconds=expires_seconds)
 
 
+def _cloudfront_invalidate_keys(keys: list[str], *, caller_tag: str) -> dict[str, Any]:
+    if boto3 is None:
+        return {"ok": False, "reason": "boto3-unavailable"}
+    if not CLOUDFRONT_DISTRIBUTION_ID:
+        return {"ok": False, "reason": "distribution-id-missing"}
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in keys:
+        key = str(raw or "").strip().lstrip("/")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(f"/{key}")
+
+    if not normalized:
+        return {"ok": False, "reason": "no-paths"}
+
+    # CloudFront path count has service limits; fallback to wildcard for large jobs.
+    if len(normalized) > 900:
+        first = str(keys[0] if keys else "").strip().lstrip("/")
+        project_prefix = "/".join(first.split("/")[:2]).strip("/")
+        if project_prefix:
+            normalized = [f"/{project_prefix}/*"]
+
+    client = boto3.client("cloudfront")
+    response = client.create_invalidation(
+        DistributionId=CLOUDFRONT_DISTRIBUTION_ID,
+        InvalidationBatch={
+            "Paths": {"Quantity": len(normalized), "Items": normalized},
+            "CallerReference": f"{caller_tag}-{_now_ms()}",
+        },
+    )
+    inv = response.get("Invalidation") or {}
+    return {
+        "ok": True,
+        "invalidationId": str(inv.get("Id") or ""),
+        "status": str(inv.get("Status") or ""),
+        "pathCount": len(normalized),
+    }
+
+
 def _s3_image_exists(project_id: str, path: str) -> bool:
     client = _get_s3_client()
     if client is None:
@@ -941,6 +984,59 @@ def _collect_project_image_rows_from_db(project_id: str) -> dict[str, dict[str, 
     ).fetchall()
 
     out: dict[str, dict[str, Any]] = {}
+
+
+@app.post("/api/admin/labels/upload")
+async def admin_upload_label_file(
+    file: UploadFile = File(...),
+    path: str = Form(...),
+    expected_project_id: str = Form(default=""),
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    if expected_project_id and expected_project_id.strip() != session.project_id:
+        raise HTTPException(status_code=409, detail="Active session project changed. Refresh and try again.")
+
+    normalized = _normalize_path(path)
+    lower = normalized.lower()
+    if not lower.endswith(".txt") or "/labels/" not in lower:
+        raise HTTPException(status_code=400, detail="Label path must be a .txt file under labels/")
+
+    raw = await file.read()
+    if len(raw) > MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail=f"File exceeds max size {MAX_FILE_BYTES} bytes")
+
+    now = _now_ms()
+    sha1 = hashlib.sha1(raw).hexdigest()
+    content_b64 = base64.b64encode(raw).decode("ascii")
+
+    with _db_lock:
+        _CONN.execute(
+            """
+            INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
+            VALUES (?, ?, 0, ?, ?, ?, ?)
+            ON CONFLICT(project_id, path) DO UPDATE SET
+              deleted=0,
+              mtime_ms=excluded.mtime_ms,
+              sha1=excluded.sha1,
+              content_base64=excluded.content_base64,
+              updated_at=excluded.updated_at
+            """,
+            (session.project_id, normalized, now, sha1, content_b64, now),
+        )
+        _CONN.execute(
+            "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            (session.project_id, session.username, session.token, normalized, now, sha1, content_b64, now),
+        )
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "uploaded": True,
+        "projectId": session.project_id,
+        "path": normalized,
+        "size": len(raw),
+        "sha1": sha1,
+    }
     for row in rows:
         path = str(row["path"] or "")
         if not path or not _is_image_path(path):
@@ -2275,6 +2371,25 @@ def admin_start_normalize_images_to_jpeg(
                 progress_cb=_progress,
                 should_cancel_cb=_should_cancel,
             )
+
+            if _is_s3_enabled() and int(result.get("converted", 0) or 0) > 0:
+                converted_paths = [
+                    _s3_object_key(session.project_id, p)
+                    for p in list(result.get("convertedPaths") or [])
+                    if str(p or "").strip()
+                ]
+                if converted_paths:
+                    try:
+                        result["cloudfrontInvalidation"] = _cloudfront_invalidate_keys(
+                            converted_paths,
+                            caller_tag=f"normalize-{job_id}",
+                        )
+                    except Exception as inv_exc:  # noqa: BLE001
+                        result["cloudfrontInvalidation"] = {
+                            "ok": False,
+                            "reason": str(inv_exc),
+                        }
+
             with _normalize_jobs_lock:
                 job = _normalize_jobs.get(job_id)
                 if job:
@@ -2395,7 +2510,7 @@ def admin_get_image_view(
                 "ok": True,
                 "path": normalized,
                 "source": "s3",
-                "url": _image_read_url(session.project_id, normalized, expires_seconds=SIGNED_URL_TTL_SECONDS),
+                "url": _s3_signed_get_url(session.project_id, normalized, expires_seconds=SIGNED_URL_TTL_SECONDS),
                 "expiresIn": SIGNED_URL_TTL_SECONDS,
             }
         except (BotoCoreError, ClientError, Exception) as exc:
