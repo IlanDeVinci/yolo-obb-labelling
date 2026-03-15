@@ -14,6 +14,14 @@ from PyQt6.QtWidgets import (
 
 from app.models.obb_label import OBBLabel, BBoxLabel, Label
 from app.utils.colors import get_color
+from app.canvas.obb_math import (
+    centroid as point_centroid,
+    clamp_scale,
+    distance,
+    orbit_radius,
+    rotate_points_about,
+    scale_points_about,
+)
 
 if TYPE_CHECKING:
     from app.canvas.handle_item import HandleItem, RotationHandleItem, EdgeHandleItem
@@ -329,16 +337,12 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
             return
         center = self.centroid_scene()
         start_corner = start_points[corner_idx]
-        start_dist = math.hypot(start_corner.x() - center.x(), start_corner.y() - center.y())
-        cur_dist = math.hypot(scene_pos.x() - center.x(), scene_pos.y() - center.y())
+        start_dist = distance(start_corner, center)
+        cur_dist = distance(scene_pos, center)
         if start_dist < 1e-6:
             return
-        scale = max(0.05, min(20.0, cur_dist / start_dist))
-        new_points = []
-        for p in start_points:
-            dx = p.x() - center.x()
-            dy = p.y() - center.y()
-            new_points.append(QPointF(center.x() + dx * scale, center.y() + dy * scale))
+        scale = clamp_scale(cur_dist / start_dist)
+        new_points = scale_points_about(start_points, center, scale)
         self._set_polygon_from_scene_points(new_points)
 
     def scale_uniform_from_edge(
@@ -356,16 +360,12 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
             (start_points[i0].x() + start_points[i1].x()) / 2,
             (start_points[i0].y() + start_points[i1].y()) / 2,
         )
-        start_dist = math.hypot(start_mid.x() - center.x(), start_mid.y() - center.y())
-        cur_dist = math.hypot(scene_pos.x() - center.x(), scene_pos.y() - center.y())
+        start_dist = distance(start_mid, center)
+        cur_dist = distance(scene_pos, center)
         if start_dist < 1e-6:
             return
-        scale = max(0.05, min(20.0, cur_dist / start_dist))
-        new_points = []
-        for p in start_points:
-            dx = p.x() - center.x()
-            dy = p.y() - center.y()
-            new_points.append(QPointF(center.x() + dx * scale, center.y() + dy * scale))
+        scale = clamp_scale(cur_dist / start_dist)
+        new_points = scale_points_about(start_points, center, scale)
         self._set_polygon_from_scene_points(new_points)
 
     # ------------------------------------------------------------------
@@ -478,12 +478,7 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
     def centroid(self) -> QPointF:
         """Centroid in item-local coordinates."""
         poly = self.polygon()
-        cx, cy = 0.0, 0.0
-        n = poly.count()
-        for i in range(n):
-            cx += poly[i].x()
-            cy += poly[i].y()
-        return QPointF(cx / n, cy / n) if n else QPointF(0, 0)
+        return point_centroid(poly)
 
     def centroid_scene(self) -> QPointF:
         """Centroid in scene coordinates (accounts for pos() during drag)."""
@@ -495,11 +490,7 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
         """Radius of the orbit circle for the rotation handle."""
         poly = self.polygon()
         center = self.centroid()
-        max_dist = 0.0
-        for i in range(poly.count()):
-            d = math.hypot(poly[i].x() - center.x(), poly[i].y() - center.y())
-            max_dist = max(max_dist, d)
-        return max_dist + 20
+        return orbit_radius(poly, center, padding=20.0)
 
     def rotate_to_angle(self, angle: float, center: QPointF) -> None:
         """Rotate all corners so the rotation handle sits at *angle* from center."""
@@ -523,32 +514,14 @@ class OBBGraphicsItem(QGraphicsPolygonItem):
             return
 
         delta = angle - rh._start_angle
-        cos_a = math.cos(delta)
-        sin_a = math.sin(delta)
-        new_scene_pts = []
-        for pt in rh._start_corners:
-            dx = pt.x() - center.x()
-            dy = pt.y() - center.y()
-            nx = center.x() + dx * cos_a - dy * sin_a
-            ny = center.y() + dx * sin_a + dy * cos_a
-            new_scene_pts.append(QPointF(nx, ny))
-
+        new_scene_pts = rotate_points_about(rh._start_corners, center, delta)
         self._set_polygon_from_scene_points(new_scene_pts)
 
     def _rotate_from_start(self, angle: float) -> None:
         if not self._rotate_start_scene_pts:
             return
         delta = angle - self._rotate_start_angle
-        cos_a = math.cos(delta)
-        sin_a = math.sin(delta)
-        c = self._rotate_center
-        new_pts = []
-        for pt in self._rotate_start_scene_pts:
-            dx = pt.x() - c.x()
-            dy = pt.y() - c.y()
-            nx = c.x() + dx * cos_a - dy * sin_a
-            ny = c.y() + dx * sin_a + dy * cos_a
-            new_pts.append(QPointF(nx, ny))
+        new_pts = rotate_points_about(self._rotate_start_scene_pts, self._rotate_center, delta)
         self._set_polygon_from_scene_points(new_pts)
 
     # ------------------------------------------------------------------
