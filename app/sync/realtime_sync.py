@@ -434,7 +434,11 @@ class RealtimeSyncAgent:
         include_auth: bool = True,
     ) -> dict[str, Any]:
         url = f"{self._server_url}{endpoint}"
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) YOLO-OBB-Labeller/desktop",
+        }
         if include_auth and self._token:
             headers["Authorization"] = f"Bearer {self._token}"
 
@@ -465,7 +469,10 @@ class RealtimeSyncAgent:
                 if is_transient and attempt < (max_attempts - 1):
                     time.sleep(0.45 * (attempt + 1))
                     continue
-                raise RuntimeError(f"HTTP {error.code} on {endpoint}: {detail}") from error
+                detail_text = str(detail or "")
+                if int(error.code) == 403 and "1010" in detail_text:
+                    detail_text += " | Request blocked by edge firewall (Cloudflare 1010). Allow API paths and non-browser User-Agent for /api/* on your proxy/firewall."
+                raise RuntimeError(f"HTTP {error.code} on {endpoint}: {detail_text}") from error
             except urllib.error.URLError as error:
                 if attempt < (max_attempts - 1):
                     time.sleep(0.45 * (attempt + 1))
@@ -510,7 +517,10 @@ class RealtimeSyncAgent:
         if not url:
             raise RuntimeError("Signed write URL not returned by backend")
 
-        headers = {"Content-Type": content_type or "application/octet-stream"}
+        headers = {
+            "Content-Type": content_type or "application/octet-stream",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) YOLO-OBB-Labeller/desktop",
+        }
         for attempt in range(3):
             request = urllib.request.Request(url, data=payload, headers=headers, method="PUT")
             try:
