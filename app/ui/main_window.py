@@ -148,6 +148,7 @@ class MainWindow(QMainWindow):
         self._act_cloud_status = None
         self._team_actions: list[QAction] = []
         self._nav_toolbar: QToolBar | None = None
+        self._nav_status_btn: QToolButton | None = None
         self._nav_signature: str = ""
         self._lbl_login = None
 
@@ -474,11 +475,11 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self._purge_all_local_cloud_data)
         cloud_menu.addAction(act)
 
-        act = QAction("Upload Local Images to S3", self)
+        act = QAction("Bulk Sync Existing Local Images to S3", self)
         act.triggered.connect(self._sync_local_images_to_s3)
         cloud_menu.addAction(act)
 
-        self._act_cloud_upload = QAction("Upload New Images...", self)
+        self._act_cloud_upload = QAction("Open Upload Center...", self)
         self._act_cloud_upload.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
         self._act_cloud_upload.triggered.connect(self._open_cloud_upload_center)
         cloud_menu.addAction(self._act_cloud_upload)
@@ -488,10 +489,13 @@ class MainWindow(QMainWindow):
         cloud_menu.addAction(act)
 
         self._act_cloud_sync_all_statuses = QAction("Sync All Local Statuses to Cloud DB (Admin)", self)
+        self._act_cloud_sync_all_statuses.setToolTip(
+            "Admin-only bulk utility to push all local image statuses to cloud DB.",
+        )
         self._act_cloud_sync_all_statuses.triggered.connect(self._sync_all_local_statuses_to_cloud_db)
         cloud_menu.addAction(self._act_cloud_sync_all_statuses)
 
-        self._act_cloud_sync_all_labels = QAction("Sync Local Labels Now (Cloud DB)", self)
+        self._act_cloud_sync_all_labels = QAction("Sync Local Labels Now (Bulk, Cloud DB)", self)
         self._act_cloud_sync_all_labels.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
         self._act_cloud_sync_all_labels.setShortcut(QKeySequence("Ctrl+Shift+L"))
         self._act_cloud_sync_all_labels.setToolTip("Upload all local labels/*.txt to cloud DB with lock-safe writes")
@@ -608,7 +612,7 @@ class MainWindow(QMainWindow):
 
         toolbar.clear()
 
-        def add_menu_button(title: str, icon: QStyle.StandardPixmap, menu: QMenu, tooltip: str) -> None:
+        def add_menu_button(title: str, icon: QStyle.StandardPixmap, menu: QMenu, tooltip: str) -> QToolButton:
             btn = QToolButton(self)
             btn.setText(title)
             btn.setIcon(self.style().standardIcon(icon))
@@ -616,32 +620,68 @@ class MainWindow(QMainWindow):
             btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
             btn.setMenu(menu)
             toolbar.addWidget(btn)
+            return btn
+
+        def _shortcut_hint(shortcut: str) -> str:
+            tokens = [t.strip() for t in str(shortcut or "").split("+") if t.strip()]
+            if not tokens:
+                return ""
+            alias = {"Ctrl": "C", "Shift": "S", "Alt": "A"}
+            parts: list[str] = []
+            for token in tokens:
+                parts.append(alias.get(token, token[:1].upper()))
+            return "".join(parts)
+
+        def _label(name: str, *, opens_dialog: bool = False, shortcut: str = "") -> str:
+            suffix = "*" if opens_dialog else ""
+            hint = _shortcut_hint(shortcut)
+            if hint:
+                suffix = f"{suffix}[{hint}]"
+            return f"{name}{suffix}"
+
+        def add_action(
+            menu: QMenu,
+            name: str,
+            callback,
+            *,
+            icon: QStyle.StandardPixmap | None = None,
+            opens_dialog: bool = False,
+            shortcut: str = "",
+            enabled: bool | None = None,
+            tooltip: str = "",
+        ) -> QAction:
+            action = menu.addAction(_label(name, opens_dialog=opens_dialog, shortcut=shortcut), callback)
+            if icon is not None:
+                action.setIcon(self.style().standardIcon(icon))
+            if shortcut:
+                action.setShortcut(QKeySequence(shortcut))
+            if enabled is not None:
+                action.setEnabled(enabled)
+            if tooltip:
+                action.setToolTip(tooltip)
+            return action
 
         # Project menu
         project_menu = QMenu(self)
-        project_menu.addAction("New Project...", self._new_project)
-        project_menu.addAction("Open Project...", self._open_project)
-        project_menu.addAction("Save Current Labels", self._save_current)
-        project_menu.addAction("Project Settings...", self._project_settings)
-        project_menu.addAction("Open Project Folder", self._open_project_folder)
-        project_menu.addAction("Exit", self.close)
+        add_action(project_menu, "New Project...", self._new_project, icon=QStyle.StandardPixmap.SP_FileIcon, opens_dialog=True, shortcut="Ctrl+N")
+        add_action(project_menu, "Open Project...", self._open_project, icon=QStyle.StandardPixmap.SP_DirOpenIcon, opens_dialog=True, shortcut="Ctrl+O")
+        add_action(project_menu, "Save Current Labels", self._save_current, icon=QStyle.StandardPixmap.SP_DialogSaveButton, shortcut="Ctrl+S")
+        add_action(project_menu, "Project Settings...", self._project_settings, icon=QStyle.StandardPixmap.SP_FileDialogInfoView, opens_dialog=True)
+        add_action(project_menu, "Open Project Folder", self._open_project_folder, icon=QStyle.StandardPixmap.SP_DirHomeIcon)
+        add_action(project_menu, "Exit", self.close, icon=QStyle.StandardPixmap.SP_DialogCloseButton)
         add_menu_button("Project", QStyle.StandardPixmap.SP_DirHomeIcon, project_menu, "Create, open, save, and configure projects")
 
         # Images menu
         data_menu = QMenu(self)
         if is_cloud_ui:
-            data_menu.addAction("Delete Selected Images...", self._delete_selected_images)
-            if connected:
-                data_menu.addAction("Upload New Images to Cloud...", self._open_cloud_upload_center)
-                data_menu.addAction("Refresh Cloud Image List", self._manual_refresh_cloud_images)
-                data_menu.addAction("Upload Existing Local Images", self._sync_local_images_to_s3)
-            else:
-                data_menu.addAction("Sign In to Cloud Sync...", lambda: self._prompt_cloud_login_for_sync(force=True))
+            add_action(data_menu, "Delete Selected Images...", self._delete_selected_images, icon=QStyle.StandardPixmap.SP_TrashIcon)
+            if not connected:
+                add_action(data_menu, "Sign In to Cloud Sync...", lambda: self._prompt_cloud_login_for_sync(force=True), icon=QStyle.StandardPixmap.SP_DialogYesButton, opens_dialog=True)
         else:
-            data_menu.addAction("Delete Selected Images...", self._delete_selected_images)
-            data_menu.addAction("Import Images...", self._import_images)
-            data_menu.addAction("Import Image Folder...", self._import_folder)
-            data_menu.addAction("Refresh Local Image List", self._manual_refresh_cloud_images)
+            add_action(data_menu, "Delete Selected Images...", self._delete_selected_images, icon=QStyle.StandardPixmap.SP_TrashIcon)
+            add_action(data_menu, "Import Images...", self._import_images, icon=QStyle.StandardPixmap.SP_FileDialogNewFolder, opens_dialog=True)
+            add_action(data_menu, "Import Image Folder...", self._import_folder, icon=QStyle.StandardPixmap.SP_DirOpenIcon, opens_dialog=True)
+            add_action(data_menu, "Refresh Local Image List", self._manual_refresh_cloud_images, icon=QStyle.StandardPixmap.SP_BrowserReload)
         sort_menu = data_menu.addMenu("Sort Images")
         sort_menu.addAction("Name A-Z", lambda: self._set_image_sort_mode("name_asc"))
         sort_menu.addAction("Name Z-A", lambda: self._set_image_sort_mode("name_desc"))
@@ -651,15 +691,15 @@ class MainWindow(QMainWindow):
         sort_menu.addSeparator()
         sort_menu.addAction("Newest First", lambda: self._set_image_sort_mode("mtime_desc"))
         sort_menu.addAction("Oldest First", lambda: self._set_image_sort_mode("mtime_asc"))
-        data_menu.addAction("Build Dataset from Labels...", self._build_dataset)
-        data_menu.addAction("Open Dataset YAML...", self._open_yaml)
+        add_action(data_menu, "Build Dataset from Labels...", self._build_dataset, icon=QStyle.StandardPixmap.SP_FileDialogDetailedView, opens_dialog=True)
+        add_action(data_menu, "Open Dataset YAML...", self._open_yaml, icon=QStyle.StandardPixmap.SP_FileDialogContentsView, opens_dialog=True)
         add_menu_button("Images", QStyle.StandardPixmap.SP_FileDialogContentsView, data_menu, "Import, upload, and refresh image sources")
 
         # Annotate menu (<= 7 actions) + advanced submenu
         annotate_menu = QMenu(self)
-        annotate_menu.addAction("Switch to Draw Mode", lambda: self._canvas.set_mode(AnnotationCanvas.MODE_DRAW))
-        annotate_menu.addAction("Switch to Select Mode", lambda: self._canvas.set_mode(AnnotationCanvas.MODE_SELECT))
-        annotate_menu.addAction("Toggle OBB/BBox Mode", self._toggle_label_mode)
+        add_action(annotate_menu, "Switch to Draw Mode", lambda: self._canvas.set_mode(AnnotationCanvas.MODE_DRAW), shortcut="W")
+        add_action(annotate_menu, "Switch to Select Mode", lambda: self._canvas.set_mode(AnnotationCanvas.MODE_SELECT), shortcut="S")
+        add_action(annotate_menu, "Toggle OBB/BBox Mode", self._toggle_label_mode, shortcut="Ctrl+B")
         annotate_menu.addAction("Convert Labels to OBB", lambda: self._convert_labels_to_mode(True))
         annotate_menu.addAction("Convert Labels to BBox", lambda: self._convert_labels_to_mode(False))
         annotate_menu.addAction("Delete Selected Labels", self._canvas._delete_selected)
@@ -672,56 +712,124 @@ class MainWindow(QMainWindow):
         geometry_menu.addAction("Rotate Selected +15°", lambda: self._rotate_selected_labels(15.0))
         geometry_menu.addAction("Scale Selected +10%", lambda: self._scale_selected_labels(1.10))
         geometry_menu.addAction("Scale Selected -10%", lambda: self._scale_selected_labels(0.90))
-        add_menu_button("Annotate", QStyle.StandardPixmap.SP_DialogApplyButton, annotate_menu, "Annotation and geometry controls")
+        add_menu_button("Annotate", QStyle.StandardPixmap.SP_FileDialogDetailedView, annotate_menu, "Annotation and geometry controls")
 
         # AI menu
         ai_menu = QMenu(self)
-        ai_menu.addAction("Load Model...", self._load_model)
-        ai_menu.addAction("Run Model on Current Image", self._run_on_current)
-        ai_menu.addAction("Run Model on All Images", self._run_on_all)
+        add_action(ai_menu, "Load Model...", self._load_model, opens_dialog=True)
+        add_action(ai_menu, "Run Model on Current Image", self._run_on_current, shortcut="Ctrl+R")
+        add_action(ai_menu, "Run Model on All Images", self._run_on_all, shortcut="Ctrl+Shift+R")
         add_menu_button("AI", QStyle.StandardPixmap.SP_ComputerIcon, ai_menu, "Model loading and inference actions")
 
-        # Cloud/local specific collaboration menu (<= 6 actions)
+        # Status menu
+        status_menu = QMenu(self)
+        add_action(status_menu, "Set as Completed", lambda: self._set_selected_images_completion("completed"), shortcut="Ctrl+Shift+K")
+        add_action(status_menu, "Set as In Progress", lambda: self._set_selected_images_completion("in_progress"), shortcut="Ctrl+Shift+J")
+        add_action(status_menu, "Set as YOLO", lambda: self._set_selected_images_completion("yolo"), shortcut="Ctrl+Shift+G")
+        status_menu.addAction("Set Selected as To Rotate", lambda: self._set_selected_images_completion("to_rotate"))
+        self._nav_status_btn = add_menu_button(
+            "Status",
+            QStyle.StandardPixmap.SP_DialogApplyButton,
+            status_menu,
+            "Image completion status tools",
+        )
+        self._update_nav_status_button_icon()
+
+        # Cloud/local specific collaboration menu
         if is_cloud_ui:
             collab_menu = QMenu(self)
-            collab_menu.addAction("Sign In to Cloud Sync...", lambda: self._prompt_cloud_login_for_sync(force=True))
+            core_menu = collab_menu.addMenu("Core")
+            core_menu.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
+
+            add_action(core_menu, "Sign In to Cloud Sync...", lambda: self._prompt_cloud_login_for_sync(force=True), icon=QStyle.StandardPixmap.SP_DialogYesButton, opens_dialog=True)
             if connected and self._can_open_cloud_settings():
-                collab_menu.addAction("Cloud Sync Settings...", self._open_cloud_sync_settings)
-                collab_menu.addAction("Regenerate Project Cloud Bootstrap", self._regenerate_project_cloud_bootstrap)
+                add_action(core_menu, "Cloud Sync Settings...", self._open_cloud_sync_settings, icon=QStyle.StandardPixmap.SP_FileDialogInfoView, opens_dialog=True)
+                add_action(core_menu, "Regenerate Project Cloud Bootstrap", self._regenerate_project_cloud_bootstrap, icon=QStyle.StandardPixmap.SP_BrowserReload)
             else:
-                collab_menu.addAction("Cloud Account Login...", self._open_cloud_user_login_dialog)
-            collab_menu.addAction("Cloud Sync Status...", self._show_cloud_sync_status)
+                add_action(core_menu, "Cloud Account Login...", self._open_cloud_user_login_dialog, icon=QStyle.StandardPixmap.SP_DialogYesButton, opens_dialog=True)
+            add_action(core_menu, "Cloud Sync Status...", self._show_cloud_sync_status, icon=QStyle.StandardPixmap.SP_MessageBoxInformation, opens_dialog=True)
             if connected:
-                act_sync_labels = collab_menu.addAction("Sync Local Labels Now (Cloud DB)", self._sync_all_local_labels_to_cloud_db)
-                act_sync_labels.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
-                collab_menu.addAction("Clear Cloud Cache", self._clear_cloud_image_cache)
-                collab_menu.addAction("Purge Local Cloud Data", self._purge_all_local_cloud_data)
-            collab_menu.addAction("Status Store Health", self._show_status_store_health)
+                core_menu.addSeparator()
+                add_action(core_menu, "Open Upload Center...", self._open_cloud_upload_center, icon=QStyle.StandardPixmap.SP_DriveNetIcon, opens_dialog=True)
+                add_action(core_menu, "Bulk Sync Existing Local Images to S3", self._sync_local_images_to_s3, icon=QStyle.StandardPixmap.SP_ArrowUp)
+
+            maintenance_menu = collab_menu.addMenu("Maintenance")
+            maintenance_menu.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+            add_action(maintenance_menu, "Refresh Cloud Images Now", self._manual_refresh_cloud_images, icon=QStyle.StandardPixmap.SP_BrowserReload)
+            if connected:
+                add_action(maintenance_menu, "Clear Cloud Cache", self._clear_cloud_image_cache, icon=QStyle.StandardPixmap.SP_DialogResetButton)
+                add_action(maintenance_menu, "Purge Local Cloud Data", self._purge_all_local_cloud_data, icon=QStyle.StandardPixmap.SP_TrashIcon)
+
+            advanced_menu = collab_menu.addMenu("Advanced (Admin)")
+            advanced_menu.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning))
+            if connected:
+                add_action(
+                    advanced_menu,
+                    "Sync Local Labels Now (Bulk, Cloud DB)",
+                    self._sync_all_local_labels_to_cloud_db,
+                    icon=QStyle.StandardPixmap.SP_DriveNetIcon,
+                    shortcut="Ctrl+Shift+L",
+                )
+                add_action(
+                    advanced_menu,
+                    "Sync All Local Statuses to Cloud DB (Admin)",
+                    self._sync_all_local_statuses_to_cloud_db,
+                    icon=QStyle.StandardPixmap.SP_DialogApplyButton,
+                    enabled=self._is_cloud_admin_user(),
+                    tooltip="Admin-only bulk utility to push all local image statuses to cloud DB.",
+                )
+            add_action(collab_menu, "Status Store Health", self._show_status_store_health, icon=QStyle.StandardPixmap.SP_MessageBoxInformation, opens_dialog=True)
             add_menu_button("Cloud", QStyle.StandardPixmap.SP_DriveNetIcon, collab_menu, "Cloud sync and cache management")
         else:
             local_menu = QMenu(self)
             if self._can_open_cloud_settings():
-                local_menu.addAction("Cloud Sync Settings...", self._open_cloud_sync_settings)
+                add_action(local_menu, "Cloud Sync Settings...", self._open_cloud_sync_settings, icon=QStyle.StandardPixmap.SP_FileDialogInfoView, opens_dialog=True)
             else:
-                local_menu.addAction("Cloud Account Login...", self._open_cloud_user_login_dialog)
-            local_menu.addAction("Status Store Health", self._show_status_store_health)
+                add_action(local_menu, "Cloud Account Login...", self._open_cloud_user_login_dialog, icon=QStyle.StandardPixmap.SP_DialogYesButton, opens_dialog=True)
+            add_action(local_menu, "Status Store Health", self._show_status_store_health, icon=QStyle.StandardPixmap.SP_MessageBoxInformation, opens_dialog=True)
             add_menu_button("Local", QStyle.StandardPixmap.SP_DriveHDIcon, local_menu, "Local project mode tools")
 
         # Team menu is local-only; cloud identity comes from authenticated login.
         if not is_cloud_ui:
             team_menu = QMenu(self)
-            team_menu.addAction("Choose Active Member...", self._choose_active_member)
-            team_menu.addAction("Manage Team Members...", self._team_dialog)
-            team_menu.addAction("Distribute Images Across Team", self._distribute_images)
-            team_menu.addAction("Reassign Selected Images...", self._reassign_selected_images)
+            add_action(team_menu, "Choose Active Member...", self._choose_active_member, icon=QStyle.StandardPixmap.SP_DialogYesButton, opens_dialog=True)
+            add_action(team_menu, "Manage Team Members...", self._team_dialog, icon=QStyle.StandardPixmap.SP_FileDialogInfoView, opens_dialog=True)
+            add_action(team_menu, "Distribute Images Across Team", self._distribute_images, icon=QStyle.StandardPixmap.SP_ArrowRight)
+            add_action(team_menu, "Reassign Selected Images...", self._reassign_selected_images, icon=QStyle.StandardPixmap.SP_ArrowRight, opens_dialog=True)
             add_menu_button("Team", QStyle.StandardPixmap.SP_ComputerIcon, team_menu, "Team assignment and collaboration")
 
         # Help menu
         help_menu = QMenu(self)
-        help_menu.addAction("Toolbar Icon Guide", self._show_toolbar_icon_legend)
-        help_menu.addAction("Keyboard Shortcuts", self._show_shortcuts)
-        help_menu.addAction("Status Store Health", self._show_status_store_health)
+        add_action(help_menu, "Toolbar Icon Guide", self._show_toolbar_icon_legend, icon=QStyle.StandardPixmap.SP_DialogHelpButton, opens_dialog=True)
+        add_action(help_menu, "Keyboard Shortcuts", self._show_shortcuts, icon=QStyle.StandardPixmap.SP_DialogHelpButton, opens_dialog=True)
+        add_action(help_menu, "Status Store Health", self._show_status_store_health, icon=QStyle.StandardPixmap.SP_MessageBoxInformation, opens_dialog=True)
         add_menu_button("Help", QStyle.StandardPixmap.SP_DialogHelpButton, help_menu, "Guides, shortcuts, and troubleshooting")
+
+    def _status_icon_for_state(self, status: str) -> QIcon:
+        state = str(status or "").strip().lower()
+        if state == "in_progress":
+            return self._icon_pencil()
+        if state == "yolo":
+            return self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        if state == "to_rotate":
+            return self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        return self._icon_check()
+
+    def _update_nav_status_button_icon(self) -> None:
+        btn = self._nav_status_btn
+        if btn is None:
+            return
+
+        img = self._image_mgr.current_image
+        if img is None:
+            btn.setIcon(self._status_icon_for_state("completed"))
+            btn.setToolTip("Image completion status tools (default: completed)")
+            return
+
+        current = self._get_image_completion_status(img)
+        btn.setIcon(self._status_icon_for_state(current or "completed"))
+        label = current or "completed"
+        btn.setToolTip(f"Image completion status tools (current image: {label})")
 
     def _show_toolbar_icon_legend(self) -> None:
         connected = self._is_cloud_connected()
@@ -1851,7 +1959,20 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Cloud Status Sync", "Open a project first.")
             return
 
-        valid_names = self._current_image_name_set()
+        valid_names: set[str] = set()
+        dataset_folder = self._project_mgr.resolve_dataset_folder(project)
+        if dataset_folder and dataset_folder.exists() and dataset_folder.is_dir():
+            image_suffixes = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+            try:
+                for image_file in dataset_folder.rglob("*"):
+                    if image_file.is_file() and image_file.suffix.lower() in image_suffixes:
+                        valid_names.add(image_file.name)
+            except Exception:
+                valid_names = set()
+
+        if not valid_names:
+            valid_names = self._current_image_name_set()
+
         statuses_to_sync: dict[str, str] = {}
         for image_name, status in (project.image_completion or {}).items():
             name = str(image_name or "").strip()
@@ -1861,6 +1982,26 @@ class MainWindow(QMainWindow):
             if state not in {"in_progress", "completed", "yolo", "to_rotate"}:
                 continue
             statuses_to_sync[name] = state
+
+        status_dir = self._project_mgr.resolve_image_status_folder(project)
+        if status_dir and status_dir.exists() and status_dir.is_dir():
+            for status_file in status_dir.glob("*.json"):
+                try:
+                    payload = json.loads(status_file.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+
+                image_name = str(payload.get("image_name", "")).strip()
+                state = str(payload.get("status", "")).strip().lower()
+                if not image_name or state not in {"in_progress", "completed", "yolo", "to_rotate"}:
+                    continue
+                if valid_names and image_name not in valid_names:
+                    continue
+
+                # Disk-backed status files are authoritative for bulk sync.
+                statuses_to_sync[image_name] = state
 
         if not statuses_to_sync:
             QMessageBox.information(
@@ -3209,6 +3350,8 @@ class MainWindow(QMainWindow):
                 self._act_toggle_completion.setText("Mark Current Image &In Progress")
             else:
                 self._act_toggle_completion.setText("Mark Current Image &Completed")
+
+        self._update_nav_status_button_icon()
 
     def _auto_mark_current_image_in_progress(self) -> None:
         """Default completion state when first labels appear on an image."""
