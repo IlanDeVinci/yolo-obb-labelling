@@ -130,9 +130,25 @@ class CreateUserPayload(BaseModel):
     isAdmin: bool = False
 
 
+class ProjectPasswordUpdatePayload(BaseModel):
+    newProjectPassword: str = Field(min_length=4, max_length=256)
+
+
+class AdminUserUpdatePayload(BaseModel):
+    role: str | None = Field(default=None, pattern="^(admin|user)$")
+    newPassword: str | None = Field(default=None, min_length=4, max_length=256)
+
+
 class SignedWritePayload(BaseModel):
     path: str
     contentType: str | None = None
+
+
+class SignedUploadCommitPayload(BaseModel):
+    path: str
+    sha1: str = ""
+    sizeBytes: int = Field(default=0, ge=0)
+    mtimeMs: int = Field(default=0, ge=0)
 
 
 class PrefetchBatchPayload(BaseModel):
@@ -698,6 +714,22 @@ def _session_can_delete_user(session: SessionContext, target_username: str) -> b
     if session.role != "admin":
         return False
 
+    row = _CONN.execute(
+        "SELECT created_by FROM users WHERE project_id = ? AND username = ?",
+        (session.project_id, target_username),
+    ).fetchone()
+    if row is None:
+        return False
+    return str(row["created_by"] or "") == session.username
+
+
+def _session_can_reset_user_password(session: SessionContext, target_username: str) -> bool:
+    if target_username == session.username:
+        return True
+    if session.role == "owner":
+        return True
+    if session.role != "admin":
+        return False
     row = _CONN.execute(
         "SELECT created_by FROM users WHERE project_id = ? AND username = ?",
         (session.project_id, target_username),
@@ -1309,6 +1341,12 @@ def list_users(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]
             "role": str(row["role"] or "user"),
             "createdBy": str(row["created_by"] or ""),
             "canDelete": _session_can_delete_user(session, str(row["username"])),
+            "canResetPassword": _session_can_reset_user_password(session, str(row["username"])),
+            "canChangeRole": bool(
+                session.role == "owner"
+                and str(row["username"]) != session.username
+                and str(row["role"] or "user") != "owner"
+            ),
             "createdAt": str(row["created_at"]),
         }
         for row in rows
@@ -1352,6 +1390,103 @@ def create_user(
         _CONN.commit()
 
     return {"ok": True, "username": username, "role": target_role, "createdBy": session.username}
+
+
+@app.post("/api/admin/project/password")
+def set_project_password(
+    payload: ProjectPasswordUpdatePayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    if session.role != "owner":
+        raise HTTPException(status_code=403, detail="Only owners can change project password")
+
+    with _db_lock:
+        _CONN.execute(
+            "UPDATE projects SET password_hash = ? WHERE id = ?",
+            (_hash_password(payload.newProjectPassword), session.project_id),
+        )
+        _CONN.commit()
+
+    return {"ok": True, "projectId": session.project_id, "updatedBy": session.username}
+
+
+@app.patch("/api/admin/users/{target_username}")
+def update_user_admin(
+    target_username: str,
+    payload: AdminUserUpdatePayload,
+    session: SessionContext = Depends(_admin_only),
+) -> dict[str, Any]:
+    target = target_username.strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="username is required")
+
+    role_value = str(payload.role or "").strip().lower()
+    new_role = role_value if role_value in {"admin", "user"} else ""
+    new_password = str(payload.newPassword or "")
+
+    if not new_role and not new_password:
+        raise HTTPException(status_code=400, detail="Provide role and/or newPassword")
+
+    with _db_lock:
+        row = _CONN.execute(
+            "SELECT username, role FROM users WHERE project_id = ? AND username = ?",
+            (session.project_id, target),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        current_role = str(row["role"] or "user")
+
+        if new_role:
+            if session.role != "owner":
+                raise HTTPException(status_code=403, detail="Only owners can change user roles")
+            if current_role == "owner":
+                raise HTTPException(status_code=400, detail="Owner role cannot be changed via this endpoint")
+            if target == session.username:
+                raise HTTPException(status_code=400, detail="Owner cannot change their own role")
+
+        if new_password and not _session_can_reset_user_password(session, target):
+            raise HTTPException(status_code=403, detail="Not allowed to reset this user's password")
+
+        updated_role = current_role
+        if new_role:
+            _CONN.execute(
+                "UPDATE users SET role = ?, is_admin = ? WHERE project_id = ? AND username = ?",
+                (new_role, 1 if new_role in {"owner", "admin"} else 0, session.project_id, target),
+            )
+            _CONN.execute(
+                "UPDATE sessions SET role = ?, is_admin = ? WHERE project_id = ? AND username = ?",
+                (new_role, 1 if new_role in {"owner", "admin"} else 0, session.project_id, target),
+            )
+            updated_role = new_role
+
+        if new_password:
+            _CONN.execute(
+                "UPDATE users SET password_hash = ? WHERE project_id = ? AND username = ?",
+                (_hash_password(new_password), session.project_id, target),
+            )
+            # Invalidate existing sessions so new password takes effect immediately.
+            target_tokens = _CONN.execute(
+                "SELECT token FROM sessions WHERE project_id = ? AND username = ?",
+                (session.project_id, target),
+            ).fetchall()
+            for token_row in target_tokens:
+                token = str(token_row["token"])
+                _CONN.execute("DELETE FROM locks WHERE token = ?", (token,))
+            _CONN.execute(
+                "DELETE FROM sessions WHERE project_id = ? AND username = ?",
+                (session.project_id, target),
+            )
+
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "username": target,
+        "role": updated_role,
+        "passwordReset": bool(new_password),
+        "updatedBy": session.username,
+    }
 
 
 @app.delete("/api/users/{target_username}")
@@ -1642,6 +1777,59 @@ def get_signed_image_write_url(
         "method": "PUT",
         "expiresIn": SIGNED_URL_TTL_SECONDS,
         "url": url,
+    }
+
+
+@app.post("/api/images/commit-upload")
+def commit_signed_image_upload(
+    payload: SignedUploadCommitPayload,
+    session: SessionContext = Depends(_auth_from_header),
+) -> dict[str, Any]:
+    _ensure_s3_image_mode(session)
+    normalized = _normalize_path(payload.path)
+    if not _is_image_path(normalized):
+        raise HTTPException(status_code=400, detail="Path must reference an image file")
+
+    if not _s3_image_exists(session.project_id, normalized):
+        raise HTTPException(status_code=404, detail="Uploaded image was not found in S3")
+
+    sha1 = str(payload.sha1 or "").strip().lower()
+    if sha1 and not all(ch in "0123456789abcdef" for ch in sha1):
+        raise HTTPException(status_code=400, detail="Invalid sha1 format")
+
+    now = _now_ms()
+    mtime_ms = int(payload.mtimeMs or now)
+    if mtime_ms <= 0:
+        mtime_ms = now
+
+    with _db_lock:
+        _CONN.execute(
+            """
+            INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
+            VALUES (?, ?, 0, ?, ?, '', ?)
+            ON CONFLICT(project_id, path) DO UPDATE SET
+              deleted=0,
+              mtime_ms=excluded.mtime_ms,
+              sha1=excluded.sha1,
+              content_base64='',
+              updated_at=excluded.updated_at
+            """,
+            (session.project_id, normalized, mtime_ms, sha1, now),
+        )
+        _CONN.execute(
+            "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, '', ?)",
+            (session.project_id, session.username, session.token, normalized, mtime_ms, sha1, now),
+        )
+        _CONN.commit()
+
+    return {
+        "ok": True,
+        "projectId": session.project_id,
+        "path": normalized,
+        "sha1": sha1,
+        "sizeBytes": int(payload.sizeBytes or 0),
+        "mtimeMs": mtime_ms,
+        "committedAt": now,
     }
 
 

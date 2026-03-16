@@ -398,6 +398,9 @@
                                 </svg>
                                 Project Settings
                             </h4>
+                            <label>New Project Password (owner only)
+                                <input id="newProjectPassword" type="password" placeholder="new project password" />
+                            </label>
                             <label>Storage Mode
                                 <select id="storageMode">
                                     <option value="auto">auto</option>
@@ -413,6 +416,8 @@
                                 </select>
                             </label>
                             <div class="row">
+                                <button id="setProjectPasswordBtn" type="button" class="btn solid">Set Project
+                                    Password</button>
                                 <button id="saveStorageBtn" type="button" class="btn solid">Save Storage</button>
                                 <button id="saveImageAccessBtn" type="button" class="btn solid">Save Image
                                     Access</button>
@@ -994,13 +999,19 @@
                 const deleteBtn = u.canDelete
                     ? `<button data-delete-user="${u.username}" class="btn danger small-btn">Delete</button>`
                     : '';
+                const resetBtn = u.canResetPassword
+                    ? `<button data-reset-password-user="${u.username}" class="btn ghost small-btn">Reset Password</button>`
+                    : '';
+                const roleBtn = u.canChangeRole
+                    ? `<button data-toggle-role-user="${u.username}" data-current-role="${u.role || (u.isAdmin ? 'admin' : 'user')}" class="btn ghost small-btn">Make ${(u.role || (u.isAdmin ? 'admin' : 'user')) === 'admin' ? 'User' : 'Admin'}</button>`
+                    : '';
                 return `
                     <tr>
                         <td>${u.username}</td>
                         <td>${u.role || (u.isAdmin ? 'admin' : 'user')}</td>
                         <td>${u.createdBy || '-'}</td>
                         <td>${u.createdAt || '-'}</td>
-                        <td>${deleteBtn}</td>
+                        <td>${resetBtn} ${roleBtn} ${deleteBtn}</td>
                     </tr>
                 `;
             }).join('');
@@ -2098,6 +2109,22 @@
             }
         });
 
+        document.getElementById('setProjectPasswordBtn').addEventListener('click', async () => {
+            try {
+                const newProjectPassword = document.getElementById('newProjectPassword').value;
+                if (!newProjectPassword || newProjectPassword.length < 4) {
+                    throw new Error('New project password must be at least 4 characters.');
+                }
+                const yes = confirm('Update project password now? All collaborators must use the new password.');
+                if (!yes) return;
+                await api('/api/admin/project/password', 'POST', { newProjectPassword });
+                document.getElementById('newProjectPassword').value = '';
+                setMessage('Project password updated. Share the new password with collaborators.');
+            } catch (e) {
+                setMessage(e.message, true);
+            }
+        });
+
         document.getElementById('saveImageAccessBtn').addEventListener('click', async () => {
             try {
                 const mode = document.getElementById('imageAccessMode').value;
@@ -2124,15 +2151,42 @@
 
         usersBody.addEventListener('click', async (event) => {
             const target = event.target;
-            if (!target || !target.matches('button[data-delete-user]')) return;
-            const username = target.getAttribute('data-delete-user');
-            if (!username) return;
+            if (!target) return;
             try {
-                const yes = confirm(`Delete user ${username}?`);
-                if (!yes) return;
-                await api(`/api/users/${encodeURIComponent(username)}`, 'DELETE');
-                setMessage(`User ${username} deleted.`);
-                await refreshAll(true);
+                if (target.matches('button[data-reset-password-user]')) {
+                    const username = target.getAttribute('data-reset-password-user');
+                    if (!username) return;
+                    const newPassword = prompt(`New password for ${username}:`, '');
+                    if (newPassword === null) return;
+                    if (String(newPassword).length < 4) throw new Error('Password must be at least 4 characters.');
+                    await api(`/api/admin/users/${encodeURIComponent(username)}`, 'PATCH', { newPassword });
+                    setMessage(`Password reset for ${username}. Existing sessions were signed out.`);
+                    await refreshAll(true);
+                    return;
+                }
+
+                if (target.matches('button[data-toggle-role-user]')) {
+                    const username = target.getAttribute('data-toggle-role-user');
+                    const currentRole = String(target.getAttribute('data-current-role') || 'user').toLowerCase();
+                    if (!username) return;
+                    const nextRole = currentRole === 'admin' ? 'user' : 'admin';
+                    const yes = confirm(`Change role for ${username} to ${nextRole}?`);
+                    if (!yes) return;
+                    await api(`/api/admin/users/${encodeURIComponent(username)}`, 'PATCH', { role: nextRole });
+                    setMessage(`Role updated for ${username}: ${nextRole}.`);
+                    await refreshAll(true);
+                    return;
+                }
+
+                if (target.matches('button[data-delete-user]')) {
+                    const username = target.getAttribute('data-delete-user');
+                    if (!username) return;
+                    const yes = confirm(`Delete user ${username}?`);
+                    if (!yes) return;
+                    await api(`/api/users/${encodeURIComponent(username)}`, 'DELETE');
+                    setMessage(`User ${username} deleted.`);
+                    await refreshAll(true);
+                }
             } catch (e) {
                 setMessage(e.message, true);
             }

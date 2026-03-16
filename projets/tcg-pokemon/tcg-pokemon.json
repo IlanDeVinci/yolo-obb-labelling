@@ -185,5 +185,10 @@
       "PXL_20260224_090642009.MP.jpg"
     ]
   },
-  "cloud_bootstrap": {}
+  "cloud_bootstrap": {
+    "enabled": true,
+    "server_url": "https://yolosync.ilan-maouchi.cc",
+    "project_id": "yolo-pokemon",
+    "poll_seconds": 1.2
+  }
 }

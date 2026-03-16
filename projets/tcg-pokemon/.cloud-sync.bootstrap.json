@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "note": "Project cloud bootstrap (shared via git). User login stays local per machine.",
+  "cloudSync": {
+    "enabled": true,
+    "server_url": "https://yolosync.ilan-maouchi.cc",
+    "project_id": "yolo-pokemon",
+    "poll_seconds": 1.2
+  }
+}
