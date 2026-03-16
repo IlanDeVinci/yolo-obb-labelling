@@ -545,7 +545,8 @@
                 <section class="page-view hidden" data-page="images">
                     <header class="view-head">
                         <h3>Project Images</h3>
-                        <p class="muted">View all project images. Admin users get additional maintenance and delete tools.</p>
+                        <p class="muted">View all project images. Admin users get additional maintenance and delete
+                            tools.</p>
                     </header>
 
                     <article class="sub-card stack">
@@ -563,7 +564,8 @@
                                     <option value="desc">Descending</option>
                                 </select>
                             </label>
-                            <label class="inline admin-only"><input id="imagesDeleteLabels" type="checkbox" checked /> Delete
+                            <label class="inline admin-only"><input id="imagesDeleteLabels" type="checkbox" checked />
+                                Delete
                                 matching labels too</label>
                         </div>
                         <div class="row">
@@ -571,15 +573,19 @@
                             <button id="openSlideshowBtn" type="button" class="btn solid">Open Slideshow</button>
                             <button id="reconcileStatusesBtn" type="button" class="btn ghost admin-only">Sync Missing
                                 Statuses</button>
-                            <button id="labelsSummaryBtn" type="button" class="btn ghost admin-only">Check Label Sync</button>
-                            <button id="normalizeImagesBtn" type="button" class="btn ghost admin-only">Normalize To JPEG</button>
+                            <button id="labelsSummaryBtn" type="button" class="btn ghost admin-only">Check Label
+                                Sync</button>
+                            <button id="normalizeImagesBtn" type="button" class="btn ghost admin-only">Normalize To
+                                JPEG</button>
                             <button id="cancelNormalizeBtn" type="button" class="btn ghost admin-only" disabled>Cancel
                                 Normalize</button>
                             <button id="labelSyncHelpBtn" type="button" class="btn ghost">How To Sync Local
                                 Labels</button>
-                            <button id="deleteSelectedImagesBtn" type="button" class="btn danger admin-only">Delete Selected
+                            <button id="deleteSelectedImagesBtn" type="button" class="btn danger admin-only">Delete
+                                Selected
                                 Images</button>
-                            <button id="purgeModeLabelsBtn" type="button" class="btn ghost admin-only">Purge BB/OBB Label
+                            <button id="purgeModeLabelsBtn" type="button" class="btn ghost admin-only">Purge BB/OBB
+                                Label
                                 Files</button>
                             <span id="imagesOpsStatus" class="muted small">No background operation running.</span>
                             <progress id="imagesOpsProgress" max="100" value="0" class="images-ops-progress"></progress>
@@ -1859,7 +1865,7 @@
                 isAdmin = !!status.isAdmin;
                 adminPanel.classList.toggle('hidden', false);
                 document.body.classList.toggle('is-admin', isAdmin);
-                if (!isAdmin && (activeDashPage === 'admin' || activeDashPage === 'images')) {
+                if (!isAdmin && activeDashPage === 'admin') {
                     activeDashPage = 'uploads';
                 }
                 setDashboardPage(activeDashPage);
