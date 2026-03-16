@@ -68,6 +68,9 @@ class Project:
     model_confidence: float = 0.7
     model_class_filter: list[int] = field(default_factory=list)
 
+    # Shared cloud bootstrap (safe project-level defaults; no user password)
+    cloud_bootstrap: dict[str, object] = field(default_factory=dict)
+
     def __post_init__(self):
         if not self.created_at:
             self.created_at = datetime.now().isoformat()
@@ -262,6 +265,7 @@ class Project:
                 model_path=data.get("model_path", ""),
                 model_confidence=float(data.get("model_confidence", 0.7)),
                 model_class_filter=[int(v) for v in data.get("model_class_filter", [])],
+                cloud_bootstrap=data.get("cloud_bootstrap", {}) if isinstance(data.get("cloud_bootstrap", {}), dict) else {},
             )
         except Exception:
             return None

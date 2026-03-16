@@ -7,6 +7,9 @@ import mimetypes
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QSettings, QTimer, QStandardPaths, QPoint
@@ -977,15 +980,33 @@ class MainWindow(QMainWindow):
         if self._can_open_cloud_settings():
             self._open_cloud_sync_settings()
             return
+
+        # Non-admin disconnected users can get stuck if their local machine has
+        # stale/incorrect cloud project settings. Try project bootstrap recovery
+        # first, then offer guided quick connect.
+        if not self._is_cloud_connected():
+            project_folder = self._project_mgr.get_project_folder()
+            if project_folder is not None and self._apply_project_cloud_bootstrap(project_folder):
+                self._start_project_sync_if_enabled()
+                self._lbl_hint.setText("Cloud configuration restored from project bootstrap")
+                return
+            if self._run_cloud_quick_connect():
+                self._start_project_sync_if_enabled()
+                self._lbl_hint.setText("Cloud quick connect complete. Sync reconnecting...")
+                return
+
         self._open_cloud_user_login_dialog()
 
     def _open_cloud_user_login_dialog(self) -> None:
         if not self._is_cloud_project_workflow_enabled():
-            QMessageBox.information(
-                self,
-                "Cloud Login",
-                "Cloud project settings are not configured yet. Ask an admin to configure this project first.",
-            )
+            if self._run_cloud_quick_connect():
+                self._start_project_sync_if_enabled()
+                self._lbl_hint.setText("Cloud quick connect complete. Sync reconnecting...")
+                return
+
+            # Do not block users if quick-connect discovery is unavailable
+            # (e.g. reverse proxy/firewall blocks project-options endpoint).
+            self._open_cloud_sync_settings()
             return
 
         if not self._prompt_cloud_login_for_sync(force=True):
@@ -993,6 +1014,312 @@ class MainWindow(QMainWindow):
 
         self._start_project_sync_if_enabled()
         self._lbl_hint.setText("Cloud login updated. Sync reconnecting...")
+
+    def _normalize_server_url(self, value: str) -> str:
+        url = str(value or "").strip()
+        if not url:
+            return ""
+        if not url.startswith(("http://", "https://")):
+            url = f"http://{url}"
+        return url.rstrip("/")
+
+    def _post_cloud_json(
+        self,
+        server_url: str,
+        endpoint: str,
+        payload: dict[str, object],
+        *,
+        bearer_token: str = "",
+    ) -> dict[str, object]:
+        normalized = self._normalize_server_url(server_url)
+        url = f"{normalized}{endpoint}"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "YOLO-OBB-Labeller/desktop",
+        }
+        token = str(bearer_token or "").strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                raw = response.read().decode("utf-8")
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                raw = exc.read().decode("utf-8")
+                try:
+                    payload = json.loads(raw)
+                    detail = str(payload.get("detail") or payload.get("error") or raw)
+                except Exception:
+                    detail = raw.strip() or str(exc)
+            except Exception:
+                detail = str(exc)
+            raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Request failed: {exc}") from exc
+
+    def _run_cloud_quick_connect(self) -> bool:
+        server_default = str(self._cloud_sync_settings.get("server_url", "")).strip()
+        server_url, ok = QInputDialog.getText(
+            self,
+            "Cloud Quick Connect",
+            "Server URL:",
+            QLineEdit.EchoMode.Normal,
+            server_default,
+        )
+        if not ok:
+            return False
+
+        server = self._normalize_server_url(str(server_url or ""))
+        if not server:
+            QMessageBox.warning(self, "Cloud Quick Connect", "Server URL is required.")
+            return False
+
+        login_dlg = CloudLoginDialog(
+            username=str(self._cloud_sync_settings.get("username", "")).strip(),
+            remember=bool(self._cloud_sync_settings.get("remember_password", False)),
+            parent=self,
+        )
+        if login_dlg.exec() != CloudLoginDialog.DialogCode.Accepted:
+            return False
+
+        login = login_dlg.values()
+        username = str(login.get("username", "")).strip()
+        password = str(login.get("password", ""))
+        remember = bool(login.get("remember", False))
+        if not username or not password:
+            QMessageBox.warning(self, "Cloud Quick Connect", "Username and password are required.")
+            return False
+
+        try:
+            options = self._post_cloud_json(
+                server,
+                "/api/auth/project-options",
+                {
+                    "username": username,
+                    "password": password,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._run_cloud_manual_connect(
+                server=server,
+                username=username,
+                password=password,
+                remember=remember,
+                discovery_error=str(exc),
+            )
+
+        projects = options.get("projects") if isinstance(options, dict) else []
+        if not isinstance(projects, list) or not projects:
+            QMessageBox.warning(self, "Cloud Quick Connect", "No project memberships were returned for this account.")
+            return False
+
+        project_ids = [str(item.get("projectId", "")).strip() for item in projects if isinstance(item, dict)]
+        project_ids = [pid for pid in project_ids if pid]
+        if not project_ids:
+            QMessageBox.warning(self, "Cloud Quick Connect", "No valid project IDs were returned by the server.")
+            return False
+
+        if len(project_ids) == 1:
+            project_id = project_ids[0]
+        else:
+            preferred = str(self._cloud_sync_settings.get("project_id", "")).strip()
+            selected, picked = QInputDialog.getItem(
+                self,
+                "Cloud Quick Connect",
+                "Select your project:",
+                project_ids,
+                max(0, project_ids.index(preferred)) if preferred in project_ids else 0,
+                False,
+            )
+            if not picked:
+                return False
+            project_id = str(selected or "").strip()
+
+        require_project_password = bool(options.get("requireProjectPassword", False))
+        project_password = str(self._cloud_sync_settings.get("project_password", ""))
+        if require_project_password and not project_password:
+            project_password_input, accepted = QInputDialog.getText(
+                self,
+                "Project Password Required",
+                "Enter the project password for this server:",
+                QLineEdit.EchoMode.Password,
+            )
+            if not accepted:
+                return False
+            project_password = str(project_password_input or "")
+            if not project_password:
+                QMessageBox.warning(self, "Cloud Quick Connect", "Project password is required by this server.")
+                return False
+
+        login_verified = False
+        for attempt in range(2):
+            try:
+                login_probe = self._post_cloud_json(
+                    server,
+                    "/api/auth/login",
+                    {
+                        "projectId": project_id,
+                        "projectPassword": project_password,
+                        "username": username,
+                        "password": password,
+                    },
+                )
+                if str(login_probe.get("token", "")).strip():
+                    token = str(login_probe.get("token", "")).strip()
+                    try:
+                        self._post_cloud_json(
+                            server,
+                            "/api/auth/logout",
+                            {},
+                            bearer_token=token,
+                        )
+                    except Exception:
+                        pass
+                    login_verified = True
+                    if token:
+                        login_verified = True
+                    break
+            except Exception as exc:  # noqa: BLE001
+                if require_project_password and attempt == 0:
+                    project_password_input, accepted = QInputDialog.getText(
+                        self,
+                        "Project Password",
+                        f"Login test failed ({exc}). Re-enter project password:",
+                        QLineEdit.EchoMode.Password,
+                    )
+                    if not accepted:
+                        return False
+                    project_password = str(project_password_input or "")
+                    if not project_password:
+                        QMessageBox.warning(self, "Cloud Quick Connect", "Project password is required by this server.")
+                        return False
+                    continue
+                QMessageBox.warning(self, "Cloud Quick Connect", f"Unable to verify cloud login:\n{exc}")
+                return False
+
+        if not login_verified:
+            QMessageBox.warning(self, "Cloud Quick Connect", "Unable to verify cloud login.")
+            return False
+
+        merged = dict(self._cloud_sync_settings)
+        merged.update(
+            {
+                "enabled": True,
+                "server_url": server,
+                "project_id": project_id,
+                "project_password": project_password if require_project_password else "",
+                "username": username,
+                "user_password": password,
+                "remember_password": remember,
+            }
+        )
+        self._save_cloud_sync_settings(merged)
+        return True
+
+    def _run_cloud_manual_connect(
+        self,
+        *,
+        server: str,
+        username: str,
+        password: str,
+        remember: bool,
+        discovery_error: str,
+    ) -> bool:
+        QMessageBox.information(
+            self,
+            "Cloud Quick Connect",
+            "Project auto-discovery is unavailable on this network/server.\n"
+            f"Reason: {discovery_error}\n\n"
+            "Continue with manual project connection.",
+        )
+
+        project_id_default = str(self._cloud_sync_settings.get("project_id", "")).strip()
+        project_id, ok = QInputDialog.getText(
+            self,
+            "Manual Cloud Connect",
+            "Project ID:",
+            QLineEdit.EchoMode.Normal,
+            project_id_default,
+        )
+        if not ok:
+            return False
+        project_id = str(project_id or "").strip()
+        if not project_id:
+            QMessageBox.warning(self, "Manual Cloud Connect", "Project ID is required.")
+            return False
+
+        project_password = str(self._cloud_sync_settings.get("project_password", ""))
+        for attempt in range(2):
+            if attempt > 0 or not project_password:
+                value, accepted = QInputDialog.getText(
+                    self,
+                    "Manual Cloud Connect",
+                    "Project Password (leave empty if your backend does not require it):",
+                    QLineEdit.EchoMode.Password,
+                )
+                if not accepted:
+                    return False
+                project_password = str(value or "")
+
+            try:
+                login_probe = self._post_cloud_json(
+                    server,
+                    "/api/auth/login",
+                    {
+                        "projectId": project_id,
+                        "projectPassword": project_password,
+                        "username": username,
+                        "password": password,
+                    },
+                )
+                token = str(login_probe.get("token", "")).strip()
+                if not token:
+                    raise RuntimeError("missing login token")
+                try:
+                    self._post_cloud_json(
+                        server,
+                        "/api/auth/logout",
+                        {},
+                        bearer_token=token,
+                    )
+                except Exception:
+                    pass
+
+                merged = dict(self._cloud_sync_settings)
+                merged.update(
+                    {
+                        "enabled": True,
+                        "server_url": server,
+                        "project_id": project_id,
+                        "project_password": project_password,
+                        "username": username,
+                        "user_password": password,
+                        "remember_password": remember,
+                    }
+                )
+                self._save_cloud_sync_settings(merged)
+                return True
+            except Exception as exc:  # noqa: BLE001
+                if attempt == 0:
+                    QMessageBox.warning(
+                        self,
+                        "Manual Cloud Connect",
+                        f"Login failed. Check Project ID/Project Password and try again.\n\n{exc}",
+                    )
+                    continue
+                QMessageBox.warning(self, "Manual Cloud Connect", f"Unable to verify cloud login:\n{exc}")
+                return False
+
+        return False
 
     def _regenerate_project_cloud_bootstrap(self) -> None:
         project_folder = self._project_mgr.get_project_folder()
@@ -2714,6 +3041,10 @@ class MainWindow(QMainWindow):
         if not project_folder:
             return
 
+        # Always prefer shared project bootstrap values for project-level fields.
+        # This self-heals teammate machines that have stale local cloud config.
+        self._apply_project_cloud_bootstrap(project_folder)
+
         self._stop_project_sync()
         self._last_seen_remote_seq = -1
         self._last_seen_status_seq = -1
@@ -3046,6 +3377,20 @@ class MainWindow(QMainWindow):
             "poll_seconds": float(self._cloud_sync_settings.get("poll_seconds", 1.2) or 1.2),
         }
 
+    def _read_project_cloud_bootstrap_from_project_json(self) -> dict[str, object] | None:
+        project = self._project_mgr.current_project
+        if project is None:
+            return None
+        payload = project.cloud_bootstrap if isinstance(project.cloud_bootstrap, dict) else None
+        if not payload:
+            return None
+        return {
+            "enabled": bool(payload.get("enabled", False)),
+            "server_url": str(payload.get("server_url", "")).strip(),
+            "project_id": str(payload.get("project_id", "")).strip(),
+            "poll_seconds": float(payload.get("poll_seconds", 1.2) or 1.2),
+        }
+
     def _project_cloud_bootstrap_path(self, project_folder: Path) -> Path:
         return project_folder / _PROJECT_CLOUD_BOOTSTRAP_FILE
 
@@ -3071,6 +3416,8 @@ class MainWindow(QMainWindow):
 
     def _apply_project_cloud_bootstrap(self, project_folder: Path) -> bool:
         data = self._read_project_cloud_bootstrap(project_folder)
+        if not data:
+            data = self._read_project_cloud_bootstrap_from_project_json()
         if not data:
             return False
 
@@ -3104,6 +3451,16 @@ class MainWindow(QMainWindow):
             path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
         except Exception:
             pass
+
+        # Also keep bootstrap in shared project JSON so teammates still get
+        # project-level cloud defaults even if dotfiles are ignored or missing.
+        project = self._project_mgr.current_project
+        if project is not None:
+            project.cloud_bootstrap = dict(fields)
+            try:
+                self._project_mgr.save_current()
+            except Exception:
+                pass
 
     def _open_cloud_sync_settings(self) -> None:
         if not self._can_open_cloud_settings():

@@ -22,16 +22,15 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 try:
-    from PIL import Image, ImageOps, UnidentifiedImageError
+    from PIL import Image, UnidentifiedImageError
 except Exception:  # pragma: no cover - optional dependency in local dev
     Image = None
-    ImageOps = None
 
     class UnidentifiedImageError(Exception):
         pass
@@ -136,13 +135,6 @@ class SignedWritePayload(BaseModel):
     contentType: str | None = None
 
 
-class SignedUploadCommitPayload(BaseModel):
-    path: str
-    sha1: str = ""
-    sizeBytes: int = Field(default=0, ge=0)
-    mtimeMs: int = Field(default=0, ge=0)
-
-
 class PrefetchBatchPayload(BaseModel):
     currentPath: str | None = None
     count: int = Field(default=10, ge=1, le=200)
@@ -199,28 +191,6 @@ class AdminImageStatusReconcilePayload(BaseModel):
 class AdminNormalizeImagesPayload(BaseModel):
     paths: list[str] = Field(default_factory=list)
     quality: int = Field(default=90, ge=60, le=95)
-
-
-class BackupRetentionPayload(BaseModel):
-    retentionValue: int = Field(default=14, ge=1, le=3650)
-    retentionUnit: str = Field(default="days", pattern="^(days|months)$")
-
-
-class BackupRestorePayload(BaseModel):
-    backupName: str = Field(min_length=1, max_length=255)
-    confirmText: str = Field(min_length=1, max_length=300)
-
-
-class BackupDryRunPayload(BaseModel):
-    backupName: str = Field(min_length=1, max_length=255)
-
-
-class DatabaseTableQueryPayload(BaseModel):
-    table: str = Field(min_length=1, max_length=120)
-    limit: int = Field(default=100, ge=1, le=500)
-    offset: int = Field(default=0, ge=0)
-    search: str = Field(default="", max_length=250)
-    searchColumn: str = Field(default="", max_length=120)
 
 
 @dataclass
@@ -606,19 +576,6 @@ def _init_db() -> None:
               content_base64 TEXT NOT NULL,
               created_at INTEGER NOT NULL
             );
-                                                CREATE TABLE IF NOT EXISTS image_label_index (
-                                                        project_id TEXT NOT NULL,
-                                                        image_stem TEXT NOT NULL,
-                                                        image_name TEXT NOT NULL,
-                                                        bb_label_path TEXT NOT NULL DEFAULT '',
-                                                        obb_label_path TEXT NOT NULL DEFAULT '',
-                                                        bb_label_text TEXT NOT NULL DEFAULT '',
-                                                        obb_label_text TEXT NOT NULL DEFAULT '',
-                                                        bb_label_rows INTEGER NOT NULL DEFAULT 0,
-                                                        obb_label_rows INTEGER NOT NULL DEFAULT 0,
-                                                        updated_at INTEGER NOT NULL,
-                                                        PRIMARY KEY(project_id, image_stem)
-                                                );
                         CREATE TABLE IF NOT EXISTS image_status (
                             project_id TEXT NOT NULL,
                             image_name TEXT NOT NULL,
@@ -626,11 +583,6 @@ def _init_db() -> None:
                             updated_at INTEGER NOT NULL,
                             updated_by TEXT NOT NULL,
                             PRIMARY KEY(project_id, image_name)
-                        );
-                        CREATE TABLE IF NOT EXISTS app_settings (
-                            key TEXT PRIMARY KEY,
-                            value TEXT NOT NULL,
-                            updated_at INTEGER NOT NULL
                         );
             """
         )
@@ -696,241 +648,7 @@ def _init_db() -> None:
         _CONN.execute(
             "UPDATE users SET is_admin = CASE WHEN role IN ('owner', 'admin') THEN 1 ELSE 0 END"
         )
-
-        now = _now_ms()
-        existing_retention_unit = _CONN.execute(
-            "SELECT value FROM app_settings WHERE key = 'backup_retention_unit'",
-        ).fetchone()
-        existing_retention_value = _CONN.execute(
-            "SELECT value FROM app_settings WHERE key = 'backup_retention_value'",
-        ).fetchone()
-        if existing_retention_unit is None:
-            _CONN.execute(
-                "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('backup_retention_unit', ?, ?)",
-                ("days", now),
-            )
-        if existing_retention_value is None:
-            _CONN.execute(
-                "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('backup_retention_value', ?, ?)",
-                (str(BACKUP_RETENTION_DAYS), now),
-            )
-
         _CONN.commit()
-
-
-def _setting_get(key: str, default_value: str = "") -> str:
-    row = _CONN.execute(
-        "SELECT value FROM app_settings WHERE key = ?",
-        (str(key or ""),),
-    ).fetchone()
-    if row is None:
-        return str(default_value)
-    return str(row["value"] or default_value)
-
-
-def _setting_set(key: str, value: str) -> None:
-    with _db_lock:
-        _CONN.execute(
-            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
-            (str(key or ""), str(value or ""), _now_ms()),
-        )
-        _CONN.commit()
-
-
-def _get_backup_retention_policy() -> tuple[int, str, int]:
-    raw_unit = _setting_get("backup_retention_unit", "days").strip().lower()
-    unit = raw_unit if raw_unit in {"days", "months"} else "days"
-
-    default_value = BACKUP_RETENTION_DAYS
-    if unit == "months":
-        default_value = max(1, min(120, int(round(BACKUP_RETENTION_DAYS / 30))))
-
-    raw_value = _setting_get("backup_retention_value", str(default_value)).strip()
-    try:
-        retention_value = int(raw_value)
-    except Exception:
-        retention_value = default_value
-
-    if unit == "days":
-        retention_value = max(2, min(3650, retention_value))
-        retention_days = retention_value
-    else:
-        retention_value = max(1, min(120, retention_value))
-        retention_days = max(2, min(3650, retention_value * 30))
-
-    return retention_value, unit, retention_days
-
-
-def _set_backup_retention_policy(retention_value: int, retention_unit: str) -> dict[str, Any]:
-    unit = str(retention_unit or "days").strip().lower()
-    if unit not in {"days", "months"}:
-        raise HTTPException(status_code=400, detail="retentionUnit must be 'days' or 'months'")
-
-    value = int(retention_value)
-    if unit == "days":
-        value = max(2, min(3650, value))
-        days = value
-    else:
-        value = max(1, min(120, value))
-        days = max(2, min(3650, value * 30))
-
-    now = _now_ms()
-    with _db_lock:
-        _CONN.execute(
-            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('backup_retention_value', ?, ?)",
-            (str(value), now),
-        )
-        _CONN.execute(
-            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('backup_retention_unit', ?, ?)",
-            (unit, now),
-        )
-        _CONN.commit()
-
-    return {
-        "retentionValue": value,
-        "retentionUnit": unit,
-        "retentionDays": days,
-    }
-
-
-def _list_backups() -> list[dict[str, Any]]:
-    backups = sorted(BACKUP_DIR.glob("sync-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
-    items: list[dict[str, Any]] = []
-    for backup in backups:
-        try:
-            stats = backup.stat()
-        except OSError:
-            continue
-
-        stem = backup.stem
-        reason = "unknown"
-        created_at = int(stats.st_mtime * 1000)
-        parts = stem.split("-")
-        if len(parts) >= 4 and parts[0] == "sync":
-            date_part = parts[1]
-            time_part = parts[2]
-            reason = "-".join(parts[3:])
-            try:
-                parsed = dt.datetime.strptime(f"{date_part}-{time_part}", "%Y%m%d-%H%M%S")
-                created_at = int(parsed.replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
-            except Exception:
-                created_at = int(stats.st_mtime * 1000)
-
-        items.append(
-            {
-                "name": backup.name,
-                "sizeBytes": int(stats.st_size),
-                "modifiedAt": int(stats.st_mtime * 1000),
-                "createdAt": int(created_at),
-                "reason": reason,
-            }
-        )
-    return items
-
-
-def _safe_backup_path_from_name(backup_name: str) -> Path:
-    name = str(backup_name or "").strip()
-    if not name or "/" in name or "\\" in name or ".." in name:
-        raise HTTPException(status_code=400, detail="Invalid backup name")
-    if not name.endswith(".db") or not name.startswith("sync-"):
-        raise HTTPException(status_code=400, detail="Invalid backup file name")
-
-    backup_path = (BACKUP_DIR / name).resolve()
-    if BACKUP_DIR not in backup_path.parents and backup_path != BACKUP_DIR:
-        raise HTTPException(status_code=400, detail="Invalid backup path")
-    if not backup_path.exists() or not backup_path.is_file():
-        raise HTTPException(status_code=404, detail="Backup file not found")
-    return backup_path
-
-
-def _compute_sha256_for_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while True:
-            chunk = handle.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _dry_run_backup_restore(backup_path: Path) -> dict[str, Any]:
-    try:
-        stats = backup_path.stat()
-    except OSError as exc:
-        raise HTTPException(status_code=400, detail=f"Backup stat failed: {exc}")
-
-    header_ok = False
-    header_text = ""
-    try:
-        with backup_path.open("rb") as handle:
-            header = handle.read(16)
-        header_text = header.decode("ascii", errors="ignore")
-        header_ok = header_text.startswith("SQLite format 3")
-    except Exception:
-        header_ok = False
-
-    quick_check_ok = False
-    quick_check_result = ""
-    quick_check_error = ""
-    conn: sqlite3.Connection | None = None
-    try:
-        conn = sqlite3.connect(f"file:{backup_path}?mode=ro", uri=True)
-        row = conn.execute("PRAGMA quick_check").fetchone()
-        quick_check_result = str(row[0] if row and row[0] is not None else "")
-        quick_check_ok = quick_check_result.lower() == "ok"
-    except Exception as exc:
-        quick_check_error = str(exc)
-        quick_check_ok = False
-    finally:
-        try:
-            if conn is not None:
-                conn.close()
-        except Exception:
-            pass
-
-    return {
-        "ok": bool(header_ok and quick_check_ok),
-        "backupName": backup_path.name,
-        "sizeBytes": int(stats.st_size),
-        "modifiedAt": int(stats.st_mtime * 1000),
-        "sha256": _compute_sha256_for_file(backup_path),
-        "header": header_text,
-        "headerValid": header_ok,
-        "quickCheck": quick_check_result,
-        "quickCheckOk": quick_check_ok,
-        "quickCheckError": quick_check_error,
-    }
-
-
-def _restore_db_from_backup(backup_path: Path) -> dict[str, Any]:
-    global _CONN
-
-    pre_restore_snapshot = Path(
-        _backup_db("pre-restore")
-    )
-
-    with _db_lock:
-        try:
-            _CONN.commit()
-        except Exception:
-            pass
-        try:
-            _CONN.close()
-        except Exception:
-            pass
-
-        shutil.copy2(backup_path, DB_PATH)
-        _CONN = _connect()
-
-    _init_db()
-    _cleanup_old_backups()
-
-    return {
-        "ok": True,
-        "restoredFrom": backup_path.name,
-        "preRestoreSnapshot": pre_restore_snapshot.name,
-    }
 
 
 def _get_project_storage_mode(project_id: str) -> str:
@@ -1088,45 +806,6 @@ def _image_read_url(project_id: str, path: str, *, expires_seconds: int) -> str:
     return _s3_signed_get_url(project_id, path, expires_seconds=expires_seconds)
 
 
-def _optimized_image_data_url(
-    raw: bytes,
-    *,
-    max_width: int,
-    max_height: int = 0,
-    quality: int,
-) -> tuple[str, str]:
-    if Image is None:
-        raise RuntimeError("Pillow unavailable")
-    img = Image.open(io.BytesIO(raw))
-    img.load()
-    if ImageOps is not None:
-        img = ImageOps.exif_transpose(img)
-    if img.mode not in {"RGB", "L"}:
-        img = img.convert("RGB")
-
-    width, height = img.size
-    target_width = max(320, min(int(max_width), 3840))
-    target_height_limit = max(0, min(int(max_height or 0), 3840))
-
-    scale_candidates: list[float] = []
-    if width > target_width:
-        scale_candidates.append(float(target_width) / float(max(1, width)))
-    if target_height_limit > 0 and height > target_height_limit:
-        scale_candidates.append(float(target_height_limit) / float(max(1, height)))
-
-    if scale_candidates:
-        ratio = min(scale_candidates)
-        resized_width = max(1, int(round(float(width) * ratio)))
-        resized_height = max(1, int(round(float(height) * ratio)))
-        img = img.resize((resized_width, resized_height), Image.Resampling.LANCZOS)
-
-    q = max(55, min(int(quality), 95))
-    out = io.BytesIO()
-    img.save(out, format="JPEG", quality=q, optimize=True, progressive=True)
-    b64 = base64.b64encode(out.getvalue()).decode("ascii")
-    return "image/jpeg", f"data:image/jpeg;base64,{b64}"
-
-
 def _cloudfront_invalidate_keys(keys: list[str], *, caller_tag: str) -> dict[str, Any]:
     if boto3 is None:
         return {"ok": False, "reason": "boto3-unavailable"}
@@ -1281,179 +960,6 @@ def _parse_yolo_label_rows(raw_text: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _split_label_text_by_format(raw_text: str) -> tuple[str, str, int, int]:
-    bb_lines: list[str] = []
-    obb_lines: list[str] = []
-
-    for line in str(raw_text or "").splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        parts = stripped.split()
-        if len(parts) < 5:
-            continue
-        try:
-            int(parts[0])
-            [float(v) for v in parts[1:]]
-        except Exception:
-            continue
-        if len(parts) >= 9:
-            obb_lines.append(stripped)
-        else:
-            bb_lines.append(stripped)
-
-    return (
-        "\n".join(bb_lines),
-        "\n".join(obb_lines),
-        len(bb_lines),
-        len(obb_lines),
-    )
-
-
-def _is_bb_label_path(path: str) -> bool:
-    return "/labels/bb/" in str(path or "").lower()
-
-
-def _is_obb_label_path(path: str) -> bool:
-    return "/labels/obb/" in str(path or "").lower()
-
-
-def _label_stem_from_path(path: str) -> str:
-    return Path(str(path or "")).stem.strip()
-
-
-def _update_image_label_index_for_label_path(
-    project_id: str,
-    *,
-    label_path: str,
-    deleted: bool,
-    content_base64: str,
-    updated_at: int,
-) -> None:
-    if not _is_label_text_path(label_path):
-        return
-
-    image_stem = _label_stem_from_path(label_path)
-    if not image_stem:
-        return
-
-    row = _CONN.execute(
-        "SELECT image_name, bb_label_path, obb_label_path, bb_label_text, obb_label_text, bb_label_rows, obb_label_rows FROM image_label_index WHERE project_id = ? AND image_stem = ?",
-        (project_id, image_stem),
-    ).fetchone()
-
-    image_name = image_stem
-    bb_label_path = ""
-    obb_label_path = ""
-    bb_label_text = ""
-    obb_label_text = ""
-    bb_label_rows = 0
-    obb_label_rows = 0
-
-    if row is not None:
-        image_name = str(row["image_name"] or image_stem)
-        bb_label_path = str(row["bb_label_path"] or "")
-        obb_label_path = str(row["obb_label_path"] or "")
-        bb_label_text = str(row["bb_label_text"] or "")
-        obb_label_text = str(row["obb_label_text"] or "")
-        bb_label_rows = int(row["bb_label_rows"] or 0)
-        obb_label_rows = int(row["obb_label_rows"] or 0)
-
-    path_norm = str(label_path).strip().replace("\\", "/")
-    is_bb = _is_bb_label_path(path_norm)
-    is_obb = _is_obb_label_path(path_norm)
-
-    if deleted:
-        if is_bb:
-            bb_label_path = ""
-            bb_label_text = ""
-            bb_label_rows = 0
-        elif is_obb:
-            obb_label_path = ""
-            obb_label_text = ""
-            obb_label_rows = 0
-        else:
-            bb_label_path = ""
-            obb_label_path = ""
-            bb_label_text = ""
-            obb_label_text = ""
-            bb_label_rows = 0
-            obb_label_rows = 0
-    else:
-        raw_text = ""
-        if content_base64:
-            try:
-                raw_text = base64.b64decode(content_base64.encode("ascii"), validate=False).decode("utf-8", errors="replace")
-            except Exception:
-                raw_text = ""
-
-        split_bb_text, split_obb_text, split_bb_rows, split_obb_rows = _split_label_text_by_format(raw_text)
-
-        if is_bb:
-            bb_label_path = path_norm
-            bb_label_text = raw_text
-            bb_label_rows = int(split_bb_rows)
-        elif is_obb:
-            obb_label_path = path_norm
-            obb_label_text = raw_text
-            obb_label_rows = int(split_obb_rows)
-        else:
-            if split_bb_rows > 0:
-                bb_label_path = path_norm
-                bb_label_text = split_bb_text
-                bb_label_rows = int(split_bb_rows)
-            if split_obb_rows > 0:
-                obb_label_path = path_norm
-                obb_label_text = split_obb_text
-                obb_label_rows = int(split_obb_rows)
-
-    if not bb_label_path and not obb_label_path and bb_label_rows <= 0 and obb_label_rows <= 0:
-        _CONN.execute(
-            "DELETE FROM image_label_index WHERE project_id = ? AND image_stem = ?",
-            (project_id, image_stem),
-        )
-        return
-
-    _CONN.execute(
-        """
-        INSERT INTO image_label_index (
-            project_id,
-            image_stem,
-            image_name,
-            bb_label_path,
-            obb_label_path,
-            bb_label_text,
-            obb_label_text,
-            bb_label_rows,
-            obb_label_rows,
-            updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(project_id, image_stem) DO UPDATE SET
-            image_name=excluded.image_name,
-            bb_label_path=excluded.bb_label_path,
-            obb_label_path=excluded.obb_label_path,
-            bb_label_text=excluded.bb_label_text,
-            obb_label_text=excluded.obb_label_text,
-            bb_label_rows=excluded.bb_label_rows,
-            obb_label_rows=excluded.obb_label_rows,
-            updated_at=excluded.updated_at
-        """,
-        (
-            project_id,
-            image_stem,
-            image_name,
-            bb_label_path,
-            obb_label_path,
-            bb_label_text,
-            obb_label_text,
-            int(bb_label_rows),
-            int(obb_label_rows),
-            int(updated_at or _now_ms()),
-        ),
-    )
-
-
 def _fetch_project_image_status_map(project_id: str) -> dict[str, str]:
     rows = _CONN.execute(
         "SELECT image_name, status FROM image_status WHERE project_id = ?",
@@ -1529,13 +1035,6 @@ def _record_deleted_file(project_id: str, *, username: str, source_token: str, p
         "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 1, ?, '', '', ?)",
         (project_id, username, source_token, path, mtime_ms, mtime_ms),
     )
-    _update_image_label_index_for_label_path(
-        project_id,
-        label_path=path,
-        deleted=True,
-        content_base64="",
-        updated_at=mtime_ms,
-    )
 
 
 def _cleanup_stale_sessions() -> None:
@@ -1587,8 +1086,7 @@ def _backup_db(reason: str) -> str:
 
 
 def _cleanup_old_backups() -> None:
-    _, _, retention_days = _get_backup_retention_policy()
-    cutoff = dt.datetime.utcnow() - dt.timedelta(days=retention_days)
+    cutoff = dt.datetime.utcnow() - dt.timedelta(days=BACKUP_RETENTION_DAYS)
     for backup in BACKUP_DIR.glob("sync-*.db"):
         try:
             modified = dt.datetime.utcfromtimestamp(backup.stat().st_mtime)
@@ -1642,7 +1140,6 @@ def index(request: Request) -> HTMLResponse:
 def public_info() -> dict[str, Any]:
     row = _CONN.execute("SELECT COUNT(*) AS c FROM projects").fetchone()
     has_projects = bool(row and int(row["c"]) > 0)
-    retention_value, retention_unit, retention_days = _get_backup_retention_policy()
     return {
         "ok": True,
         "hasProjects": has_projects,
@@ -1654,9 +1151,7 @@ def public_info() -> dict[str, Any]:
         "signedUrlTtlSeconds": SIGNED_URL_TTL_SECONDS,
         "sessionTtlSeconds": SESSION_TTL_SECONDS,
         "backupDir": str(BACKUP_DIR),
-        "backupRetentionDays": retention_days,
-        "backupRetentionValue": retention_value,
-        "backupRetentionUnit": retention_unit,
+        "backupRetentionDays": BACKUP_RETENTION_DAYS,
     }
 
 
@@ -1911,201 +1406,6 @@ def backup_now(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]
     return {"ok": True, "backupPath": backup_path}
 
 
-@app.get("/api/admin/backups")
-def admin_list_backups(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
-    retention_value, retention_unit, retention_days = _get_backup_retention_policy()
-    items = _list_backups()
-    return {
-        "ok": True,
-        "projectId": session.project_id,
-        "backupDir": str(BACKUP_DIR),
-        "retentionValue": retention_value,
-        "retentionUnit": retention_unit,
-        "retentionDays": retention_days,
-        "count": len(items),
-        "items": items,
-    }
-
-
-@app.post("/api/admin/backups/retention")
-def admin_set_backup_retention(
-    payload: BackupRetentionPayload,
-    session: SessionContext = Depends(_admin_only),
-) -> dict[str, Any]:
-    result = _set_backup_retention_policy(
-        retention_value=int(payload.retentionValue),
-        retention_unit=str(payload.retentionUnit),
-    )
-    _cleanup_old_backups()
-    return {
-        "ok": True,
-        "projectId": session.project_id,
-        **result,
-    }
-
-
-@app.post("/api/admin/backups/cleanup-now")
-def admin_cleanup_backups_now(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
-    before = len(_list_backups())
-    _cleanup_old_backups()
-    after_items = _list_backups()
-    retention_value, retention_unit, retention_days = _get_backup_retention_policy()
-    return {
-        "ok": True,
-        "projectId": session.project_id,
-        "removed": max(0, before - len(after_items)),
-        "remaining": len(after_items),
-        "retentionValue": retention_value,
-        "retentionUnit": retention_unit,
-        "retentionDays": retention_days,
-    }
-
-
-@app.post("/api/admin/backups/restore/dry-run")
-def admin_restore_backup_dry_run(
-    payload: BackupDryRunPayload,
-    session: SessionContext = Depends(_admin_only),
-) -> dict[str, Any]:
-    backup_name = str(payload.backupName or "").strip()
-    backup_path = _safe_backup_path_from_name(backup_name)
-    result = _dry_run_backup_restore(backup_path)
-    return {
-        **result,
-        "projectId": session.project_id,
-    }
-
-
-@app.get("/api/admin/backups/{backup_name}/download")
-def admin_download_backup(backup_name: str, session: SessionContext = Depends(_admin_only)) -> FileResponse:
-    backup_path = _safe_backup_path_from_name(backup_name)
-    return FileResponse(
-        path=str(backup_path),
-        media_type="application/x-sqlite3",
-        filename=backup_path.name,
-    )
-
-
-@app.post("/api/admin/backups/restore")
-def admin_restore_backup(
-    payload: BackupRestorePayload,
-    session: SessionContext = Depends(_admin_only),
-) -> dict[str, Any]:
-    backup_name = str(payload.backupName or "").strip()
-    confirm_text = str(payload.confirmText or "").strip()
-    expected = f"RESTORE {backup_name}"
-    if confirm_text != expected:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Confirmation text mismatch. Expected: {expected}",
-        )
-
-    backup_path = _safe_backup_path_from_name(backup_name)
-    result = _restore_db_from_backup(backup_path)
-    return {
-        **result,
-        "projectId": session.project_id,
-        "restoredBy": session.username,
-        "restoredAt": _now_ms(),
-    }
-
-
-@app.get("/api/admin/database/tables")
-def admin_database_tables(session: SessionContext = Depends(_admin_only)) -> dict[str, Any]:
-    rows = _CONN.execute(
-        """
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
-        ORDER BY name ASC
-        """
-    ).fetchall()
-    tables = [str(row["name"]) for row in rows if row and row["name"]]
-    return {
-        "ok": True,
-        "projectId": session.project_id,
-        "dbPath": str(DB_PATH),
-        "tables": tables,
-    }
-
-
-@app.post("/api/admin/database/table")
-def admin_database_table_rows(
-    payload: DatabaseTableQueryPayload,
-    session: SessionContext = Depends(_admin_only),
-) -> dict[str, Any]:
-    table = str(payload.table or "").strip()
-    if not table or not table.replace("_", "a").isalnum():
-        raise HTTPException(status_code=400, detail="Invalid table name")
-
-    exists = _CONN.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1",
-        (table,),
-    ).fetchone()
-    if exists is None:
-        raise HTTPException(status_code=404, detail="Table not found")
-
-    safe_limit = max(1, min(int(payload.limit or 100), 500))
-    safe_offset = max(0, int(payload.offset or 0))
-
-    col_rows = _CONN.execute(f'PRAGMA table_info("{table}")').fetchall()
-    columns = [str(row["name"]) for row in col_rows if row and row["name"]]
-
-    search_text = str(payload.search or "").strip()
-    search_column = str(payload.searchColumn or "").strip()
-
-    where_clause = ""
-    where_params: list[Any] = []
-    if search_text:
-        like_value = f"%{search_text}%"
-        if search_column:
-            if search_column not in columns:
-                raise HTTPException(status_code=400, detail="Invalid search column")
-            where_clause = f' WHERE CAST("{search_column}" AS TEXT) LIKE ?'
-            where_params.append(like_value)
-        elif columns:
-            parts = [f'CAST("{col}" AS TEXT) LIKE ?' for col in columns]
-            where_clause = " WHERE " + " OR ".join(parts)
-            where_params.extend([like_value] * len(columns))
-
-    total_query = f'SELECT COUNT(*) AS c FROM "{table}"{where_clause}'
-    total_row = _CONN.execute(total_query, tuple(where_params)).fetchone()
-    total = int(total_row["c"] if total_row else 0)
-
-    rows_query = f'SELECT * FROM "{table}"{where_clause} LIMIT ? OFFSET ?'
-    rows = _CONN.execute(
-        rows_query,
-        tuple([*where_params, safe_limit, safe_offset]),
-    ).fetchall()
-
-    items: list[dict[str, Any]] = []
-    for row in rows:
-        record: dict[str, Any] = {}
-        for key in row.keys():
-            value = row[key]
-            if isinstance(value, bytes):
-                record[str(key)] = {
-                    "type": "bytes",
-                    "size": len(value),
-                    "previewBase64": base64.b64encode(value[:48]).decode("ascii"),
-                }
-            else:
-                record[str(key)] = value
-        items.append(record)
-
-    return {
-        "ok": True,
-        "projectId": session.project_id,
-        "table": table,
-        "columns": columns,
-        "limit": safe_limit,
-        "offset": safe_offset,
-        "search": search_text,
-        "searchColumn": search_column,
-        "total": total,
-        "rows": items,
-    }
-
-
 @app.get("/api/project/summary")
 def project_summary(session: SessionContext = Depends(_auth_from_header)) -> dict[str, Any]:
     users_row = _CONN.execute(
@@ -2345,59 +1645,6 @@ def get_signed_image_write_url(
     }
 
 
-@app.post("/api/images/commit-upload")
-def commit_signed_image_upload(
-    payload: SignedUploadCommitPayload,
-    session: SessionContext = Depends(_auth_from_header),
-) -> dict[str, Any]:
-    _ensure_s3_image_mode(session)
-    normalized = _normalize_path(payload.path)
-    if not _is_image_path(normalized):
-        raise HTTPException(status_code=400, detail="Path must reference an image file")
-
-    if not _s3_image_exists(session.project_id, normalized):
-        raise HTTPException(status_code=404, detail="Uploaded image was not found in S3")
-
-    sha1 = str(payload.sha1 or "").strip().lower()
-    if sha1 and not all(ch in "0123456789abcdef" for ch in sha1):
-        raise HTTPException(status_code=400, detail="Invalid sha1 format")
-
-    now = _now_ms()
-    mtime_ms = int(payload.mtimeMs or now)
-    if mtime_ms <= 0:
-        mtime_ms = now
-
-    with _db_lock:
-        _CONN.execute(
-            """
-            INSERT INTO files (project_id, path, deleted, mtime_ms, sha1, content_base64, updated_at)
-            VALUES (?, ?, 0, ?, ?, '', ?)
-            ON CONFLICT(project_id, path) DO UPDATE SET
-              deleted=0,
-              mtime_ms=excluded.mtime_ms,
-              sha1=excluded.sha1,
-              content_base64='',
-              updated_at=excluded.updated_at
-            """,
-            (session.project_id, normalized, mtime_ms, sha1, now),
-        )
-        _CONN.execute(
-            "INSERT INTO changes (project_id, username, source_token, path, deleted, mtime_ms, sha1, content_base64, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, '', ?)",
-            (session.project_id, session.username, session.token, normalized, mtime_ms, sha1, now),
-        )
-        _CONN.commit()
-
-    return {
-        "ok": True,
-        "projectId": session.project_id,
-        "path": normalized,
-        "sha1": sha1,
-        "sizeBytes": int(payload.sizeBytes or 0),
-        "mtimeMs": mtime_ms,
-        "committedAt": now,
-    }
-
-
 @app.post("/api/images/prefetch")
 def request_prefetch_batch(
     payload: PrefetchBatchPayload,
@@ -2467,17 +1714,10 @@ def get_image_status_map(session: SessionContext = Depends(_auth_from_header)) -
             }
         )
 
-    latest_status_row = _CONN.execute(
-        "SELECT COALESCE(MAX(updated_at), 0) AS s FROM image_status WHERE project_id = ?",
-        (session.project_id,),
-    ).fetchone()
-    latest_status_seq = int(latest_status_row["s"] if latest_status_row else 0)
-
     return {
         "ok": True,
         "projectId": session.project_id,
         "count": len(statuses),
-        "latestStatusSeq": latest_status_seq,
         "statuses": statuses,
         "items": meta,
     }
@@ -3205,43 +2445,15 @@ def admin_cancel_normalize_images_job(
 @app.get("/api/admin/images/view")
 def admin_get_image_view(
     path: str,
-    maxWidth: int = 0,
-    maxHeight: int = 0,
-    quality: int = 82,
     session: SessionContext = Depends(_admin_only),
 ) -> dict[str, Any]:
     normalized = _normalize_path(path)
     if not _is_image_path(normalized):
         raise HTTPException(status_code=400, detail="Path must reference an image file")
 
-    requested_max_width = max(0, min(int(maxWidth or 0), 3840))
-    requested_max_height = max(0, min(int(maxHeight or 0), 3840))
-    requested_quality = max(55, min(int(quality or 82), 95))
-
     # Prefer S3 for latest object if available.
     if _is_s3_enabled() and _s3_image_exists(session.project_id, normalized):
         try:
-            if requested_max_width > 0 and Image is not None:
-                raw = _s3_get_image_bytes(session.project_id, normalized)
-                try:
-                    content_type, url = _optimized_image_data_url(
-                        raw,
-                        max_width=requested_max_width,
-                        max_height=requested_max_height,
-                        quality=requested_quality,
-                    )
-                    return {
-                        "ok": True,
-                        "path": normalized,
-                        "source": "s3-optimized",
-                        "contentType": content_type,
-                        "url": url,
-                        "maxWidth": requested_max_width,
-                        "maxHeight": requested_max_height,
-                        "quality": requested_quality,
-                    }
-                except Exception:
-                    pass
             return {
                 "ok": True,
                 "path": normalized,
@@ -3262,28 +2474,6 @@ def admin_get_image_view(
     content_b64 = str(row["content_base64"] or "")
     if not content_b64:
         raise HTTPException(status_code=404, detail="Image content is unavailable for this path")
-
-    if requested_max_width > 0 and Image is not None:
-        try:
-            raw = base64.b64decode(content_b64.encode("ascii"), validate=False)
-            content_type, url = _optimized_image_data_url(
-                raw,
-                max_width=requested_max_width,
-                max_height=requested_max_height,
-                quality=requested_quality,
-            )
-            return {
-                "ok": True,
-                "path": normalized,
-                "source": "db-optimized",
-                "contentType": content_type,
-                "url": url,
-                "maxWidth": requested_max_width,
-                "maxHeight": requested_max_height,
-                "quality": requested_quality,
-            }
-        except Exception:
-            pass
 
     content_type = mimetypes.guess_type(normalized)[0] or "application/octet-stream"
     return {
@@ -3639,13 +2829,6 @@ def sync_upsert(
                     now,
                 ),
             )
-            _update_image_label_index_for_label_path(
-                session.project_id,
-                label_path=path,
-                deleted=bool(item.deleted),
-                content_base64=content_b64,
-                updated_at=now,
-            )
             if item.deleted and is_image:
                 image_name = Path(path).name.strip()
                 if image_name:
@@ -3752,13 +2935,16 @@ def sync_status(session: SessionContext = Depends(_auth_from_header)) -> dict[st
         "SELECT COALESCE(MAX(seq), 0) AS s FROM changes WHERE project_id = ?",
         (session.project_id,),
     ).fetchone()
-    latest_status_row = _CONN.execute(
-        "SELECT COALESCE(MAX(updated_at), 0) AS s FROM image_status WHERE project_id = ?",
-        (session.project_id,),
-    ).fetchone()
 
-    retention_value, retention_unit, retention_days = _get_backup_retention_policy()
-    backup_items = _list_backups()[:8]
+    backups = sorted(BACKUP_DIR.glob("sync-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    backup_items = [
+        {
+            "name": path.name,
+            "sizeBytes": path.stat().st_size,
+            "modifiedAt": int(path.stat().st_mtime * 1000),
+        }
+        for path in backups[:8]
+    ]
 
     return {
         "ok": True,
@@ -3768,14 +2954,11 @@ def sync_status(session: SessionContext = Depends(_auth_from_header)) -> dict[st
         "isAdmin": session.is_admin,
         "dailyBackupEnabled": True,
         "backupDir": str(BACKUP_DIR),
-        "backupRetentionDays": retention_days,
-        "backupRetentionValue": retention_value,
-        "backupRetentionUnit": retention_unit,
+        "backupRetentionDays": BACKUP_RETENTION_DAYS,
         "imageAccessMode": _get_project_image_access_mode(session.project_id),
         "activeFile": session.active_file,
         "onlineUsers": int(users_online_row["c"] if users_online_row else 0),
         "latestSeq": int(change_row["s"] if change_row else 0),
-        "latestStatusSeq": int(latest_status_row["s"] if latest_status_row else 0),
         "locks": lock_items,
         "recentBackups": backup_items,
         "sessionTtlSeconds": SESSION_TTL_SECONDS,
