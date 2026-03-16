@@ -186,7 +186,7 @@
                         </svg>
                         <span>Uploads</span>
                     </button>
-                    <button type="button" class="nav-btn admin-only" data-page="images">
+                    <button type="button" class="nav-btn" data-page="images">
                         <svg>
                             <use href="#i-folder"></use>
                         </svg>
@@ -544,11 +544,11 @@
 
                 <section class="page-view hidden" data-page="images">
                     <header class="view-head">
-                        <h3>Project Images (Admin)</h3>
-                        <p class="muted">View all project images, sort by path/size/date, and delete selected rows.</p>
+                        <h3>Project Images</h3>
+                        <p class="muted">View all project images. Admin users get additional maintenance and delete tools.</p>
                     </header>
 
-                    <article class="sub-card stack admin-only">
+                    <article class="sub-card stack">
                         <div class="row">
                             <label>Sort By
                                 <select id="imagesSortBy">
@@ -563,23 +563,23 @@
                                     <option value="desc">Descending</option>
                                 </select>
                             </label>
-                            <label class="inline"><input id="imagesDeleteLabels" type="checkbox" checked /> Delete
+                            <label class="inline admin-only"><input id="imagesDeleteLabels" type="checkbox" checked /> Delete
                                 matching labels too</label>
                         </div>
                         <div class="row">
                             <button id="refreshImagesBtn" type="button" class="btn ghost">Refresh Images</button>
                             <button id="openSlideshowBtn" type="button" class="btn solid">Open Slideshow</button>
-                            <button id="reconcileStatusesBtn" type="button" class="btn ghost">Sync Missing
+                            <button id="reconcileStatusesBtn" type="button" class="btn ghost admin-only">Sync Missing
                                 Statuses</button>
-                            <button id="labelsSummaryBtn" type="button" class="btn ghost">Check Label Sync</button>
-                            <button id="normalizeImagesBtn" type="button" class="btn ghost">Normalize To JPEG</button>
-                            <button id="cancelNormalizeBtn" type="button" class="btn ghost" disabled>Cancel
+                            <button id="labelsSummaryBtn" type="button" class="btn ghost admin-only">Check Label Sync</button>
+                            <button id="normalizeImagesBtn" type="button" class="btn ghost admin-only">Normalize To JPEG</button>
+                            <button id="cancelNormalizeBtn" type="button" class="btn ghost admin-only" disabled>Cancel
                                 Normalize</button>
                             <button id="labelSyncHelpBtn" type="button" class="btn ghost">How To Sync Local
                                 Labels</button>
-                            <button id="deleteSelectedImagesBtn" type="button" class="btn danger">Delete Selected
+                            <button id="deleteSelectedImagesBtn" type="button" class="btn danger admin-only">Delete Selected
                                 Images</button>
-                            <button id="purgeModeLabelsBtn" type="button" class="btn ghost">Purge BB/OBB Label
+                            <button id="purgeModeLabelsBtn" type="button" class="btn ghost admin-only">Purge BB/OBB Label
                                 Files</button>
                             <span id="imagesOpsStatus" class="muted small">No background operation running.</span>
                             <progress id="imagesOpsProgress" max="100" value="0" class="images-ops-progress"></progress>
@@ -588,7 +588,7 @@
                         </div>
                     </article>
 
-                    <article class="sub-card admin-only">
+                    <article class="sub-card">
                         <div class="table-shell">
                             <table class="images-table">
                                 <thead>
@@ -888,8 +888,8 @@
             const allowed = new Set(['overview', 'activity', 'uploads', 'images', 'admin']);
             const requested = allowed.has(page) ? page : 'uploads';
             let next = requested;
-            if (!isAdmin && (next === 'admin' || next === 'images')) {
-                next = token ? requested : 'uploads';
+            if (!isAdmin && next === 'admin') {
+                next = 'uploads';
             }
             activeDashPage = next;
             localStorage.setItem(DASH_PAGE_STORAGE_KEY, activeDashPage);
@@ -1224,7 +1224,6 @@
         }
 
         async function loadAdminImages() {
-            if (!isAdmin) return;
             const sortBy = String(imagesSortBy?.value || 'path');
             const order = String(imagesSortOrder?.value || 'asc');
             const query = new URLSearchParams({ sortBy, order, limit: '5000' }).toString();
@@ -1887,8 +1886,8 @@
                     } catch (optionalError) {
                         setMessage(`Database explorer unavailable: ${String(optionalError && optionalError.message ? optionalError.message : optionalError)}`, true);
                     }
-                    await loadAdminImages();
                 }
+                await loadAdminImages();
             } catch (e) {
                 if (!silent) setMessage(e.message, true);
                 if (String(e.message || '').includes('401')) {

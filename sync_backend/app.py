@@ -2683,7 +2683,7 @@ def admin_list_images(
     order: str = "asc",
     limit: int = 5000,
     includeS3: bool = True,
-    session: SessionContext = Depends(_admin_only),
+    session: SessionContext = Depends(_auth_from_header),
 ) -> dict[str, Any]:
     sort_key = str(sortBy or "path").strip().lower()
     sort_key = sort_key if sort_key in {"path", "size", "mtime"} else "path"
@@ -3060,7 +3060,7 @@ def admin_cancel_normalize_images_job(
 @app.get("/api/admin/images/view")
 def admin_get_image_view(
     path: str,
-    session: SessionContext = Depends(_admin_only),
+    session: SessionContext = Depends(_auth_from_header),
 ) -> dict[str, Any]:
     normalized = _normalize_path(path)
     if not _is_image_path(normalized):
@@ -3103,7 +3103,7 @@ def admin_get_image_view(
 @app.get("/api/admin/images/labels")
 def admin_get_image_labels(
     path: str,
-    session: SessionContext = Depends(_admin_only),
+    session: SessionContext = Depends(_auth_from_header),
 ) -> dict[str, Any]:
     normalized = _normalize_path(path)
     if not _is_image_path(normalized):
