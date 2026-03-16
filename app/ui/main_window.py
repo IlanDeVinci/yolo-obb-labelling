@@ -470,6 +470,10 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self._show_cloud_sync_status)
         cloud_menu.addAction(act)
 
+        act = QAction("Run Cloud Connection Diagnostics...", self)
+        act.triggered.connect(self._run_cloud_connection_diagnostics)
+        cloud_menu.addAction(act)
+
         act = QAction("Clear Cloud Image Cache", self)
         act.triggered.connect(self._clear_cloud_image_cache)
         cloud_menu.addAction(act)
@@ -3491,6 +3495,91 @@ class MainWindow(QMainWindow):
 
         dlg = CloudSyncStatusDialog(status_payload, self)
         dlg.exec()
+
+    def _run_cloud_connection_diagnostics(self) -> None:
+        server = self._normalize_server_url(str(self._cloud_sync_settings.get("server_url", "")).strip())
+        project_id = str(self._cloud_sync_settings.get("project_id", "")).strip()
+        project_password = str(self._cloud_sync_settings.get("project_password", ""))
+        username = str(self._cloud_sync_settings.get("username", "")).strip()
+        user_password = str(self._cloud_sync_settings.get("user_password", ""))
+
+        lines: list[str] = []
+        lines.append(f"Server URL: {server or '(missing)'}")
+        lines.append(f"Project ID: {project_id or '(missing)'}")
+        lines.append(f"Username: {username or '(missing)'}")
+
+        if not server:
+            lines.append("\nResult: Missing server URL in cloud settings.")
+            QMessageBox.information(self, "Cloud Diagnostics", "\n".join(lines))
+            return
+
+        login_token = ""
+
+        try:
+            info = self._post_cloud_json(server, "/api/public/info", {})
+            lines.append("\n/public/info: OK")
+            lines.append(f"- hasProjects: {bool(info.get('hasProjects', False))}")
+            lines.append(f"- requireProjectPassword: {bool(info.get('requireProjectPassword', False))}")
+            lines.append(f"- s3ImagesEnabled: {bool(info.get('s3ImagesEnabled', False))}")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"\n/public/info: FAILED - {exc}")
+
+        try:
+            login = self._post_cloud_json(
+                server,
+                "/api/auth/login",
+                {
+                    "projectId": project_id,
+                    "projectPassword": project_password,
+                    "username": username,
+                    "password": user_password,
+                },
+            )
+            login_token = str(login.get("token", "")).strip()
+            if not login_token:
+                raise RuntimeError("missing token")
+            lines.append("/api/auth/login: OK")
+            lines.append(f"- role: {str(login.get('role', '') or '-')} | isAdmin: {bool(login.get('isAdmin', False))}")
+        except Exception as exc:  # noqa: BLE001
+            err = str(exc)
+            lines.append(f"/api/auth/login: FAILED - {err}")
+            if "1010" in err:
+                lines.append("- Interpretation: Cloudflare/WAF blocked this request before backend auth.")
+                lines.append("- Action: Allow/bypass /api/* for this host or use origin URL (non-proxied) in desktop settings.")
+            QMessageBox.information(self, "Cloud Diagnostics", "\n".join(lines))
+            return
+
+        try:
+            summary = self._post_cloud_json(
+                server,
+                "/api/project/summary",
+                {},
+                bearer_token=login_token,
+            )
+            lines.append("/api/project/summary: OK")
+            lines.append(f"- projectId: {str(summary.get('projectId', '') or '-')}")
+            lines.append(f"- imageAccessMode: {str(summary.get('imageAccessMode', '') or '-')}")
+            totals = summary.get("totals") if isinstance(summary, dict) else {}
+            if isinstance(totals, dict):
+                lines.append(
+                    f"- totals: users={int(totals.get('users', 0) or 0)}, files={int(totals.get('files', 0) or 0)}, changes={int(totals.get('changes', 0) or 0)}"
+                )
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"/api/project/summary: FAILED - {exc}")
+
+        try:
+            if login_token:
+                self._post_cloud_json(
+                    server,
+                    "/api/auth/logout",
+                    {},
+                    bearer_token=login_token,
+                )
+                lines.append("/api/auth/logout: OK")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"/api/auth/logout: FAILED - {exc}")
+
+        QMessageBox.information(self, "Cloud Diagnostics", "\n".join(lines))
 
     def _update_sync_active_file_lock(self) -> None:
         agent = self._sync_agent

@@ -1050,8 +1050,18 @@
 
         async function loadBackups() {
             if (!isAdmin) return;
-            const payload = await api('/api/admin/backups');
-            renderBackups(payload);
+            try {
+                const payload = await api('/api/admin/backups');
+                renderBackups(payload);
+            } catch (error) {
+                const text = String(error && error.message ? error.message : error);
+                if (/404|Not Found|HTTP 404/i.test(text)) {
+                    backupMeta.textContent = 'Backups API is unavailable on this backend version.';
+                    backupsBody.innerHTML = '<tr><td colspan="5" class="muted">Backups API unavailable.</td></tr>';
+                    return;
+                }
+                throw error;
+            }
         }
 
         function renderDbTables(payload) {
@@ -1120,8 +1130,20 @@
 
         async function loadDbTables() {
             if (!isAdmin) return;
-            const payload = await api('/api/admin/database/tables');
-            renderDbTables(payload);
+            try {
+                const payload = await api('/api/admin/database/tables');
+                renderDbTables(payload);
+            } catch (error) {
+                const text = String(error && error.message ? error.message : error);
+                if (/404|Not Found|HTTP 404/i.test(text)) {
+                    dbExplorerMeta.textContent = 'Database explorer API is unavailable on this backend version.';
+                    dbTableSelect.innerHTML = '<option value="">Unavailable</option>';
+                    dbRowsHead.innerHTML = '<tr><th>Row Data</th></tr>';
+                    dbRowsBody.innerHTML = '<tr><td class="muted">Database explorer API unavailable.</td></tr>';
+                    return;
+                }
+                throw error;
+            }
         }
 
         async function loadDbRows() {
@@ -1852,8 +1874,19 @@
                     const storage = await api('/api/admin/project/storage');
                     document.getElementById('storageMode').value = storage.storageMode || 'auto';
                     document.getElementById('imageAccessMode').value = storage.imageAccessMode || 'local';
-                    await loadBackups();
-                    await loadDbTables();
+
+                    // Keep core admin visibility working even when optional APIs
+                    // are unavailable on older backend deployments.
+                    try {
+                        await loadBackups();
+                    } catch (optionalError) {
+                        setMessage(`Backups panel unavailable: ${String(optionalError && optionalError.message ? optionalError.message : optionalError)}`, true);
+                    }
+                    try {
+                        await loadDbTables();
+                    } catch (optionalError) {
+                        setMessage(`Database explorer unavailable: ${String(optionalError && optionalError.message ? optionalError.message : optionalError)}`, true);
+                    }
                     await loadAdminImages();
                 }
             } catch (e) {
