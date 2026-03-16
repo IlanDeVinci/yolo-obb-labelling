@@ -602,6 +602,7 @@
                                         <th><input id="imagesSelectAll" type="checkbox" /></th>
                                         <th>Path</th>
                                         <th>Status</th>
+                                        <th>Labels</th>
                                         <th>Source</th>
                                         <th>Size</th>
                                         <th>Modified</th>
@@ -609,7 +610,7 @@
                                 </thead>
                                 <tbody id="imagesBody">
                                     <tr>
-                                        <td colspan="6" class="muted">No images loaded.</td>
+                                        <td colspan="7" class="muted">No images loaded.</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -639,7 +640,19 @@
                     <label class="inline"><input id="slideAutoplay" type="checkbox" /> Autoplay</label>
                     <label class="inline">Interval ms<input id="slideInterval" type="number" min="400" step="100"
                             value="2200" /></label>
-                    <span id="slideStatusText" class="muted small">status: -</span>
+                    <label class="inline">Min Labels<input id="slideMinLabels" type="number" min="0" step="1"
+                            value="0" /></label>
+                    <label class="inline">Max Labels<input id="slideMaxLabels" type="number" min="0" step="1" value=""
+                            placeholder="any" /></label>
+                    <label class="inline"><input id="slideStatusInProgress" type="checkbox" checked /> In
+                        Progress</label>
+                    <label class="inline"><input id="slideStatusCompleted" type="checkbox" checked /> Completed</label>
+                    <label class="inline"><input id="slideStatusYolo" type="checkbox" checked /> YOLO</label>
+                    <label class="inline"><input id="slideStatusToRotate" type="checkbox" checked /> To Rotate</label>
+                    <label class="inline"><input id="slideStatusUnassigned" type="checkbox" checked />
+                        Unassigned</label>
+                    <span id="slideStatusText" class="status-pill status-unassigned">Unassigned</span>
+                    <span id="slideLabelCountText" class="labels-chip">labels: 0</span>
                     <span id="slideSourceText" class="muted small">source: -</span>
                 </div>
 
@@ -728,11 +741,19 @@
         const slideTitle = document.getElementById('slideTitle');
         const slideCounter = document.getElementById('slideCounter');
         const slideStatusText = document.getElementById('slideStatusText');
+        const slideLabelCountText = document.getElementById('slideLabelCountText');
         const slideSourceText = document.getElementById('slideSourceText');
         const slideShowLabels = document.getElementById('slideShowLabels');
         const slideShuffle = document.getElementById('slideShuffle');
         const slideAutoplay = document.getElementById('slideAutoplay');
         const slideInterval = document.getElementById('slideInterval');
+        const slideMinLabels = document.getElementById('slideMinLabels');
+        const slideMaxLabels = document.getElementById('slideMaxLabels');
+        const slideStatusInProgress = document.getElementById('slideStatusInProgress');
+        const slideStatusCompleted = document.getElementById('slideStatusCompleted');
+        const slideStatusYolo = document.getElementById('slideStatusYolo');
+        const slideStatusToRotate = document.getElementById('slideStatusToRotate');
+        const slideStatusUnassigned = document.getElementById('slideStatusUnassigned');
         const normalizeImagesBtn = document.getElementById('normalizeImagesBtn');
         const cancelNormalizeBtn = document.getElementById('cancelNormalizeBtn');
         const signOutExistingBtn = document.getElementById('signOutExistingBtn');
@@ -1204,17 +1225,27 @@
         function renderAdminImages(items) {
             adminImages = Array.isArray(items) ? items : [];
             if (!adminImages.length) {
-                imagesBody.innerHTML = '<tr><td colspan="6" class="muted">No images loaded.</td></tr>';
+                imagesBody.innerHTML = '<tr><td colspan="7" class="muted">No images loaded.</td></tr>';
                 imagesSummary.textContent = '0 images loaded.';
                 if (imagesSelectAll) imagesSelectAll.checked = false;
                 return;
+            }
+
+            function statusMeta(statusValue) {
+                const raw = String(statusValue || '').trim().toLowerCase();
+                if (raw === 'completed') return { key: 'completed', label: 'Completed' };
+                if (raw === 'in_progress') return { key: 'in-progress', label: 'In Progress' };
+                if (raw === 'yolo') return { key: 'yolo', label: 'YOLO' };
+                if (raw === 'to_rotate') return { key: 'to-rotate', label: 'To Rotate' };
+                return { key: 'unassigned', label: 'Unassigned' };
             }
 
             imagesBody.innerHTML = adminImages.map((item, idx) => `
                 <tr>
                     <td><input type="checkbox" data-image-index="${idx}" /></td>
                     <td class="mono">${item.path || '-'}</td>
-                    <td>${item.status || '-'}</td>
+                    <td><span class="status-pill status-${statusMeta(item.status).key}">${statusMeta(item.status).label}</span></td>
+                    <td><span class="labels-chip">${Number(item.labelCount || 0)}</span></td>
                     <td>${item.presentInS3 ? 's3' : 'db'}</td>
                     <td>${bytesToHuman(item.sizeBytes || 0)}</td>
                     <td>${fmtDate(item.mtimeMs || 0)}</td>
@@ -1291,6 +1322,27 @@
                 ordered = adminImages.slice();
                 slideshowState.basePaths = ordered.map((item) => item.path);
             }
+
+            const selectedStatuses = new Set();
+            if (slideStatusInProgress?.checked) selectedStatuses.add('in_progress');
+            if (slideStatusCompleted?.checked) selectedStatuses.add('completed');
+            if (slideStatusYolo?.checked) selectedStatuses.add('yolo');
+            if (slideStatusToRotate?.checked) selectedStatuses.add('to_rotate');
+            if (slideStatusUnassigned?.checked) selectedStatuses.add('');
+
+            const minLabels = Math.max(0, Number(slideMinLabels?.value || 0));
+            const maxLabelsRaw = String(slideMaxLabels?.value || '').trim();
+            const maxLabels = maxLabelsRaw === '' ? Number.POSITIVE_INFINITY : Math.max(0, Number(maxLabelsRaw));
+
+            ordered = ordered.filter((item) => {
+                const status = String(item?.status || '').trim().toLowerCase();
+                const normalized = status || '';
+                if (!selectedStatuses.has(normalized)) return false;
+                const labelCount = Math.max(0, Number(item?.labelCount || 0));
+                if (labelCount < minLabels) return false;
+                if (labelCount > maxLabels) return false;
+                return true;
+            });
 
             if (slideshowState.shuffle && ordered.length > 1) {
                 if (preservePath) {
@@ -1392,9 +1444,36 @@
             const current = slideshowState.items[normalized];
             if (!current) return;
 
+            const absoluteIndex = adminImages.findIndex((item) => item && item.path === current.path);
+            const absoluteTotal = adminImages.length;
+
+            const statusRaw = String(current.status || '').trim().toLowerCase();
+            const statusText = statusRaw === 'completed'
+                ? 'Completed'
+                : statusRaw === 'in_progress'
+                    ? 'In Progress'
+                    : statusRaw === 'yolo'
+                        ? 'YOLO'
+                        : statusRaw === 'to_rotate'
+                            ? 'To Rotate'
+                            : 'Unassigned';
+            const statusClass = statusRaw === 'completed'
+                ? 'status-completed'
+                : statusRaw === 'in_progress'
+                    ? 'status-in-progress'
+                    : statusRaw === 'yolo'
+                        ? 'status-yolo'
+                        : statusRaw === 'to_rotate'
+                            ? 'status-to-rotate'
+                            : 'status-unassigned';
+
             slideTitle.textContent = current.path || '-';
-            slideCounter.textContent = `${normalized + 1} / ${len}`;
-            slideStatusText.textContent = `status: ${current.status || '-'}`;
+            slideCounter.textContent = absoluteIndex >= 0
+                ? `${absoluteIndex + 1} / ${absoluteTotal}`
+                : `${normalized + 1} / ${len}`;
+            slideStatusText.className = `status-pill ${statusClass}`;
+            slideStatusText.textContent = statusText;
+            slideLabelCountText.textContent = `labels: ${Math.max(0, Number(current.labelCount || 0))}`;
             slideSourceText.textContent = 'source: loading...';
 
             let payload = slideshowState.imageViewByPath.get(current.path) || null;
@@ -1442,7 +1521,7 @@
             renderAdminImages(adminImages);
             const current = getCurrentSlideItem();
             if (current && current.path === path) {
-                slideStatusText.textContent = `status: ${status}`;
+                showSlideAt(slideshowState.index).catch((error) => setMessage(error.message || String(error), true));
             }
         }
 
@@ -1508,6 +1587,10 @@
             slideshowState.labelsByPath = new Map();
             slideshowState.basePaths = baseItems.map((item) => item.path).filter(Boolean);
             rebuildSlideshowItems();
+            if (!slideshowState.items.length) {
+                setMessage('No images match the current slideshow filters.', true);
+                return;
+            }
             slideshowState.open = true;
 
             slideshowModal.classList.remove('hidden');
@@ -2547,8 +2630,33 @@
             if (!slideshowState.open) return;
             const current = getCurrentSlideItem();
             rebuildSlideshowItems(current ? current.path : '');
+            if (!slideshowState.items.length) {
+                setMessage('No images match the current slideshow filters.', true);
+                closeSlideshow();
+                return;
+            }
             showSlideAt(slideshowState.index).catch((error) => setMessage(error.message || String(error), true));
         });
+
+        function onSlideFilterChanged() {
+            if (!slideshowState.open) return;
+            const current = getCurrentSlideItem();
+            rebuildSlideshowItems(current ? current.path : '');
+            if (!slideshowState.items.length) {
+                setMessage('No images match the current slideshow filters.', true);
+                closeSlideshow();
+                return;
+            }
+            showSlideAt(slideshowState.index).catch((error) => setMessage(error.message || String(error), true));
+        }
+
+        slideStatusInProgress.addEventListener('change', onSlideFilterChanged);
+        slideStatusCompleted.addEventListener('change', onSlideFilterChanged);
+        slideStatusYolo.addEventListener('change', onSlideFilterChanged);
+        slideStatusToRotate.addEventListener('change', onSlideFilterChanged);
+        slideStatusUnassigned.addEventListener('change', onSlideFilterChanged);
+        slideMinLabels.addEventListener('change', onSlideFilterChanged);
+        slideMaxLabels.addEventListener('change', onSlideFilterChanged);
         slideAutoplay.addEventListener('change', () => {
             slideshowState.autoplay = !!slideAutoplay.checked;
             maybeStartSlideshowAutoplay();

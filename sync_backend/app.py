@@ -1036,6 +1036,39 @@ def _fetch_project_image_status_map(project_id: str) -> dict[str, str]:
     return out
 
 
+def _fetch_project_label_counts_by_stem(project_id: str) -> dict[str, int]:
+    rows = _CONN.execute(
+        "SELECT path, content_base64 FROM files WHERE project_id = ? AND deleted = 0 ORDER BY path ASC",
+        (project_id,),
+    ).fetchall()
+
+    counts: dict[str, int] = {}
+    for row in rows:
+        path = str(row["path"] or "")
+        if not _is_label_text_path(path):
+            continue
+        stem = Path(path).stem.strip()
+        if not stem:
+            continue
+
+        content_b64 = str(row["content_base64"] or "")
+        if not content_b64:
+            counts.setdefault(stem, 0)
+            continue
+
+        try:
+            raw_text = base64.b64decode(content_b64.encode("ascii"), validate=False).decode("utf-8", errors="replace")
+        except Exception:
+            raw_text = ""
+
+        parsed = _parse_yolo_label_rows(raw_text)
+        label_count = len(parsed)
+        # Avoid double-counting when both bb/obb files exist for same image stem.
+        counts[stem] = max(counts.get(stem, 0), label_count)
+
+    return counts
+
+
 def _collect_project_image_rows_from_db(project_id: str) -> dict[str, dict[str, Any]]:
     rows = _CONN.execute(
         "SELECT path, mtime_ms, updated_at, content_base64, sha1 FROM files WHERE project_id = ? AND deleted = 0 ORDER BY path ASC",
@@ -2700,9 +2733,12 @@ def admin_list_images(
             s3_rows = {}
 
     status_by_name = _fetch_project_image_status_map(session.project_id)
+    label_counts_by_stem = _fetch_project_label_counts_by_stem(session.project_id)
     items: list[dict[str, Any]] = []
     all_paths = sorted(set(db_rows.keys()) | set(s3_rows.keys()), key=lambda v: v.lower())
     for path in all_paths:
+        image_name = Path(path).name
+        image_stem = Path(path).stem
         db_item = db_rows.get(path)
         s3_item = s3_rows.get(path)
         size_bytes = int((s3_item or {}).get("sizeBytes") or (db_item or {}).get("sizeBytes") or 0)
@@ -2710,11 +2746,12 @@ def admin_list_images(
         items.append(
             {
                 "path": path,
-                "name": Path(path).name,
+                "name": image_name,
                 "sizeBytes": int(size_bytes),
                 "mtimeMs": int(modified_ms),
                 "updatedAt": int((db_item or {}).get("updatedAt") or 0),
-                "status": status_by_name.get(Path(path).name, ""),
+                "status": status_by_name.get(image_name, ""),
+                "labelCount": int(label_counts_by_stem.get(image_stem, 0)),
                 "indexedInDb": bool(db_item),
                 "presentInS3": bool(s3_item),
             }
