@@ -1,8 +1,8 @@
 {
   "image_name": "IMG_1008.JPG",
-  "status": "in_progress",
-  "status_updated_at": "2026-03-16T01:13:58+01:00",
-  "status_updated_by": "Ilan",
-  "image_last_modified": "2026-02-27T10:42:52+01:00",
-  "sig": "ad682260c794425b7246092814fa8da32a3b31d8afd0bba49028150d1a49481d"
+  "status": "completed",
+  "status_updated_at": "2026-03-16T16:19:49+01:00",
+  "status_updated_by": "mairi",
+  "image_last_modified": "2026-02-27T11:25:22+01:00",
+  "sig": "06afbb72c5ae44705dd47d4428487745df494abffb96f36a70fd5ecf0bb1276c"
 }

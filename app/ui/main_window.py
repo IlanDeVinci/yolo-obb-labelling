@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
         self._nav_status_btn: QToolButton | None = None
         self._nav_signature: str = ""
         self._lbl_login = None
+        self._window_shortcuts: list[QShortcut] = []
 
         self._sync_status_timer = QTimer(self)
         self._sync_status_timer.setInterval(1000)
@@ -219,6 +220,11 @@ class MainWindow(QMainWindow):
 
     def _build_menus(self) -> None:
         mb = self.menuBar()
+
+        def _register_shortcut_action(action: QAction) -> QAction:
+            action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+            self.addAction(action)
+            return action
 
         # ---- Projet ----
         proj_menu = mb.addMenu("&Projet")
@@ -339,6 +345,7 @@ class MainWindow(QMainWindow):
         self._act_toggle_obb = QAction("Toggle OBB/BBox Mode", self)
         self._act_toggle_obb.setShortcut(QKeySequence("Ctrl+B"))
         self._act_toggle_obb.triggered.connect(self._toggle_label_mode)
+        _register_shortcut_action(self._act_toggle_obb)
         ann_menu.addAction(self._act_toggle_obb)
 
         ann_menu.addSeparator()
@@ -354,36 +361,43 @@ class MainWindow(QMainWindow):
         self._act_flip_orientation = QAction("Flip Selected Orientation 180°", self)
         self._act_flip_orientation.setShortcut(QKeySequence("Ctrl+Shift+L"))
         self._act_flip_orientation.triggered.connect(self._flip_selected_orientation)
+        _register_shortcut_action(self._act_flip_orientation)
         ann_menu.addAction(self._act_flip_orientation)
 
         self._act_cycle_corners_cw = QAction("Cycle Selected OBB Corners (CW)", self)
         self._act_cycle_corners_cw.setShortcut(QKeySequence("R"))
         self._act_cycle_corners_cw.triggered.connect(self._cycle_selected_corners_cw)
+        _register_shortcut_action(self._act_cycle_corners_cw)
         ann_menu.addAction(self._act_cycle_corners_cw)
 
         self._act_cycle_corners_ccw = QAction("Cycle Selected OBB Corners (CCW)", self)
         self._act_cycle_corners_ccw.setShortcut(QKeySequence("Shift+R"))
         self._act_cycle_corners_ccw.triggered.connect(self._cycle_selected_corners_ccw)
+        _register_shortcut_action(self._act_cycle_corners_ccw)
         ann_menu.addAction(self._act_cycle_corners_ccw)
 
         self._act_rotate_sel_ccw = QAction("Rotate Selected -15°", self)
         self._act_rotate_sel_ccw.setShortcut(QKeySequence("Ctrl+Alt+Q"))
         self._act_rotate_sel_ccw.triggered.connect(lambda: self._rotate_selected_labels(-15.0))
+        _register_shortcut_action(self._act_rotate_sel_ccw)
         ann_menu.addAction(self._act_rotate_sel_ccw)
 
         self._act_rotate_sel_cw = QAction("Rotate Selected +15°", self)
         self._act_rotate_sel_cw.setShortcut(QKeySequence("Ctrl+Alt+E"))
         self._act_rotate_sel_cw.triggered.connect(lambda: self._rotate_selected_labels(15.0))
+        _register_shortcut_action(self._act_rotate_sel_cw)
         ann_menu.addAction(self._act_rotate_sel_cw)
 
         self._act_scale_sel_up = QAction("Scale Selected +10%", self)
         self._act_scale_sel_up.setShortcut(QKeySequence("Ctrl+Alt+W"))
         self._act_scale_sel_up.triggered.connect(lambda: self._scale_selected_labels(1.10))
+        _register_shortcut_action(self._act_scale_sel_up)
         ann_menu.addAction(self._act_scale_sel_up)
 
         self._act_scale_sel_down = QAction("Scale Selected -10%", self)
         self._act_scale_sel_down.setShortcut(QKeySequence("Ctrl+Alt+S"))
         self._act_scale_sel_down.triggered.connect(lambda: self._scale_selected_labels(0.90))
+        _register_shortcut_action(self._act_scale_sel_down)
         ann_menu.addAction(self._act_scale_sel_down)
 
         ann_menu.addSeparator()
@@ -437,20 +451,23 @@ class MainWindow(QMainWindow):
         # ---- View ----
         view_menu = mb.addMenu("&View")
 
-        act = QAction("Zoom &In", self)
-        act.setShortcut(QKeySequence("Ctrl+="))
-        act.triggered.connect(lambda: self._canvas.scale(1.15, 1.15))
-        view_menu.addAction(act)
+        self._act_zoom_in = QAction("Zoom &In", self)
+        self._act_zoom_in.setShortcut(QKeySequence("Ctrl+="))
+        self._act_zoom_in.triggered.connect(self._zoom_in)
+        _register_shortcut_action(self._act_zoom_in)
+        view_menu.addAction(self._act_zoom_in)
 
-        act = QAction("Zoom &Out", self)
-        act.setShortcut(QKeySequence("Ctrl+-"))
-        act.triggered.connect(lambda: self._canvas.scale(1 / 1.15, 1 / 1.15))
-        view_menu.addAction(act)
+        self._act_zoom_out = QAction("Zoom &Out", self)
+        self._act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
+        self._act_zoom_out.triggered.connect(self._zoom_out)
+        _register_shortcut_action(self._act_zoom_out)
+        view_menu.addAction(self._act_zoom_out)
 
-        act = QAction("&Reset Zoom", self)
-        act.setShortcut(QKeySequence("Ctrl+0"))
-        act.triggered.connect(self._canvas.fit_in_view)
-        view_menu.addAction(act)
+        self._act_reset_zoom = QAction("&Reset Zoom", self)
+        self._act_reset_zoom.setShortcut(QKeySequence("Ctrl+0"))
+        self._act_reset_zoom.triggered.connect(self._canvas.fit_in_view)
+        _register_shortcut_action(self._act_reset_zoom)
+        view_menu.addAction(self._act_reset_zoom)
 
         # ---- Cloud ----
         cloud_menu = mb.addMenu("&Cloud")
@@ -504,9 +521,10 @@ class MainWindow(QMainWindow):
 
         self._act_cloud_sync_all_labels = QAction("Sync Local Labels Now (Bulk, Cloud DB)", self)
         self._act_cloud_sync_all_labels.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
-        self._act_cloud_sync_all_labels.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        self._act_cloud_sync_all_labels.setShortcut(QKeySequence("Ctrl+Alt+L"))
         self._act_cloud_sync_all_labels.setToolTip("Upload all local labels/*.txt to cloud DB with lock-safe writes")
         self._act_cloud_sync_all_labels.triggered.connect(self._sync_all_local_labels_to_cloud_db)
+        _register_shortcut_action(self._act_cloud_sync_all_labels)
         cloud_menu.addAction(self._act_cloud_sync_all_labels)
 
         # ---- Equipe ----
@@ -561,6 +579,7 @@ class MainWindow(QMainWindow):
         self._act_set_completed.triggered.connect(
             lambda: self._set_selected_images_completion("completed")
         )
+        _register_shortcut_action(self._act_set_completed)
         status_menu.addAction(self._act_set_completed)
 
         self._act_set_in_progress = QAction("Set as &In Progress", self)
@@ -568,6 +587,7 @@ class MainWindow(QMainWindow):
         self._act_set_in_progress.triggered.connect(
             lambda: self._set_selected_images_completion("in_progress")
         )
+        _register_shortcut_action(self._act_set_in_progress)
         status_menu.addAction(self._act_set_in_progress)
 
         self._act_set_yolo = QAction("Set as &YOLO", self)
@@ -575,6 +595,7 @@ class MainWindow(QMainWindow):
         self._act_set_yolo.triggered.connect(
             lambda: self._set_selected_images_completion("yolo")
         )
+        _register_shortcut_action(self._act_set_yolo)
         status_menu.addAction(self._act_set_yolo)
 
         self._act_set_to_rotate = QAction("Set Selected as To &Rotate", self)
@@ -660,8 +681,6 @@ class MainWindow(QMainWindow):
             action = menu.addAction(_label(name, opens_dialog=opens_dialog, shortcut=shortcut), callback)
             if icon is not None:
                 action.setIcon(self.style().standardIcon(icon))
-            if shortcut:
-                action.setShortcut(QKeySequence(shortcut))
             if enabled is not None:
                 action.setEnabled(enabled)
             if tooltip:
@@ -775,7 +794,7 @@ class MainWindow(QMainWindow):
                     "Sync Local Labels Now (Bulk, Cloud DB)",
                     self._sync_all_local_labels_to_cloud_db,
                     icon=QStyle.StandardPixmap.SP_DriveNetIcon,
-                    shortcut="Ctrl+Shift+L",
+                    shortcut="Ctrl+Alt+L",
                 )
                 add_action(
                     advanced_menu,
@@ -1510,20 +1529,24 @@ class MainWindow(QMainWindow):
         self._label_list.labels_selection_changed.connect(self._on_label_list_selection_changed)
         self._canvas.label_selection_changed.connect(self._on_canvas_label_selection_changed)
 
-        # Navigation shortcuts (window-level so they work regardless of focus)
-        for key in ("A", "Left"):
-            s = QShortcut(QKeySequence(key), self)
-            s.activated.connect(self._navigate_prev)
-        for key in ("D", "Right", "Space"):
-            s = QShortcut(QKeySequence(key), self)
-            s.activated.connect(self._navigate_next)
-        for i in range(10):
-            s = QShortcut(QKeySequence(str(i)), self)
-            idx = i
-            s.activated.connect(lambda _idx=idx: self._class_panel.select_class(_idx))
+        # Navigation shortcuts (application scope so they keep working across widgets)
+        self._window_shortcuts.clear()
 
-        restore_nav_shortcut = QShortcut(QKeySequence("Ctrl+Alt+N"), self)
-        restore_nav_shortcut.activated.connect(self._ensure_navigation_visible)
+        def _bind_shortcut(sequence: str, callback) -> None:
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            shortcut.activated.connect(callback)
+            self._window_shortcuts.append(shortcut)
+
+        for key in ("A", "Left"):
+            _bind_shortcut(key, self._navigate_prev)
+        for key in ("D", "Right", "Space"):
+            _bind_shortcut(key, self._navigate_next)
+        for i in range(10):
+            idx = i
+            _bind_shortcut(str(i), lambda _idx=idx: self._class_panel.select_class(_idx))
+
+        _bind_shortcut("Ctrl+Alt+N", self._ensure_navigation_visible)
 
     # ------------------------------------------------------------------
     # Navigation
@@ -1547,7 +1570,7 @@ class MainWindow(QMainWindow):
         self._image_mgr.prev()
         self._load_current_image()
 
-    def _load_current_image(self) -> None:
+    def _load_current_image(self, *, preserve_view: bool = False) -> None:
         path = self._image_mgr.current_image
         if path is None:
             self._update_sync_active_file_lock()
@@ -1565,9 +1588,12 @@ class MainWindow(QMainWindow):
             self._lbl_hint.setText(str(exc))
             return
 
+        view_state = self._canvas.capture_view_state() if preserve_view else None
         self._canvas.load_image(render_path)
         self._label_mgr.load_for_image(path)
         self._canvas.load_labels(self._label_mgr.labels)
+        if preserve_view:
+            self._canvas.restore_view_state(view_state)
         self._refresh_label_list()
         self._update_index_label()
         self._browser.select_index(self._image_mgr.current_index)
@@ -1983,6 +2009,7 @@ class MainWindow(QMainWindow):
             return
 
         current_virtual = self._image_mgr.current_image
+        previous_images = list(self._all_images)
         entries = provider.manifest_entries()
         virtual_images = provider.manifest_virtual_paths()
         cloud_meta = {
@@ -1998,8 +2025,17 @@ class MainWindow(QMainWindow):
         if current_virtual is not None and current_virtual in self._all_images:
             self._image_mgr.go_to_path(current_virtual)
 
-        if self._image_mgr.total > 0:
-            self._load_current_image()
+        current_after_refresh = self._image_mgr.current_image
+        should_reload_current = bool(
+            self._image_mgr.total > 0
+            and (
+                current_virtual is None
+                or current_after_refresh != current_virtual
+                or (not previous_images and bool(self._all_images))
+            )
+        )
+        if should_reload_current:
+            self._load_current_image(preserve_view=(current_virtual is not None and current_after_refresh == current_virtual))
         if not silent or len(self._all_images) != previous_count:
             self._lbl_hint.setText(
                 f"Cloud manifest loaded: {len(self._all_images)} image(s), sort={self._image_sort_label()}"
@@ -2116,6 +2152,7 @@ class MainWindow(QMainWindow):
             return
 
         current_virtual = self._image_mgr.current_image
+        previous_images = list(self._all_images)
         previous_count = len(self._all_images)
 
         existing_classes = self._class_panel.class_names()
@@ -2131,8 +2168,17 @@ class MainWindow(QMainWindow):
         if current_virtual is not None and current_virtual in self._all_images:
             self._image_mgr.go_to_path(current_virtual)
 
-        if self._image_mgr.total > 0:
-            self._load_current_image()
+        current_after_refresh = self._image_mgr.current_image
+        should_reload_current = bool(
+            self._image_mgr.total > 0
+            and (
+                current_virtual is None
+                or current_after_refresh != current_virtual
+                or (not previous_images and bool(self._all_images))
+            )
+        )
+        if should_reload_current:
+            self._load_current_image(preserve_view=(current_virtual is not None and current_after_refresh == current_virtual))
 
         if not silent or len(self._all_images) != previous_count or removed_status_files > 0:
             suffix = ""
@@ -2142,6 +2188,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_remote_images_if_needed(self, status: dict[str, object], mode: str) -> None:
         if self._label_mgr.is_dirty:
+            return
+        if self._canvas.has_active_interaction():
             return
 
         try:
@@ -2178,6 +2226,8 @@ class MainWindow(QMainWindow):
 
     def _pull_remote_completion_from_cloud(self, *, force: bool = False) -> None:
         if not force and self._label_mgr.is_dirty:
+            return
+        if not force and self._canvas.has_active_interaction():
             return
 
         agent = self._sync_agent
@@ -2226,6 +2276,8 @@ class MainWindow(QMainWindow):
         if mode not in {"cloud_only", "hybrid"}:
             return
         if self._label_mgr.is_dirty:
+            return
+        if self._canvas.has_active_interaction():
             return
 
         try:
@@ -5136,6 +5188,7 @@ Ctrl+Shift+K — Set current image as completed<br>
 Ctrl+Shift+J — Set current image as in progress<br>
 Ctrl+Shift+G — Set current image as YOLO<br>
 Status menu — Set selected images as To Rotate<br>
+Ctrl+Alt+L — Bulk sync local labels to cloud DB<br>
         """.strip()
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
 

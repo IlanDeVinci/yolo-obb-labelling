@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 
 from app.models.obb_label import OBBLabel, BBoxLabel, Label
 from app.canvas.obb_graphics_item import OBBGraphicsItem
-from app.canvas.drawing_controller import DrawingController
+from app.canvas.drawing_controller import DrawingController, DrawingState
 from app.utils.image_io import load_qpixmap, decode_failure_hint
 
 _ZOOM_FACTOR = 1.15
@@ -85,6 +85,7 @@ class AnnotationCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._set_select_mode()
 
@@ -118,6 +119,41 @@ class AnnotationCanvas(QGraphicsView):
             self._user_zoomed = False
             self._wheel_zoom_accum = 0.0
             self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def capture_view_state(self) -> dict[str, object]:
+        """Capture viewport state so callers can reload content without jolting the view."""
+        return {
+            "has_image": self._image_item is not None,
+            "user_zoomed": bool(self._user_zoomed),
+            "transform": self.transform(),
+            "h_value": int(self.horizontalScrollBar().value()),
+            "v_value": int(self.verticalScrollBar().value()),
+        }
+
+    def restore_view_state(self, state: dict[str, object] | None) -> None:
+        """Restore viewport transform/scroll values captured by capture_view_state()."""
+        if not state or self._image_item is None:
+            return
+        if not bool(state.get("has_image", False)):
+            return
+        transform = state.get("transform")
+        if transform is None:
+            return
+        self.setTransform(transform)
+        self.horizontalScrollBar().setValue(int(state.get("h_value", 0) or 0))
+        self.verticalScrollBar().setValue(int(state.get("v_value", 0) or 0))
+        self._user_zoomed = bool(state.get("user_zoomed", True))
+
+    def has_active_interaction(self) -> bool:
+        """True while drawing, panning, or modifying labels/handles."""
+        if self._panning_mid:
+            return True
+        if self._mode == self.MODE_DRAW and self._draw_ctrl.state != DrawingState.IDLE:
+            return True
+        for item in self._label_items:
+            if item._pre_modify_points is not None:
+                return True
+        return False
 
     def zoom_in(self) -> None:
         if self._image_item is None:
@@ -301,6 +337,7 @@ class AnnotationCanvas(QGraphicsView):
     # ------------------------------------------------------------------
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
         # Middle mouse button: start pan (works in both modes)
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning_mid = True
