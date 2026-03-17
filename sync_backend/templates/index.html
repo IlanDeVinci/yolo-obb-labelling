@@ -97,8 +97,8 @@
         </symbol>
         <symbol id="i-zoom-out" viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none" />
-            <path d="M21 21l-4.35-4.35M8 11h6" stroke="currentColor" stroke-width="2" fill="none"
-                stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M21 21l-4.35-4.35M8 11h6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+                stroke-linejoin="round" />
         </symbol>
         <symbol id="i-fit" viewBox="0 0 24 24">
             <path d="M4 10V4h6M14 4h6v6M20 14v6h-6M10 20H4v-6" stroke="currentColor" stroke-width="2" fill="none"
@@ -135,6 +135,14 @@
             <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2" fill="none" />
             <path d="M7 10h2M11 10h2M15 10h2M7 14h5M14 14h3" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24">
+            <path d="m5 13 4 4L19 7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+                stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-rotate" viewBox="0 0 24 24">
+            <path d="M3 12a9 9 0 1 0 2.64-6.36M3 4v5h5" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
         </symbol>
     </svg>
 
@@ -715,8 +723,8 @@
                                             <use href="#i-fit"></use>
                                         </svg>
                                     </button>
-                                    <button id="annotateZoomOutBtn" type="button"
-                                        class="btn ghost small-btn icon-only" aria-label="Zoom out" title="Zoom out">
+                                    <button id="annotateZoomOutBtn" type="button" class="btn ghost small-btn icon-only"
+                                        aria-label="Zoom out" title="Zoom out">
                                         <svg>
                                             <use href="#i-zoom-out"></use>
                                         </svg>
@@ -734,14 +742,30 @@
                                             <use href="#i-shortcuts"></use>
                                         </svg>
                                     </button>
-                                    <button id="annotateSetInProgressBtn" type="button" class="btn ghost small-btn">Set
-                                        In Progress</button>
-                                    <button id="annotateSetCompletedBtn" type="button" class="btn ghost small-btn">Set
-                                        Completed</button>
-                                    <button id="annotateSetToRotateBtn" type="button" class="btn ghost small-btn">Set To
-                                        Rotate</button>
-                                    <button id="annotateModeSelectBtn" type="button" class="btn ghost small-btn icon-only"
-                                        aria-label="Select mode (S)" title="Select mode (S)">
+                                    <button id="annotateSetInProgressBtn" type="button"
+                                        class="btn ghost small-btn icon-only" aria-label="Set image in progress"
+                                        title="Set image in progress">
+                                        <svg>
+                                            <use href="#i-activity"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateSetCompletedBtn" type="button"
+                                        class="btn ghost small-btn icon-only" aria-label="Set image completed"
+                                        title="Set image completed">
+                                        <svg>
+                                            <use href="#i-check"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateSetToRotateBtn" type="button"
+                                        class="btn ghost small-btn icon-only" aria-label="Set image to rotate"
+                                        title="Set image to rotate">
+                                        <svg>
+                                            <use href="#i-rotate"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateModeSelectBtn" type="button"
+                                        class="btn ghost small-btn icon-only" aria-label="Select mode (S)"
+                                        title="Select mode (S)">
                                         <svg>
                                             <use href="#i-cursor"></use>
                                         </svg>
@@ -796,7 +820,12 @@
                                     <span id="annotateStatus" class="muted small">Select an image to preview
                                         labels.</span>
                                 </div>
-                                <button id="annotateExitBtn" type="button" class="btn danger">Exit Studio</button>
+                                <button id="annotateExitBtn" type="button" class="btn danger small-btn icon-only"
+                                    aria-label="Exit studio" title="Exit studio">
+                                    <svg>
+                                        <use href="#i-close"></use>
+                                    </svg>
+                                </button>
                             </div>
 
                             <div class="annotate-shell annotate-fullscreen-shell">

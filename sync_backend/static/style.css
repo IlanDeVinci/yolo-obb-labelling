@@ -451,6 +451,12 @@ html[data-theme="dark"] .btn.ghost {
   box-shadow: 0 10px 18px rgba(173, 43, 43, 0.2);
 }
 
+.btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
 html[data-theme="dark"] .btn.danger {
   background: linear-gradient(140deg, #7f2b2d, var(--danger));
 }
@@ -488,7 +494,7 @@ html[data-theme="dark"] .auth-state-hint {
 
 .annotate-shell {
   display: grid;
-  grid-template-columns: minmax(180px, 240px) 1fr minmax(170px, 220px);
+  grid-template-columns: minmax(160px, 200px) 1fr minmax(150px, 190px);
   gap: 10px;
   min-height: 360px;
 }
@@ -520,10 +526,10 @@ html[data-theme="dark"] .annotate-onboarding {
 }
 
 .annotate-toolbar .icon-only {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -537,13 +543,13 @@ html[data-theme="dark"] .annotate-onboarding {
 
 .annotate-fullscreen-topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 6px;
   border: 1px solid #d2ddd4;
   border-radius: 12px;
   background: #f7fbf9;
-  padding: 10px;
+  padding: 6px;
 }
 
 html[data-theme="dark"] .annotate-fullscreen-topbar {
@@ -604,6 +610,10 @@ html[data-theme="dark"] .annotate-top-status-strip {
 
 .annotate-toolbar {
   margin: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
 }
 
 .annotate-toolbar .btn.active {
@@ -627,6 +637,7 @@ html[data-theme="dark"] .annotate-toolbar .btn.active {
   display: grid;
   gap: 8px;
   align-content: start;
+  min-height: 0;
 }
 
 html[data-theme="dark"] .annotate-pane {
@@ -643,7 +654,8 @@ html[data-theme="dark"] .annotate-pane {
 .annotate-label-list {
   display: grid;
   gap: 6px;
-  max-height: 420px;
+  max-height: none;
+  min-height: 0;
   overflow: auto;
   padding-right: 2px;
 }
@@ -740,7 +752,8 @@ html[data-theme="dark"] .annotate-pane {
   text-align: center;
   padding: 14px;
   gap: 6px;
-  min-height: 60vh;
+  min-height: 0;
+  height: 100%;
   max-height: none;
   overflow: auto;
 }
@@ -899,18 +912,18 @@ body.annotate-fullscreen .annotate-editor-root {
   position: fixed;
   inset: 0;
   z-index: 200;
-  padding: 10px;
+  padding: 0;
   background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 100%);
 }
 
 body.annotate-fullscreen .annotate-fullscreen-shell {
   min-height: calc(100vh - 72px);
   height: calc(100vh - 72px);
-  grid-template-columns: minmax(220px, 270px) 1fr minmax(210px, 250px);
+  grid-template-columns: minmax(140px, 180px) 1fr minmax(130px, 165px);
 }
 
 .annotate-editor-root.annotate-sidebar-collapsed .annotate-fullscreen-shell {
-  grid-template-columns: 1fr minmax(210px, 250px);
+  grid-template-columns: 1fr minmax(130px, 165px);
 }
 
 .annotate-editor-root.annotate-sidebar-collapsed
@@ -920,7 +933,30 @@ body.annotate-fullscreen .annotate-fullscreen-shell {
 }
 
 .annotate-editor-root.annotate-inspector-collapsed .annotate-fullscreen-shell {
-  grid-template-columns: minmax(220px, 270px) 1fr;
+  grid-template-columns: minmax(140px, 180px) 1fr;
+}
+
+body.annotate-fullscreen .annotate-fullscreen-topbar {
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+}
+
+body.annotate-fullscreen .annotate-workspace {
+  min-height: 0;
+  height: 100%;
+}
+
+body.annotate-fullscreen
+  .annotate-fullscreen-shell
+  > .annotate-pane:first-child {
+  grid-template-rows: auto auto auto 1fr;
+}
+
+body.annotate-fullscreen
+  .annotate-fullscreen-shell
+  > .annotate-pane:last-child {
+  grid-template-rows: auto auto 1fr auto auto auto;
 }
 
 .annotate-editor-root.annotate-inspector-collapsed
