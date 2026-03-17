@@ -919,7 +919,8 @@ html[data-theme="dark"] .annotate-pane {
   gap: 6px;
   min-height: 0;
   height: 100%;
-  max-height: none;
+  max-height: calc(100vh - 100px);
+  max-height: calc(100dvh - 100px);
   overflow: hidden;
 }
 

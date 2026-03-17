@@ -2453,19 +2453,11 @@
             const cornerIdx = findCornerHandleAtPoint(pt.nx, pt.ny);
             if (cornerIdx >= 0 && annotateState.selectedLabelIdx >= 0) {
                 if (!isAnnotateEditAllowed(true)) return;
-                const selected = annotateState.labels[annotateState.selectedLabelIdx] || null;
-                const isBbox = String(selected?.format || '').toLowerCase() === 'bbox';
-                it.type = isBbox ? 'reorder-corners' : 'resize-corner';
+                it.type = 'resize-corner';
                 it.cornerIdx = cornerIdx;
                 it.edgeIdx = -1;
                 it.startN = { nx: pt.nx, ny: pt.ny };
                 it.startPoints = cloneLabels(annotateState.labels);
-                if (isBbox) {
-                    const pts = selected?.points || [];
-                    const center = polygonCentroid(pts);
-                    it.startCenter = center;
-                    it.startAngle = Math.atan2(pt.ny - center.y, pt.nx - center.x);
-                }
                 return;
             }
 
@@ -2510,11 +2502,16 @@
                 it.startN = { nx: pt.nx, ny: pt.ny };
                 it.startPoints = cloneLabels(annotateState.labels);
                 if (event.shiftKey) {
-                    it.type = 'rotate';
-                    const pts = annotateState.labels[hit].points || [];
-                    const center = polygonCentroid(pts);
-                    it.startCenter = center;
-                    it.startAngle = Math.atan2(pt.ny - center.y, pt.nx - center.x);
+                    const selected = annotateState.labels[hit] || null;
+                    if (String(selected?.format || '').toLowerCase() === 'bbox') {
+                        it.type = 'move';
+                    } else {
+                        it.type = 'rotate';
+                        const pts = annotateState.labels[hit].points || [];
+                        const center = polygonCentroid(pts);
+                        it.startCenter = center;
+                        it.startAngle = Math.atan2(pt.ny - center.y, pt.nx - center.x);
+                    }
                 } else {
                     it.type = 'move';
                 }
