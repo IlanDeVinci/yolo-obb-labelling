@@ -105,12 +105,12 @@
                 stroke-linecap="round" stroke-linejoin="round" />
         </symbol>
         <symbol id="i-undo" viewBox="0 0 24 24">
-            <path d="M9 7H3v6M3 13c1.4-3.7 5-6 9-6 5.2 0 9.5 4.3 9.5 9.5" stroke="currentColor" stroke-width="2"
-                fill="none" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M10 5 3 12l7 7v-4h5a6 6 0 1 0 0-12h-2" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
         </symbol>
         <symbol id="i-redo" viewBox="0 0 24 24">
-            <path d="M15 7h6v6M21 13c-1.4-3.7-5-6-9-6-5.2 0-9.5 4.3-9.5 9.5" stroke="currentColor" stroke-width="2"
-                fill="none" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="m14 5 7 7-7 7v-4H9a6 6 0 1 1 0-12h2" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
         </symbol>
         <symbol id="i-prev" viewBox="0 0 24 24">
             <path d="M15 18 9 12l6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
@@ -744,27 +744,6 @@
                                             <use href="#i-shortcuts"></use>
                                         </svg>
                                     </button>
-                                    <button id="annotateSetInProgressBtn" type="button"
-                                        class="btn ghost small-btn icon-only" aria-label="Set image in progress"
-                                        title="Set image in progress">
-                                        <svg>
-                                            <use href="#i-activity"></use>
-                                        </svg>
-                                    </button>
-                                    <button id="annotateSetCompletedBtn" type="button"
-                                        class="btn ghost small-btn icon-only" aria-label="Set image completed"
-                                        title="Set image completed">
-                                        <svg>
-                                            <use href="#i-check"></use>
-                                        </svg>
-                                    </button>
-                                    <button id="annotateSetToRotateBtn" type="button"
-                                        class="btn ghost small-btn icon-only" aria-label="Set image to rotate"
-                                        title="Set image to rotate">
-                                        <svg>
-                                            <use href="#i-rotate"></use>
-                                        </svg>
-                                    </button>
                                     <button id="annotateModeSelectBtn" type="button"
                                         class="btn ghost small-btn icon-only" aria-label="Select mode (S)"
                                         title="Select mode (S)">
@@ -819,8 +798,6 @@
                                     </button>
                                     <label class="inline"><input id="annotateShowLabels" type="checkbox" checked /> Show
                                         labels</label>
-                                    <span id="annotateStatus" class="muted small">Select an image to preview
-                                        labels.</span>
                                 </div>
                                 <button id="annotateExitBtn" type="button" class="btn danger small-btn icon-only"
                                     aria-label="Exit studio" title="Exit studio">
@@ -3360,9 +3337,26 @@
             }
 
             await new Promise((resolve, reject) => {
-                annotateImage.onload = () => resolve();
-                annotateImage.onerror = () => reject(new Error('Failed to load preview image.'));
+                let done = false;
+                const cleanup = () => {
+                    annotateImage.onload = null;
+                    annotateImage.onerror = null;
+                };
+                const finish = () => {
+                    if (done) return;
+                    done = true;
+                    cleanup();
+                    resolve();
+                };
+                annotateImage.onload = () => finish();
+                annotateImage.onerror = () => {
+                    cleanup();
+                    reject(new Error('Failed to load preview image.'));
+                };
                 annotateImage.src = payload.url;
+                if (annotateImage.complete && Number(annotateImage.naturalWidth || 0) > 0) {
+                    finish();
+                }
             });
 
             const labelPayload = await fetchAnnotateLabelPayload(targetPath);

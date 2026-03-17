@@ -558,7 +558,7 @@ html[data-theme="dark"] .annotate-onboarding {
 #annotateViewportMount .annotate-fullscreen-shell {
   min-height: 0;
   height: 100%;
-  grid-template-columns: minmax(130px, 170px) 1fr minmax(120px, 155px);
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 320px);
   gap: 8px;
   padding: 0 6px 6px;
 }
@@ -586,16 +586,53 @@ html[data-theme="dark"] .annotate-onboarding {
   padding: 0 !important;
 }
 
+#annotateViewportMount .annotate-pane {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+#annotateViewportMount .annotate-workspace {
+  min-height: 0;
+  height: 100%;
+}
+
+#annotateViewportMount .annotate-stage {
+  min-height: 0;
+  height: 100%;
+}
+
+#annotateViewportMount .annotate-image-list,
+#annotateViewportMount .annotate-label-list {
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+
+#annotateViewportMount .annotate-fullscreen-shell > .annotate-pane:first-child {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+#annotateViewportMount .annotate-fullscreen-shell > .annotate-pane:last-child {
+  grid-template-rows: auto auto minmax(0, 0.9fr) auto minmax(130px, 1.1fr) auto auto;
+}
+
+#annotateViewportMount #annotateRawText {
+  min-height: 130px;
+  height: 100%;
+  resize: none;
+}
+
 #annotateViewportMount
   .annotate-editor-root.annotate-sidebar-collapsed
   .annotate-fullscreen-shell {
-  grid-template-columns: 1fr minmax(120px, 155px);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
 }
 
 #annotateViewportMount
   .annotate-editor-root.annotate-inspector-collapsed
   .annotate-fullscreen-shell {
-  grid-template-columns: minmax(130px, 170px) 1fr;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
 }
 
 #annotateViewportMount
@@ -1016,11 +1053,11 @@ body.annotate-fullscreen #annotateViewportMount {
 body.annotate-fullscreen .annotate-fullscreen-shell {
   min-height: calc(100vh - 72px);
   height: calc(100vh - 72px);
-  grid-template-columns: minmax(140px, 180px) 1fr minmax(130px, 165px);
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 320px);
 }
 
 .annotate-editor-root.annotate-sidebar-collapsed .annotate-fullscreen-shell {
-  grid-template-columns: 1fr minmax(130px, 165px);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
 }
 
 .annotate-editor-root.annotate-sidebar-collapsed
@@ -1030,7 +1067,7 @@ body.annotate-fullscreen .annotate-fullscreen-shell {
 }
 
 .annotate-editor-root.annotate-inspector-collapsed .annotate-fullscreen-shell {
-  grid-template-columns: minmax(140px, 180px) 1fr;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
 }
 
 body.annotate-fullscreen .annotate-fullscreen-topbar {
@@ -2264,5 +2301,47 @@ body.is-admin .nav-btn.admin-only {
 
   .slideshow-controls input[type="number"] {
     width: 100%;
+  }
+}
+
+/* Keep annotation studio stable regardless of dashboard responsive rules. */
+#annotateViewportMount .annotate-shell {
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 320px) !important;
+  min-height: 0 !important;
+  height: 100% !important;
+}
+
+#annotateViewportMount .annotate-toolbar .btn {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+@media (max-width: 1200px) {
+  #annotateViewportMount .annotate-shell {
+    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) minmax(190px, 250px) !important;
+  }
+
+  #annotateViewportMount
+    .annotate-editor-root.annotate-sidebar-collapsed
+    .annotate-shell {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 250px) !important;
+  }
+
+  #annotateViewportMount
+    .annotate-editor-root.annotate-inspector-collapsed
+    .annotate-shell {
+    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  #annotateViewportMount .annotate-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  #annotateViewportMount .annotate-shell > .annotate-pane:first-child,
+  #annotateViewportMount .annotate-shell > .annotate-pane:last-child {
+    display: none !important;
   }
 }
