@@ -573,9 +573,15 @@ html[data-theme="dark"] .annotate-onboarding {
       240px,
       320px
     );
+  align-items: stretch;
   gap: 8px;
   padding: 0 6px 6px;
   overflow: hidden;
+}
+
+#annotateViewportMount .annotate-fullscreen-shell > * {
+  min-height: 0;
+  height: 100%;
 }
 
 #annotateViewportMount .annotate-toolbar {
@@ -610,6 +616,7 @@ html[data-theme="dark"] .annotate-onboarding {
 #annotateViewportMount .annotate-workspace {
   min-height: 0;
   height: 100%;
+  align-self: stretch;
   overflow: hidden;
 }
 
@@ -761,6 +768,7 @@ html[data-theme="dark"] .annotate-top-status-strip {
   min-height: 0;
   height: 100%;
   overflow: hidden;
+  align-items: stretch;
   align-content: stretch;
 }
 

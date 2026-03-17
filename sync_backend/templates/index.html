@@ -1230,6 +1230,33 @@
             annotateMediaStack.style.transformOrigin = 'center center';
         }
 
+        function getAnnotateStageInnerSize() {
+            if (!annotateStage) {
+                return { width: 0, height: 0 };
+            }
+            const rect = annotateStage.getBoundingClientRect();
+            const style = window.getComputedStyle(annotateStage);
+            const padX = Number.parseFloat(style.paddingLeft || '0') + Number.parseFloat(style.paddingRight || '0');
+            const padY = Number.parseFloat(style.paddingTop || '0') + Number.parseFloat(style.paddingBottom || '0');
+            return {
+                width: Math.max(0, Number(rect.width || 0) - padX),
+                height: Math.max(0, Number(rect.height || 0) - padY),
+            };
+        }
+
+        function centerAnnotateMediaInStage() {
+            if (!annotateStage || !annotateMediaStack) return;
+            const stageRect = annotateStage.getBoundingClientRect();
+            const mediaRect = annotateMediaStack.getBoundingClientRect();
+            if (!stageRect.width || !stageRect.height || !mediaRect.width || !mediaRect.height) return;
+            const dx = (stageRect.left + stageRect.width / 2) - (mediaRect.left + mediaRect.width / 2);
+            const dy = (stageRect.top + stageRect.height / 2) - (mediaRect.top + mediaRect.height / 2);
+            if (Math.abs(dx) < 0.25 && Math.abs(dy) < 0.25) return;
+            annotateState.panX += dx;
+            annotateState.panY += dy;
+            applyAnnotateViewTransform();
+        }
+
         function cycleThemeModePreference() {
             themePreference = themePreference === 'dark' ? 'light' : 'dark';
             localStorage.setItem(THEME_MODE_STORAGE_KEY, themePreference);
@@ -2660,9 +2687,14 @@
             updateAnnotateViewportMetrics();
             const imageW = Number(annotateImage.naturalWidth || annotateImage.width || 0);
             const imageH = Number(annotateImage.naturalHeight || annotateImage.height || 0);
-            const stageRect = annotateStage.getBoundingClientRect();
-            const availW = Math.max(1, Number(stageRect.width || 0) - 24);
-            const availH = Math.max(1, Number(stageRect.height || 0) - 24);
+            const stageInner = getAnnotateStageInnerSize();
+            const availW = Math.max(1, Number(stageInner.width || 0));
+            const availH = Math.max(1, Number(stageInner.height || 0));
+
+            if (availW <= 1 || availH <= 1) {
+                requestAnimationFrame(() => fitAnnotateStage());
+                return;
+            }
 
             if (imageW > 0 && imageH > 0) {
                 annotateImage.style.maxWidth = 'none';
@@ -2686,6 +2718,7 @@
             annotateState.panY = 0;
             annotateState.fitMode = true;
             applyAnnotateViewTransform();
+            centerAnnotateMediaInStage();
             drawAnnotateLabels(annotateState.labels);
             setAnnotateStatus('Image fitted to stage bounds.', false);
         }
