@@ -488,7 +488,7 @@ html[data-theme="dark"] .auth-state-hint {
 
 .annotate-shell {
   display: grid;
-  grid-template-columns: minmax(180px, 240px) 1fr minmax(180px, 260px);
+  grid-template-columns: minmax(180px, 240px) 1fr minmax(170px, 220px);
   gap: 10px;
   min-height: 360px;
 }
@@ -517,6 +517,22 @@ html[data-theme="dark"] .annotate-onboarding {
 .annotate-editor-root {
   display: grid;
   gap: 10px;
+}
+
+.annotate-toolbar .icon-only {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.annotate-toolbar .icon-only svg {
+  width: 16px;
+  height: 16px;
 }
 
 .annotate-fullscreen-topbar {
@@ -583,7 +599,7 @@ html[data-theme="dark"] .annotate-top-status-strip {
 .annotate-workspace {
   display: grid;
   gap: 10px;
-  align-content: start;
+  align-content: stretch;
 }
 
 .annotate-toolbar {
@@ -840,6 +856,10 @@ body.annotate-fullscreen #sidebarToggleBtn {
 
 body.annotate-fullscreen .dashboard {
   grid-template-columns: 1fr;
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  gap: 0;
 }
 
 body.annotate-fullscreen .content {
@@ -848,6 +868,10 @@ body.annotate-fullscreen .content {
   height: 100vh;
   margin: 0;
   padding: 0;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 body.annotate-fullscreen .page-view[data-page="annotate"] .sub-card {
@@ -858,21 +882,35 @@ body.annotate-fullscreen .page-view[data-page="annotate"] .sub-card {
 }
 
 body.annotate-fullscreen .page-view[data-page="annotate"] {
-  position: fixed;
-  inset: 0;
+  position: static;
   width: 100vw;
   height: 100vh;
   z-index: 150;
 }
 
+body.annotate-fullscreen .app-shell {
+  width: 100vw;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+}
+
+body.annotate-fullscreen .annotate-editor-root {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  padding: 10px;
+  background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 100%);
+}
+
 body.annotate-fullscreen .annotate-fullscreen-shell {
   min-height: calc(100vh - 72px);
   height: calc(100vh - 72px);
-  grid-template-columns: minmax(260px, 320px) 1fr minmax(280px, 340px);
+  grid-template-columns: minmax(220px, 270px) 1fr minmax(210px, 250px);
 }
 
 .annotate-editor-root.annotate-sidebar-collapsed .annotate-fullscreen-shell {
-  grid-template-columns: 1fr minmax(280px, 340px);
+  grid-template-columns: 1fr minmax(210px, 250px);
 }
 
 .annotate-editor-root.annotate-sidebar-collapsed
@@ -882,7 +920,7 @@ body.annotate-fullscreen .annotate-fullscreen-shell {
 }
 
 .annotate-editor-root.annotate-inspector-collapsed .annotate-fullscreen-shell {
-  grid-template-columns: minmax(260px, 320px) 1fr;
+  grid-template-columns: minmax(220px, 270px) 1fr;
 }
 
 .annotate-editor-root.annotate-inspector-collapsed

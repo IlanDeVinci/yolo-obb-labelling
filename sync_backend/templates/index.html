@@ -90,6 +90,52 @@
                 d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" />
         </symbol>
+        <symbol id="i-zoom-in" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none" />
+            <path d="M21 21l-4.35-4.35M11 8v6M8 11h6" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-zoom-out" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none" />
+            <path d="M21 21l-4.35-4.35M8 11h6" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-fit" viewBox="0 0 24 24">
+            <path d="M4 10V4h6M14 4h6v6M20 14v6h-6M10 20H4v-6" stroke="currentColor" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-undo" viewBox="0 0 24 24">
+            <path d="M9 7H3v6M3 13c1.4-3.7 5-6 9-6 5.2 0 9.5 4.3 9.5 9.5" stroke="currentColor" stroke-width="2"
+                fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-redo" viewBox="0 0 24 24">
+            <path d="M15 7h6v6M21 13c-1.4-3.7-5-6-9-6-5.2 0-9.5 4.3-9.5 9.5" stroke="currentColor" stroke-width="2"
+                fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-prev" viewBox="0 0 24 24">
+            <path d="M15 18 9 12l6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+                stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-next" viewBox="0 0 24 24">
+            <path d="m9 18 6-6-6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"
+                stroke-linejoin="round" />
+        </symbol>
+        <symbol id="i-panel-left" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2" fill="none" />
+            <path d="M9 4v16" stroke="currentColor" stroke-width="2" />
+        </symbol>
+        <symbol id="i-panel-right" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2" fill="none" />
+            <path d="M15 4v16" stroke="currentColor" stroke-width="2" />
+        </symbol>
+        <symbol id="i-cursor" viewBox="0 0 24 24">
+            <path d="M5 3v17l4-4 3 5 2-1-3-5h6L5 3Z" fill="currentColor" />
+        </symbol>
+        <symbol id="i-shortcuts" viewBox="0 0 24 24">
+            <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2" fill="none" />
+            <path d="M7 10h2M11 10h2M15 10h2M7 14h5M14 14h3" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" />
+        </symbol>
     </svg>
 
     <div class="background-ornaments" aria-hidden="true">
@@ -649,28 +695,63 @@
                         <div id="annotateEditorRoot" class="annotate-editor-root hidden">
                             <div class="annotate-fullscreen-topbar">
                                 <div class="row annotate-toolbar">
-                                    <button id="annotateToggleSidebarBtn" type="button" class="btn ghost small-btn">Hide
-                                        Images</button>
+                                    <button id="annotateToggleSidebarBtn" type="button"
+                                        class="btn ghost small-btn icon-only" aria-label="Hide image list"
+                                        title="Hide image list">
+                                        <svg>
+                                            <use id="annotateSidebarIconUse" href="#i-panel-left"></use>
+                                        </svg>
+                                    </button>
                                     <button id="annotateToggleInspectorBtn" type="button"
-                                        class="btn ghost small-btn">Hide Inspector</button>
-                                    <button id="annotateFitBtn" type="button" class="btn ghost small-btn">Fit
-                                        Stage</button>
-                                    <button id="annotateZoomOutBtn" type="button" class="btn ghost small-btn">Zoom
-                                        -</button>
-                                    <button id="annotateZoomInBtn" type="button" class="btn ghost small-btn">Zoom
-                                        +</button>
+                                        class="btn ghost small-btn icon-only" aria-label="Hide inspector"
+                                        title="Hide inspector">
+                                        <svg>
+                                            <use id="annotateInspectorIconUse" href="#i-panel-right"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateFitBtn" type="button" class="btn ghost small-btn icon-only"
+                                        aria-label="Fit image to screen" title="Fit image to screen">
+                                        <svg>
+                                            <use href="#i-fit"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateZoomOutBtn" type="button"
+                                        class="btn ghost small-btn icon-only" aria-label="Zoom out" title="Zoom out">
+                                        <svg>
+                                            <use href="#i-zoom-out"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateZoomInBtn" type="button" class="btn ghost small-btn icon-only"
+                                        aria-label="Zoom in" title="Zoom in">
+                                        <svg>
+                                            <use href="#i-zoom-in"></use>
+                                        </svg>
+                                    </button>
                                     <button id="annotateShortcutsBtn" type="button"
-                                        class="btn ghost small-btn">Shortcuts</button>
+                                        class="btn ghost small-btn icon-only" aria-label="Keyboard shortcuts"
+                                        title="Keyboard shortcuts">
+                                        <svg>
+                                            <use href="#i-shortcuts"></use>
+                                        </svg>
+                                    </button>
                                     <button id="annotateSetInProgressBtn" type="button" class="btn ghost small-btn">Set
                                         In Progress</button>
                                     <button id="annotateSetCompletedBtn" type="button" class="btn ghost small-btn">Set
                                         Completed</button>
                                     <button id="annotateSetToRotateBtn" type="button" class="btn ghost small-btn">Set To
                                         Rotate</button>
-                                    <button id="annotateModeSelectBtn" type="button" class="btn ghost small-btn">Select
-                                        (S)</button>
-                                    <button id="annotateModeDrawBtn" type="button" class="btn ghost small-btn">Draw
-                                        (W)</button>
+                                    <button id="annotateModeSelectBtn" type="button" class="btn ghost small-btn icon-only"
+                                        aria-label="Select mode (S)" title="Select mode (S)">
+                                        <svg>
+                                            <use href="#i-cursor"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateModeDrawBtn" type="button" class="btn ghost small-btn icon-only"
+                                        aria-label="Draw mode (W)" title="Draw mode (W)">
+                                        <svg>
+                                            <use href="#i-edit"></use>
+                                        </svg>
+                                    </button>
                                     <label class="inline">Shape
                                         <select id="annotateDrawShape">
                                             <option value="obb">OBB</option>
@@ -680,12 +761,36 @@
                                     <label class="inline">Class
                                         <input id="annotateClassIdx" type="number" min="0" step="1" value="0" />
                                     </label>
-                                    <button id="annotateUndoBtn" type="button" class="btn ghost small-btn">Undo</button>
-                                    <button id="annotateRedoBtn" type="button" class="btn ghost small-btn">Redo</button>
-                                    <button id="annotateDeleteBtn" type="button"
-                                        class="btn danger small-btn">Delete</button>
-                                    <button id="annotatePrevBtn" type="button" class="btn ghost small-btn">Prev</button>
-                                    <button id="annotateNextBtn" type="button" class="btn ghost small-btn">Next</button>
+                                    <button id="annotateUndoBtn" type="button" class="btn ghost small-btn icon-only"
+                                        aria-label="Undo" title="Undo">
+                                        <svg>
+                                            <use href="#i-undo"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateRedoBtn" type="button" class="btn ghost small-btn icon-only"
+                                        aria-label="Redo" title="Redo">
+                                        <svg>
+                                            <use href="#i-redo"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateDeleteBtn" type="button" class="btn danger small-btn icon-only"
+                                        aria-label="Delete selected label" title="Delete selected label">
+                                        <svg>
+                                            <use href="#i-trash"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotatePrevBtn" type="button" class="btn ghost small-btn icon-only"
+                                        aria-label="Previous image" title="Previous image">
+                                        <svg>
+                                            <use href="#i-prev"></use>
+                                        </svg>
+                                    </button>
+                                    <button id="annotateNextBtn" type="button" class="btn ghost small-btn icon-only"
+                                        aria-label="Next image" title="Next image">
+                                        <svg>
+                                            <use href="#i-next"></use>
+                                        </svg>
+                                    </button>
                                     <label class="inline"><input id="annotateShowLabels" type="checkbox" checked /> Show
                                         labels</label>
                                     <span id="annotateStatus" class="muted small">Select an image to preview
@@ -890,6 +995,8 @@
         const annotateExitBtn = document.getElementById('annotateExitBtn');
         const annotateToggleSidebarBtn = document.getElementById('annotateToggleSidebarBtn');
         const annotateToggleInspectorBtn = document.getElementById('annotateToggleInspectorBtn');
+        const annotateSidebarIconUse = document.getElementById('annotateSidebarIconUse');
+        const annotateInspectorIconUse = document.getElementById('annotateInspectorIconUse');
         const annotateFitBtn = document.getElementById('annotateFitBtn');
         const annotateZoomOutBtn = document.getElementById('annotateZoomOutBtn');
         const annotateZoomInBtn = document.getElementById('annotateZoomInBtn');
@@ -1003,6 +1110,7 @@
             zoom: 1,
             minZoom: 0.2,
             maxZoom: 6,
+            fitMode: true,
             undoStack: [],
             redoStack: [],
             interaction: {
@@ -1459,10 +1567,15 @@
                 ctx.stroke();
                 ctx.fill();
 
-                const tagX = [pts[0], pts[2], pts[4], pts[6]].map((v) => Number(v || 0));
-                const tagY = [pts[1], pts[3], pts[5], pts[7]].map((v) => Number(v || 0));
-                const tx = offsetX + Math.min(...tagX) * drawW;
-                const ty = Math.max(14, offsetY + Math.min(...tagY) * drawH - 5);
+                const p0x = Number(pts[0] || 0);
+                const p0y = Number(pts[1] || 0);
+                const cx = (Number(pts[0] || 0) + Number(pts[2] || 0) + Number(pts[4] || 0) + Number(pts[6] || 0)) / 4;
+                const cy = (Number(pts[1] || 0) + Number(pts[3] || 0) + Number(pts[5] || 0) + Number(pts[7] || 0)) / 4;
+                const vx = p0x - cx;
+                const vy = p0y - cy;
+                const vLen = Math.max(1e-6, Math.hypot(vx, vy));
+                const tx = offsetX + (p0x * drawW) + ((vx / vLen) * 8);
+                const ty = Math.max(14, Math.min(stageH - 8, offsetY + (p0y * drawH) + ((vy / vLen) * 8)));
                 const classText = `class ${Number(item.classId || 0)}`;
                 ctx.fillStyle = selected ? '#fef3d8' : color;
                 ctx.fillText(classText, tx, ty);
@@ -1932,11 +2045,43 @@
             return out;
         }
 
+        function rotateCornerOrder(points, quarterTurns) {
+            const src = Array.isArray(points) ? points.slice(0, 8) : [];
+            if (src.length < 8) return src;
+            const turns = ((Math.round(Number(quarterTurns || 0)) % 4) + 4) % 4;
+            if (!turns) return src;
+            const out = [];
+            for (let i = 0; i < 4; i += 1) {
+                const from = (i - turns + 4) % 4;
+                out.push(Number(src[from * 2] || 0), Number(src[from * 2 + 1] || 0));
+            }
+            return out;
+        }
+
+        function quarterTurnsFromAngleDelta(angleDelta) {
+            const wrapped = Math.atan2(Math.sin(angleDelta), Math.cos(angleDelta));
+            return Math.round(wrapped / (Math.PI / 2));
+        }
+
+        function quarterTurnsFromDegrees(deg) {
+            const value = Number(deg || 0);
+            if (!Number.isFinite(value) || Math.abs(value) < 1e-4) return 0;
+            const turns = Math.round(value / 90);
+            if (turns !== 0) return turns;
+            return value > 0 ? 1 : -1;
+        }
+
         function rotateSelectedByDegrees(deg) {
             const idx = annotateState.selectedLabelIdx;
             if (idx < 0 || idx >= annotateState.labels.length) return;
             const prev = cloneLabels(annotateState.labels);
             const target = annotateState.labels[idx];
+            if (String(target.format || '').toLowerCase() === 'bbox') {
+                const turns = quarterTurnsFromDegrees(deg);
+                target.points = rotateCornerOrder(target.points || [], turns);
+                commitInteractiveChange(prev, `Rotated bbox corner order (${turns > 0 ? '+' : ''}${turns * 90}deg).`);
+                return;
+            }
             const center = polygonCentroid(target.points || []);
             target.points = rotatePoints(target.points || [], center, (deg * Math.PI) / 180);
             commitInteractiveChange(prev, `Rotated ${deg > 0 ? '+' : ''}${deg}deg.`);
@@ -2070,11 +2215,19 @@
             const cornerIdx = findCornerHandleAtPoint(pt.nx, pt.ny);
             if (cornerIdx >= 0 && annotateState.selectedLabelIdx >= 0) {
                 if (!isAnnotateEditAllowed(true)) return;
-                it.type = 'resize-corner';
+                const selected = annotateState.labels[annotateState.selectedLabelIdx] || null;
+                const isBbox = String(selected?.format || '').toLowerCase() === 'bbox';
+                it.type = isBbox ? 'reorder-corners' : 'resize-corner';
                 it.cornerIdx = cornerIdx;
                 it.edgeIdx = -1;
                 it.startN = { nx: pt.nx, ny: pt.ny };
                 it.startPoints = cloneLabels(annotateState.labels);
+                if (isBbox) {
+                    const pts = selected?.points || [];
+                    const center = polygonCentroid(pts);
+                    it.startCenter = center;
+                    it.startAngle = Math.atan2(pt.ny - center.y, pt.nx - center.x);
+                }
                 return;
             }
 
@@ -2147,6 +2300,11 @@
                 const dx = pt.nx - it.startN.nx;
                 const dy = pt.ny - it.startN.ny;
                 target.points = translatedPoints(target.points || [], dx, dy);
+            } else if (it.type === 'reorder-corners') {
+                const center = it.startCenter || polygonCentroid((it.startPoints[idx]?.points || target.points || []));
+                const angle = Math.atan2(pt.ny - center.y, pt.nx - center.x);
+                const turns = quarterTurnsFromAngleDelta(angle - Number(it.startAngle || 0));
+                target.points = rotateCornerOrder((it.startPoints[idx]?.points || target.points || []), turns);
             } else if (it.type === 'resize-corner') {
                 if (String(target.format || '').toLowerCase() === 'bbox') {
                     target.points = setBBoxCornerPoint((it.startPoints[idx]?.points || target.points || []), it.cornerIdx, pt.nx, pt.ny);
@@ -2356,10 +2514,16 @@
             annotateEditorRoot?.classList.toggle('annotate-sidebar-collapsed', annotateUiState.sidebarCollapsed);
             annotateEditorRoot?.classList.toggle('annotate-inspector-collapsed', annotateUiState.inspectorCollapsed);
             if (annotateToggleSidebarBtn) {
-                annotateToggleSidebarBtn.textContent = annotateUiState.sidebarCollapsed ? 'Show Images' : 'Hide Images';
+                const showImages = annotateUiState.sidebarCollapsed;
+                annotateToggleSidebarBtn.setAttribute('aria-label', showImages ? 'Show image list' : 'Hide image list');
+                annotateToggleSidebarBtn.setAttribute('title', showImages ? 'Show image list' : 'Hide image list');
+                annotateSidebarIconUse?.setAttribute('href', showImages ? '#i-panel-right' : '#i-panel-left');
             }
             if (annotateToggleInspectorBtn) {
-                annotateToggleInspectorBtn.textContent = annotateUiState.inspectorCollapsed ? 'Show Inspector' : 'Hide Inspector';
+                const showInspector = annotateUiState.inspectorCollapsed;
+                annotateToggleInspectorBtn.setAttribute('aria-label', showInspector ? 'Show inspector' : 'Hide inspector');
+                annotateToggleInspectorBtn.setAttribute('title', showInspector ? 'Show inspector' : 'Hide inspector');
+                annotateInspectorIconUse?.setAttribute('href', showInspector ? '#i-panel-left' : '#i-panel-right');
             }
             annotateShortcutsOverlay?.classList.toggle('hidden', !annotateUiState.shortcutsOpen);
             annotateShortcutsOverlay?.setAttribute('aria-hidden', annotateUiState.shortcutsOpen ? 'false' : 'true');
@@ -2369,14 +2533,30 @@
         }
 
         function fitAnnotateStage() {
-            if (!annotateImage) return;
-            setAnnotateZoom(1, { silent: true });
+            if (!annotateImage || !annotateStage) return;
+            const imageW = Number(annotateImage.naturalWidth || annotateImage.width || 0);
+            const imageH = Number(annotateImage.naturalHeight || annotateImage.height || 0);
+            const stageRect = annotateStage.getBoundingClientRect();
+            const availW = Math.max(1, Number(stageRect.width || 0) - 24);
+            const availH = Math.max(1, Number(stageRect.height || 0) - 24);
+
+            if (imageW > 0 && imageH > 0) {
+                annotateImage.style.width = `${Math.round(imageW)}px`;
+                annotateImage.style.height = `${Math.round(imageH)}px`;
+                const fitZoom = Math.max(
+                    annotateState.minZoom,
+                    Math.min(annotateState.maxZoom, Math.min(availW / imageW, availH / imageH)),
+                );
+                setAnnotateZoom(fitZoom, { silent: true, fromFit: true });
+            } else {
+                setAnnotateZoom(1, { silent: true, fromFit: true });
+            }
+
             if (annotateStage) {
                 annotateStage.scrollLeft = 0;
                 annotateStage.scrollTop = 0;
             }
-            annotateImage.style.maxWidth = '100%';
-            annotateImage.style.maxHeight = '100%';
+            annotateState.fitMode = true;
             drawAnnotateLabels(annotateState.labels);
             setAnnotateStatus('Image fitted to stage bounds.', false);
         }
@@ -2385,6 +2565,9 @@
             const opt = options || {};
             const value = Math.max(annotateState.minZoom, Math.min(annotateState.maxZoom, Number(nextZoom || 1)));
             annotateState.zoom = value;
+            if (!opt.fromFit) {
+                annotateState.fitMode = false;
+            }
             if (annotateMediaStack) {
                 annotateMediaStack.style.transform = `scale(${value.toFixed(3)})`;
                 annotateMediaStack.style.transformOrigin = 'center center';
@@ -4937,7 +5120,7 @@
                 refreshSlideOverlay().catch(() => { });
             }
             if (activeDashPage === 'annotate') {
-                if (annotateUiState.studioStarted && Math.abs(annotateState.zoom - 1) < 0.001) {
+                if (annotateUiState.studioStarted && annotateState.fitMode) {
                     fitAnnotateStage();
                 } else {
                     drawAnnotateLabels(annotateState.labels);
