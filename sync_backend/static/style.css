@@ -80,6 +80,12 @@ html[data-theme="dark"] body {
   pointer-events: auto;
 }
 
+.annotate-zoom-pct {
+  min-width: 54px;
+  text-align: right;
+  font-weight: 700;
+}
+
 .background-ornaments {
   position: fixed;
   inset: 0;
@@ -1056,6 +1062,17 @@ body.annotate-fullscreen .annotate-editor-root {
   z-index: 200;
   padding: 0;
   background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 100%);
+}
+
+body.annotate-fullscreen > .app-shell {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+body.annotate-fullscreen #annotateViewportMount,
+body.annotate-fullscreen #annotateViewportMount * {
+  visibility: visible !important;
+  pointer-events: auto;
 }
 
 body.annotate-fullscreen #annotateViewportMount {

@@ -798,6 +798,7 @@
                                     </button>
                                     <label class="inline"><input id="annotateShowLabels" type="checkbox" checked /> Show
                                         labels</label>
+                                    <span id="annotateZoomPct" class="muted small annotate-zoom-pct">100%</span>
                                 </div>
                                 <button id="annotateExitBtn" type="button" class="btn danger small-btn icon-only"
                                     aria-label="Exit studio" title="Exit studio">
@@ -1034,6 +1035,7 @@
         const annotatePrevBtn = document.getElementById('annotatePrevBtn');
         const annotateNextBtn = document.getElementById('annotateNextBtn');
         const annotateShowLabels = document.getElementById('annotateShowLabels');
+        const annotateZoomPct = document.getElementById('annotateZoomPct');
         const annotateStatus = document.getElementById('annotateStatus');
         const annotateStage = document.getElementById('annotateStage');
         const annotateMediaStack = document.getElementById('annotateMediaStack');
@@ -1590,8 +1592,8 @@
             if (!ctx) return;
 
             const imageRect = annotateImage.getBoundingClientRect();
-            const drawW = Math.max(1, Math.round(Number(imageRect.width || 0)));
-            const drawH = Math.max(1, Math.round(Number(imageRect.height || 0)));
+            const drawW = Math.max(1, Math.round(Number(annotateImage.clientWidth || annotateImage.width || 0)));
+            const drawH = Math.max(1, Math.round(Number(annotateImage.clientHeight || annotateImage.height || 0)));
             annotateCanvas.width = drawW;
             annotateCanvas.height = drawH;
             annotateCanvas.style.width = `${drawW}px`;
@@ -2670,6 +2672,9 @@
                 annotateState.fitMode = false;
             }
             applyAnnotateViewTransform();
+            if (annotateZoomPct) {
+                annotateZoomPct.textContent = `${Math.round(value * 100)}%`;
+            }
             drawAnnotateLabels(annotateState.labels);
             if (!opt.silent) {
                 setAnnotateStatus(`Zoom ${Math.round(value * 100)}%`, false);
