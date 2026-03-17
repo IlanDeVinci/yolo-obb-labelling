@@ -725,8 +725,18 @@ html[data-theme="dark"] .annotate-pane {
   padding: 14px;
   gap: 6px;
   min-height: 60vh;
-  max-height: calc(100vh - 240px);
-  overflow: hidden;
+  max-height: none;
+  overflow: auto;
+}
+
+.annotate-media-stack {
+  position: relative;
+  display: inline-block;
+  width: fit-content;
+  height: fit-content;
+  line-height: 0;
+  transform-origin: center center;
+  transition: transform 120ms ease;
 }
 
 .annotate-stage.annotate-dirty {
@@ -745,6 +755,7 @@ html[data-theme="dark"] .annotate-stage {
 }
 
 #annotateImage {
+  display: block;
   width: auto;
   height: auto;
   max-width: 100%;
@@ -833,15 +844,30 @@ body.annotate-fullscreen .dashboard {
 
 body.annotate-fullscreen .content {
   max-width: none;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
 }
 
 body.annotate-fullscreen .page-view[data-page="annotate"] .sub-card {
-  border-radius: 12px;
-  padding: 10px;
+  border-radius: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+body.annotate-fullscreen .page-view[data-page="annotate"] {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 150;
 }
 
 body.annotate-fullscreen .annotate-fullscreen-shell {
-  min-height: calc(100vh - 210px);
+  min-height: calc(100vh - 72px);
+  height: calc(100vh - 72px);
   grid-template-columns: minmax(260px, 320px) 1fr minmax(280px, 340px);
 }
 
@@ -918,11 +944,6 @@ html[data-theme="dark"] .sidebar-overlay {
   gap: 14px;
   position: sticky;
   top: 16px;
-}
-
-.sidebar-top {
-  display: grid;
-  gap: 8px;
 }
 
 .dash-nav {

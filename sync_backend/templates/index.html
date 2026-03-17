@@ -631,20 +631,14 @@
                 </section>
 
                 <section class="page-view hidden" data-page="annotate">
-                    <header class="view-head">
-                        <h3>Web Annotation Studio</h3>
-                        <p class="muted">Desktop-style annotation workspace with lock-aware editing and safe exits.</p>
-                    </header>
-
                     <article class="sub-card">
                         <div id="annotateOnboarding" class="annotate-onboarding">
                             <h4>Before You Start</h4>
-                            <p class="muted">This mode opens a fullscreen annotation studio similar to desktop. You can
-                                edit labels, manage locks, and navigate quickly with shortcuts.</p>
+                            <p class="muted">This mode opens a fullscreen annotation studio similar to desktop.</p>
                             <ul class="annotate-onboarding-list muted">
-                                <li>Acquire lock before editing shared label files.</li>
-                                <li>Save often. Unsaved changes trigger safety prompts on exit or refresh.</li>
                                 <li>Shortcuts: S select, W draw, B bbox, O obb, Ctrl/Cmd+S save.</li>
+                                <li>Auto-save runs while editing and when switching images.</li>
+                                <li>Exit Studio returns you to the dashboard.</li>
                             </ul>
                             <div class="row">
                                 <button id="annotateStartBtn" type="button" class="btn solid">Start Annotation
@@ -661,8 +655,18 @@
                                         class="btn ghost small-btn">Hide Inspector</button>
                                     <button id="annotateFitBtn" type="button" class="btn ghost small-btn">Fit
                                         Stage</button>
+                                    <button id="annotateZoomOutBtn" type="button" class="btn ghost small-btn">Zoom
+                                        -</button>
+                                    <button id="annotateZoomInBtn" type="button" class="btn ghost small-btn">Zoom
+                                        +</button>
                                     <button id="annotateShortcutsBtn" type="button"
                                         class="btn ghost small-btn">Shortcuts</button>
+                                    <button id="annotateSetInProgressBtn" type="button" class="btn ghost small-btn">Set
+                                        In Progress</button>
+                                    <button id="annotateSetCompletedBtn" type="button" class="btn ghost small-btn">Set
+                                        Completed</button>
+                                    <button id="annotateSetToRotateBtn" type="button" class="btn ghost small-btn">Set To
+                                        Rotate</button>
                                     <button id="annotateModeSelectBtn" type="button" class="btn ghost small-btn">Select
                                         (S)</button>
                                     <button id="annotateModeDrawBtn" type="button" class="btn ghost small-btn">Draw
@@ -690,21 +694,6 @@
                                 <button id="annotateExitBtn" type="button" class="btn danger">Exit Studio</button>
                             </div>
 
-                            <div class="annotate-top-status-strip">
-                                <span id="annotateTopLockStatus" class="muted small">Lock status unknown.</span>
-                                <span id="annotateTopSaveStatus" class="muted small">No unsaved changes.</span>
-                                <div class="row">
-                                    <button id="annotateTopAcquireLockBtn" type="button"
-                                        class="btn ghost small-btn">Acquire Lock</button>
-                                    <button id="annotateTopReleaseLockBtn" type="button"
-                                        class="btn ghost small-btn">Release Lock</button>
-                                    <button id="annotateTopReloadRawBtn" type="button"
-                                        class="btn ghost small-btn">Reload</button>
-                                    <button id="annotateTopSaveRawBtn" type="button"
-                                        class="btn solid small-btn">Save</button>
-                                </div>
-                            </div>
-
                             <div class="annotate-shell annotate-fullscreen-shell">
                                 <aside class="annotate-pane">
                                     <div class="row annotate-pane-head">
@@ -722,8 +711,10 @@
 
                                 <section class="annotate-workspace" aria-label="Annotation preview workspace">
                                     <div id="annotateStage" class="annotate-stage">
-                                        <img id="annotateImage" alt="Annotation preview" />
-                                        <canvas id="annotateCanvas"></canvas>
+                                        <div id="annotateMediaStack" class="annotate-media-stack">
+                                            <img id="annotateImage" alt="Annotation preview" />
+                                            <canvas id="annotateCanvas"></canvas>
+                                        </div>
                                     </div>
                                 </section>
 
@@ -736,13 +727,7 @@
                                         <textarea id="annotateRawText" rows="10"
                                             placeholder="class x1 y1 x2 y2 x3 y3 x4 y4"></textarea>
                                     </label>
-                                    <div class="row">
-                                        <button id="annotateAcquireLockBtn" type="button"
-                                            class="btn ghost small-btn">Acquire Lock</button>
-                                        <button id="annotateReleaseLockBtn" type="button"
-                                            class="btn ghost small-btn">Release Lock</button>
-                                    </div>
-                                    <p id="annotateLockStatus" class="muted small">Lock status unknown.</p>
+                                    <p id="annotateLockStatus" class="muted small">Auto lock status pending.</p>
                                     <div class="row">
                                         <button id="annotateReloadRawBtn" type="button"
                                             class="btn ghost small-btn">Reload Raw</button>
@@ -751,32 +736,33 @@
                                     </div>
                                     <p id="annotateSaveStatus" class="muted small">No unsaved changes.</p>
                                 </aside>
-                                </aside>
-
-                                <div id="annotateShortcutsOverlay" class="annotate-shortcuts-overlay hidden"
-                                    aria-hidden="true">
-                                    <section class="annotate-shortcuts-card" role="dialog"
-                                        aria-label="Annotate shortcuts">
-                                        <div class="row annotate-pane-head">
-                                            <h4>Shortcuts</h4>
-                                            <button id="annotateShortcutsCloseBtn" type="button"
-                                                class="btn ghost small-btn">Close</button>
-                                        </div>
-                                        <p class="muted small">Desktop-style bindings in web studio:</p>
-                                        <ul class="annotate-onboarding-list muted small">
-                                            <li>S: select mode</li>
-                                            <li>W: draw mode</li>
-                                            <li>B/O: bbox / obb draw shape</li>
-                                            <li>Arrow Left/Right or A/D/Space: prev/next image</li>
-                                            <li>Delete/Backspace: delete selected label</li>
-                                            <li>Ctrl/Cmd+Z, Ctrl/Cmd+Y: undo/redo</li>
-                                            <li>Ctrl/Cmd+S: save labels</li>
-                                            <li>L: toggle label overlay</li>
-                                            <li>Esc: cancel draw / clear selection</li>
-                                        </ul>
-                                    </section>
-                                </div>
                             </div>
+
+                            <div id="annotateShortcutsOverlay" class="annotate-shortcuts-overlay hidden"
+                                aria-hidden="true">
+                                <section class="annotate-shortcuts-card" role="dialog" aria-label="Annotate shortcuts">
+                                    <div class="row annotate-pane-head">
+                                        <h4>Shortcuts</h4>
+                                        <button id="annotateShortcutsCloseBtn" type="button"
+                                            class="btn ghost small-btn">Close</button>
+                                    </div>
+                                    <p class="muted small">Desktop-style bindings in web studio:</p>
+                                    <ul class="annotate-onboarding-list muted small">
+                                        <li>S: select mode</li>
+                                        <li>W: draw mode</li>
+                                        <li>B/O: bbox / obb draw shape</li>
+                                        <li>Arrow Left/Right or A/D/Space: prev/next image</li>
+                                        <li>Delete/Backspace: delete selected label</li>
+                                        <li>Ctrl/Cmd+Z, Ctrl/Cmd+Y: undo/redo</li>
+                                        <li>Q/E/R: rotate selected box counterclockwise / clockwise / 180</li>
+                                        <li>+/-: zoom in / zoom out, 0: fit to stage</li>
+                                        <li>Ctrl/Cmd+S: save labels</li>
+                                        <li>L: toggle label overlay</li>
+                                        <li>Esc: cancel draw / clear selection</li>
+                                    </ul>
+                                </section>
+                            </div>
+                        </div>
                     </article>
                 </section>
             </section>
@@ -905,6 +891,11 @@
         const annotateToggleSidebarBtn = document.getElementById('annotateToggleSidebarBtn');
         const annotateToggleInspectorBtn = document.getElementById('annotateToggleInspectorBtn');
         const annotateFitBtn = document.getElementById('annotateFitBtn');
+        const annotateZoomOutBtn = document.getElementById('annotateZoomOutBtn');
+        const annotateZoomInBtn = document.getElementById('annotateZoomInBtn');
+        const annotateSetInProgressBtn = document.getElementById('annotateSetInProgressBtn');
+        const annotateSetCompletedBtn = document.getElementById('annotateSetCompletedBtn');
+        const annotateSetToRotateBtn = document.getElementById('annotateSetToRotateBtn');
         const annotateShortcutsBtn = document.getElementById('annotateShortcutsBtn');
         const annotateShortcutsOverlay = document.getElementById('annotateShortcutsOverlay');
         const annotateShortcutsCloseBtn = document.getElementById('annotateShortcutsCloseBtn');
@@ -929,6 +920,7 @@
         const annotateShowLabels = document.getElementById('annotateShowLabels');
         const annotateStatus = document.getElementById('annotateStatus');
         const annotateStage = document.getElementById('annotateStage');
+        const annotateMediaStack = document.getElementById('annotateMediaStack');
         const annotateImage = document.getElementById('annotateImage');
         const annotateCanvas = document.getElementById('annotateCanvas');
         const annotateMeta = document.getElementById('annotateMeta');
@@ -1003,6 +995,14 @@
             labels: [],
             dirty: false,
             listThumbUrlByPath: new Map(),
+            historyByPath: new Map(),
+            firstEditStatusAppliedByPath: new Set(),
+            lockPath: '',
+            autosaveTimer: null,
+            autosaveInFlight: false,
+            zoom: 1,
+            minZoom: 0.2,
+            maxZoom: 6,
             undoStack: [],
             redoStack: [],
             interaction: {
@@ -1189,6 +1189,120 @@
             return { labelPath, lock, mine, owner };
         }
 
+        function persistAnnotateHistoryForActivePath() {
+            const key = String(annotateState.activePath || '').trim();
+            if (!key) return;
+            annotateState.historyByPath.set(key, {
+                undo: cloneLabels(annotateState.undoStack),
+                redo: cloneLabels(annotateState.redoStack),
+            });
+        }
+
+        function restoreAnnotateHistoryForPath(path) {
+            const key = String(path || '').trim();
+            const existing = key ? annotateState.historyByPath.get(key) : null;
+            annotateState.undoStack = cloneLabels(existing?.undo || []);
+            annotateState.redoStack = cloneLabels(existing?.redo || []);
+            updateUndoRedoButtons();
+        }
+
+        function currentAdminImageRow() {
+            const key = String(annotateState.activePath || '').trim();
+            if (!key) return null;
+            return (adminImages || []).find((item) => String(item?.path || '') === key) || null;
+        }
+
+        async function setAnnotateImageStatus(status) {
+            const key = String(annotateState.activePath || '').trim();
+            if (!key) return;
+            await setImageStatusForPath(key, status);
+            const row = currentAdminImageRow();
+            if (row) row.status = status;
+            renderAnnotateImageList();
+        }
+
+        async function activateAnnotateLockForPath(path) {
+            const next = String(path || '').trim();
+            if (annotateState.lockPath === next) return true;
+            if (annotateState.lockPath) {
+                try {
+                    await api('/api/locks/activate', 'POST', { path: null });
+                } catch (_) {
+                }
+                annotateState.lockPath = '';
+            }
+            if (!next) return true;
+            try {
+                await api('/api/locks/activate', 'POST', { path: next });
+                annotateState.lockPath = next;
+                return true;
+            } catch (error) {
+                updateAnnotateLockStatusUi();
+                return false;
+            }
+        }
+
+        async function saveAnnotateLabels(options = null) {
+            const opt = options || {};
+            const path = String(annotateState.activePath || '').trim();
+            if (!path) return false;
+            const lines = String(annotateRawText?.value || '');
+            const labelPath = getPreferredLabelPathForActiveImage();
+            const lockOk = await activateAnnotateLockForPath(labelPath);
+            if (!lockOk) {
+                if (!opt.silent) {
+                    setAnnotateSaveStatus('Save failed: could not acquire lock automatically.', true);
+                }
+                return false;
+            }
+
+            if (annotateSaveRawBtn) annotateSaveRawBtn.disabled = true;
+            try {
+                const result = await api('/api/admin/images/labels/write', 'POST', { path, labelPath, lines });
+                const latestSeq = Number(result.latestSeq || 0);
+                setAnnotateDirty(false);
+                setAnnotateSaveStatus(`Saved ${Number(result.count || 0)} label row(s). latestSeq=${latestSeq}`, false);
+                annotateState.labelPayloadByPath.delete(path);
+                const payload = await fetchAnnotateLabelPayload(path, true);
+                slideshowState.labelsByPath.set(path, payload.labels || []);
+                annotateState.labels = cloneLabels(payload.labels || []);
+                renderAnnotateLabelList(annotateState.labels);
+                drawAnnotateLabels(annotateState.labels);
+                if (annotateRawText) {
+                    annotateRawText.value = String(payload.rawText || '');
+                }
+                restoreAnnotateHistoryForPath(path);
+                await loadAdminImages();
+                renderAnnotateImageList();
+                return true;
+            } catch (error) {
+                const msgText = String(error?.message || error);
+                const lockHint = /lock required|locked by/i.test(msgText)
+                    ? ' Auto-lock could not be obtained for this label file.'
+                    : '';
+                if (!opt.silent) {
+                    setAnnotateSaveStatus(`Save failed: ${msgText}${lockHint}`, true);
+                    setMessage(`Save failed: ${msgText}${lockHint}`, true, true);
+                }
+                return false;
+            } finally {
+                updateAnnotateLockStatusUi();
+            }
+        }
+
+        function scheduleAnnotateAutoSave() {
+            if (annotateState.autosaveTimer) {
+                clearTimeout(annotateState.autosaveTimer);
+                annotateState.autosaveTimer = null;
+            }
+            annotateState.autosaveTimer = setTimeout(async () => {
+                if (!annotateState.dirty || annotateState.autosaveInFlight) return;
+                annotateState.autosaveInFlight = true;
+                await saveAnnotateLabels({ silent: true, reason: 'autosave' });
+                annotateState.autosaveInFlight = false;
+            }, 1100);
+        }
+
         function isAnnotateEditAllowed(showMessage = true) {
             const info = getAnnotateLockInfo();
             if (!info.labelPath || !info.lock || info.mine) return true;
@@ -1211,15 +1325,11 @@
             const mine = info.mine;
             const editable = !labelPath || !lock || mine;
 
-            if (annotateAcquireLockBtn) {
-                annotateAcquireLockBtn.disabled = !labelPath || !!(lock && !mine);
-            }
+            if (annotateAcquireLockBtn) annotateAcquireLockBtn.disabled = true;
             if (annotateTopAcquireLockBtn) {
                 annotateTopAcquireLockBtn.disabled = !labelPath || !!(lock && !mine);
             }
-            if (annotateReleaseLockBtn) {
-                annotateReleaseLockBtn.disabled = !mine;
-            }
+            if (annotateReleaseLockBtn) annotateReleaseLockBtn.disabled = true;
             if (annotateTopReleaseLockBtn) {
                 annotateTopReleaseLockBtn.disabled = !mine;
             }
@@ -1311,7 +1421,7 @@
             const ctx = annotateCanvas.getContext('2d');
             if (!ctx) return;
 
-            const stageRect = annotateStage.getBoundingClientRect();
+            const stageRect = (annotateMediaStack || annotateStage).getBoundingClientRect();
             const imageRect = annotateImage.getBoundingClientRect();
             const stageW = Math.max(1, Math.round(Number(stageRect.width || 0)));
             const stageH = Math.max(1, Math.round(Number(stageRect.height || 0)));
@@ -1349,9 +1459,11 @@
                 ctx.stroke();
                 ctx.fill();
 
-                const classText = `#${i + 1} c${Number(item.classId || 0)}`;
-                const tx = offsetX + (pts[0] * drawW);
-                const ty = Math.max(14, offsetY + (pts[1] * drawH) - 5);
+                const tagX = [pts[0], pts[2], pts[4], pts[6]].map((v) => Number(v || 0));
+                const tagY = [pts[1], pts[3], pts[5], pts[7]].map((v) => Number(v || 0));
+                const tx = offsetX + Math.min(...tagX) * drawW;
+                const ty = Math.max(14, offsetY + Math.min(...tagY) * drawH - 5);
+                const classText = `class ${Number(item.classId || 0)}`;
                 ctx.fillStyle = selected ? '#fef3d8' : color;
                 ctx.fillText(classText, tx, ty);
 
@@ -1480,6 +1592,7 @@
             const after = JSON.stringify(annotateState.labels || []);
             if (before === after) return;
             pushUndoSnapshot(previousLabels || []);
+            persistAnnotateHistoryForActivePath();
             if (annotateState.activePath) {
                 slideshowState.labelsByPath.set(annotateState.activePath, cloneLabels(annotateState.labels));
             }
@@ -1487,7 +1600,17 @@
             renderAnnotateLabelList(annotateState.labels);
             drawAnnotateLabels(annotateState.labels);
             setAnnotateDirty(true);
+            const activePath = String(annotateState.activePath || '').trim();
+            if (activePath && !annotateState.firstEditStatusAppliedByPath.has(activePath)) {
+                const row = currentAdminImageRow();
+                const status = String(row?.status || '').trim().toLowerCase();
+                if (!status || status === 'unassigned') {
+                    setAnnotateImageStatus('in_progress').catch(() => { });
+                }
+                annotateState.firstEditStatusAppliedByPath.add(activePath);
+            }
             setAnnotateSaveStatus('Unsaved changes from interactive editor.', false);
+            scheduleAnnotateAutoSave();
             if (message) setAnnotateStatus(message, false);
         }
 
@@ -1807,6 +1930,16 @@
                 out.push(clamp01(rx), clamp01(ry));
             }
             return out;
+        }
+
+        function rotateSelectedByDegrees(deg) {
+            const idx = annotateState.selectedLabelIdx;
+            if (idx < 0 || idx >= annotateState.labels.length) return;
+            const prev = cloneLabels(annotateState.labels);
+            const target = annotateState.labels[idx];
+            const center = polygonCentroid(target.points || []);
+            target.points = rotatePoints(target.points || [], center, (deg * Math.PI) / 180);
+            commitInteractiveChange(prev, `Rotated ${deg > 0 ? '+' : ''}${deg}deg.`);
         }
 
         function translatedPoints(points, dx, dy) {
@@ -2237,10 +2370,29 @@
 
         function fitAnnotateStage() {
             if (!annotateImage) return;
+            setAnnotateZoom(1, { silent: true });
+            if (annotateStage) {
+                annotateStage.scrollLeft = 0;
+                annotateStage.scrollTop = 0;
+            }
             annotateImage.style.maxWidth = '100%';
             annotateImage.style.maxHeight = '100%';
             drawAnnotateLabels(annotateState.labels);
             setAnnotateStatus('Image fitted to stage bounds.', false);
+        }
+
+        function setAnnotateZoom(nextZoom, options = null) {
+            const opt = options || {};
+            const value = Math.max(annotateState.minZoom, Math.min(annotateState.maxZoom, Number(nextZoom || 1)));
+            annotateState.zoom = value;
+            if (annotateMediaStack) {
+                annotateMediaStack.style.transform = `scale(${value.toFixed(3)})`;
+                annotateMediaStack.style.transformOrigin = 'center center';
+            }
+            drawAnnotateLabels(annotateState.labels);
+            if (!opt.silent) {
+                setAnnotateStatus(`Zoom ${Math.round(value * 100)}%`, false);
+            }
         }
 
         function getAnnotateFocusableElements() {
@@ -2321,10 +2473,15 @@
             }, 0);
         }
 
-        function exitAnnotateStudio() {
-            if (annotateState.dirty && !confirmAnnotateDiscard()) {
-                return;
+        async function exitAnnotateStudio() {
+            if (annotateState.autoSaveTimer) {
+                clearTimeout(annotateState.autoSaveTimer);
+                annotateState.autoSaveTimer = null;
             }
+            if (annotateState.dirty) {
+                await saveAnnotateLabels({ silent: true, reason: 'exit' });
+            }
+            await activateAnnotateLockForPath('');
             annotateUiState.fullscreen = false;
             annotateUiState.studioStarted = false;
             annotateUiState.shortcutsOpen = false;
@@ -2907,11 +3064,16 @@
             const targetPath = String(path || '').trim();
             if (!targetPath) return;
             const opt = options || {};
-            if (annotateState.activePath && annotateState.activePath !== targetPath && annotateState.dirty && !opt.allowDiscard) {
-                if (!confirmAnnotateDiscard()) {
+            const previousPath = String(annotateState.activePath || '').trim();
+            if (previousPath && previousPath !== targetPath && annotateState.dirty && !opt.allowDiscard) {
+                const saved = await saveAnnotateLabels({ silent: true, reason: 'switch-image' });
+                if (!saved) {
+                    setMessage('Could not auto-save before switching image. Resolve save issue first.', true, true);
                     return false;
                 }
             }
+
+            persistAnnotateHistoryForActivePath();
 
             annotateState.activePath = targetPath;
             annotateState.selectedLabelIdx = -1;
@@ -2943,10 +3105,13 @@
             if (annotateRawText) {
                 annotateRawText.value = labelPayload.rawText;
             }
-            updateUndoRedoAfterLoad();
+            restoreAnnotateHistoryForPath(targetPath);
             setAnnotateDirty(false);
             setAnnotateSaveStatus('Loaded labels from server.', false);
             setAnnotateStatus(`Preview ready: ${targetPath}`, false);
+            await activateAnnotateLockForPath(String(labelPayload.labelPath || getPreferredLabelPathForActiveImage()));
+            fitAnnotateStage();
+            updateAnnotateLockStatusUi();
             return true;
         }
 
@@ -3712,7 +3877,7 @@
         });
 
         annotateExitBtn?.addEventListener('click', () => {
-            exitAnnotateStudio();
+            exitAnnotateStudio().catch((error) => setMessage(error.message || String(error), true));
         });
 
         annotateToggleSidebarBtn?.addEventListener('click', () => {
@@ -3731,6 +3896,21 @@
             fitAnnotateStage();
         });
 
+        annotateZoomOutBtn?.addEventListener('click', () => {
+            setAnnotateZoom(annotateState.zoom / 1.15);
+        });
+
+        annotateZoomInBtn?.addEventListener('click', () => {
+            setAnnotateZoom(annotateState.zoom * 1.15);
+        });
+
+        annotateStage?.addEventListener('wheel', (event) => {
+            if (!annotateUiState.studioStarted || activeDashPage !== 'annotate') return;
+            event.preventDefault();
+            const factor = event.deltaY > 0 ? 1 / 1.08 : 1.08;
+            setAnnotateZoom(annotateState.zoom * factor);
+        }, { passive: false });
+
         annotateShortcutsBtn?.addEventListener('click', () => {
             annotateUiState.shortcutsOpen = true;
             applyAnnotateStudioMode();
@@ -3748,23 +3928,22 @@
             }
         });
 
-        annotateTopAcquireLockBtn?.addEventListener('click', () => {
-            annotateAcquireLockBtn?.click();
-        });
-        annotateTopReleaseLockBtn?.addEventListener('click', () => {
-            annotateReleaseLockBtn?.click();
-        });
-        annotateTopReloadRawBtn?.addEventListener('click', () => {
-            annotateReloadRawBtn?.click();
-        });
-        annotateTopSaveRawBtn?.addEventListener('click', () => {
-            annotateSaveRawBtn?.click();
-        });
-
         annotateRefreshBtn?.addEventListener('click', () => {
             refreshAnnotateWorkspace({ forceReload: true })
                 .then(() => setMessage('Annotate workspace refreshed.'))
                 .catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        annotateSetInProgressBtn?.addEventListener('click', () => {
+            setAnnotateImageStatus('in_progress').catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        annotateSetCompletedBtn?.addEventListener('click', () => {
+            setAnnotateImageStatus('completed').catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        annotateSetToRotateBtn?.addEventListener('click', () => {
+            setAnnotateImageStatus('to_rotate').catch((error) => setMessage(error.message || String(error), true));
         });
 
         annotateImageSearch?.addEventListener('input', () => {
@@ -3854,48 +4033,9 @@
         });
 
         annotateSaveRawBtn?.addEventListener('click', () => {
-            const path = String(annotateState.activePath || '').trim();
-            if (!path) {
-                setMessage('Select an image in Annotate tab first.', true);
-                return;
-            }
-            const lines = String(annotateRawText?.value || '');
-            const labelPath = getPreferredLabelPathForActiveImage();
-            annotateSaveRawBtn.disabled = true;
-            api('/api/admin/images/labels/write', 'POST', {
-                path,
-                labelPath,
-                lines,
-            })
-                .then((result) => {
-                    const latestSeq = Number(result.latestSeq || 0);
-                    setAnnotateDirty(false);
-                    setAnnotateSaveStatus(`Saved ${Number(result.count || 0)} label row(s). latestSeq=${latestSeq}`, false);
-                    annotateState.labelPayloadByPath.delete(path);
-                    return fetchAnnotateLabelPayload(path, true);
-                })
-                .then((payload) => {
-                    slideshowState.labelsByPath.set(path, payload.labels || []);
-                    annotateState.labels = cloneLabels(payload.labels || []);
-                    renderAnnotateLabelList(annotateState.labels);
-                    drawAnnotateLabels(annotateState.labels);
-                    if (annotateRawText) {
-                        annotateRawText.value = String(payload.rawText || '');
-                    }
-                    updateUndoRedoAfterLoad();
-                    return loadAdminImages();
-                })
-                .catch((error) => {
-                    const msgText = String(error?.message || error);
-                    const lockHint = /lock required|locked by/i.test(msgText)
-                        ? ' Acquire lock first from desktop/cloud workflow for this label file.'
-                        : '';
-                    setAnnotateSaveStatus(`Save failed: ${msgText}${lockHint}`, true);
-                    setMessage(`Save failed: ${msgText}${lockHint}`, true, true);
-                })
-                .finally(() => {
-                    updateAnnotateLockStatusUi();
-                });
+            saveAnnotateLabels({ silent: false, reason: 'manual' }).catch((error) => {
+                setMessage(String(error?.message || error), true, true);
+            });
         });
 
         annotateRawText?.addEventListener('input', () => {
@@ -3909,43 +4049,7 @@
             annotateState.selectedLabelIdx = -1;
             renderAnnotateLabelList(annotateState.labels);
             drawAnnotateLabels(annotateState.labels);
-        });
-
-        annotateAcquireLockBtn?.addEventListener('click', () => {
-            const labelPath = getPreferredLabelPathForActiveImage();
-            if (!labelPath) {
-                setMessage('No label path available to lock.', true);
-                return;
-            }
-            annotateAcquireLockBtn.disabled = true;
-            api('/api/locks/activate', 'POST', { path: labelPath })
-                .then(() => refreshAll(true))
-                .then(() => {
-                    updateAnnotateLockStatusUi();
-                    setMessage(`Lock acquired: ${labelPath}`);
-                })
-                .catch((error) => {
-                    setMessage(`Failed to acquire lock: ${String(error?.message || error)}`, true, true);
-                })
-                .finally(() => {
-                    annotateAcquireLockBtn.disabled = false;
-                });
-        });
-
-        annotateReleaseLockBtn?.addEventListener('click', () => {
-            annotateReleaseLockBtn.disabled = true;
-            api('/api/locks/activate', 'POST', { path: null })
-                .then(() => refreshAll(true))
-                .then(() => {
-                    updateAnnotateLockStatusUi();
-                    setMessage('Lock released.');
-                })
-                .catch((error) => {
-                    setMessage(`Failed to release lock: ${String(error?.message || error)}`, true, true);
-                })
-                .finally(() => {
-                    annotateReleaseLockBtn.disabled = false;
-                });
+            scheduleAnnotateAutoSave();
         });
 
         document.getElementById('createUserBtn').addEventListener('click', async () => {
@@ -4651,6 +4755,36 @@
                 event.preventDefault();
                 return;
             }
+            if (key === 'q') {
+                rotateSelectedByDegrees(-10);
+                event.preventDefault();
+                return;
+            }
+            if (key === 'e') {
+                rotateSelectedByDegrees(10);
+                event.preventDefault();
+                return;
+            }
+            if (key === 'r') {
+                rotateSelectedByDegrees(180);
+                event.preventDefault();
+                return;
+            }
+            if (key === '+' || key === '=') {
+                setAnnotateZoom(annotateState.zoom * 1.15);
+                event.preventDefault();
+                return;
+            }
+            if (key === '-' || key === '_') {
+                setAnnotateZoom(annotateState.zoom / 1.15);
+                event.preventDefault();
+                return;
+            }
+            if (key === '0') {
+                fitAnnotateStage();
+                event.preventDefault();
+                return;
+            }
             if (key === 'delete' || key === 'backspace') {
                 deleteSelectedAnnotateLabel();
                 event.preventDefault();
@@ -4803,7 +4937,11 @@
                 refreshSlideOverlay().catch(() => { });
             }
             if (activeDashPage === 'annotate') {
-                drawAnnotateLabels(annotateState.labels);
+                if (annotateUiState.studioStarted && Math.abs(annotateState.zoom - 1) < 0.001) {
+                    fitAnnotateStage();
+                } else {
+                    drawAnnotateLabels(annotateState.labels);
+                }
             }
         });
 
