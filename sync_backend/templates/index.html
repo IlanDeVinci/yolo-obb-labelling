@@ -289,7 +289,7 @@
                 </div>
             </aside>
 
-            <section class="content panel-card" id="adminPanel">
+            <section class="content panel-card" id="adminPanel" style="display: none;">
                 <section class="page-view" data-page="overview">
                     <header class="view-head">
                         <h3>Project Overview</h3>
@@ -870,6 +870,7 @@
                                         <li>Ctrl/Cmd+Z, Ctrl/Cmd+Y: undo/redo</li>
                                         <li>Q/E/R: rotate selected box counterclockwise / clockwise / 180</li>
                                         <li>+/-: zoom in / zoom out, 0: fit to stage</li>
+                                        <li>Ctrl+drag or middle mouse: pan view</li>
                                         <li>Ctrl/Cmd+S: save labels</li>
                                         <li>L: toggle label overlay</li>
                                         <li>Esc: cancel draw / clear selection</li>
@@ -1001,6 +1002,7 @@
         const annotateOnboarding = document.getElementById('annotateOnboarding');
         const annotateStartBtn = document.getElementById('annotateStartBtn');
         const annotateEditorRoot = document.getElementById('annotateEditorRoot');
+        const annotateFullscreenTopbar = annotateEditorRoot?.querySelector('.annotate-fullscreen-topbar') || null;
         const annotateExitBtn = document.getElementById('annotateExitBtn');
         const annotateViewportMount = document.getElementById('annotateViewportMount');
         const annotateToggleSidebarBtn = document.getElementById('annotateToggleSidebarBtn');
@@ -1727,7 +1729,7 @@
             setAnnotateStatus(
                 annotateState.mode === 'draw'
                     ? 'Draw mode active. OBB = 3 clicks, BBox = drag.'
-                    : 'Select mode active. Drag to move, drag corner/edge handles to edit, Shift+drag to rotate.',
+                    : 'Select mode active. Drag to move, Ctrl+drag or middle mouse to pan, drag corner/edge handles to edit, Shift+drag to rotate.',
                 false,
             );
         }
@@ -2227,7 +2229,8 @@
 
         function handleAnnotatePointerDown(event) {
             const it = annotateState.interaction;
-            if (event.button === 1 || event.altKey) {
+            const ctrlLeftPan = event.button === 0 && event.ctrlKey;
+            if (event.button === 1 || ctrlLeftPan) {
                 it.type = 'pan-view';
                 it.startClient = { x: Number(event.clientX || 0), y: Number(event.clientY || 0) };
                 it.startPan = { x: Number(annotateState.panX || 0), y: Number(annotateState.panY || 0) };
@@ -2554,12 +2557,30 @@
         function setLoggedInState(loggedIn) {
             authPanel.classList.toggle('hidden', loggedIn);
             dashboardPanel.classList.toggle('hidden', !loggedIn);
+            if (!loggedIn) {
+                adminPanel?.classList.add('hidden');
+                if (adminPanel) {
+                    adminPanel.style.display = 'none';
+                }
+            }
             if (loggedIn) {
                 setSessionStateHint('', false);
             }
             if (!loggedIn) {
                 closeMobileSidebar();
             }
+        }
+
+        function syncAdminPanelVisibility() {
+            if (!adminPanel) return;
+            const show = !!token && !!isAdmin && !(annotateUiState.studioStarted && annotateUiState.fullscreen);
+            adminPanel.classList.toggle('hidden', !show);
+            adminPanel.style.display = show ? '' : 'none';
+        }
+
+        function updateAnnotateViewportMetrics() {
+            const topbarHeight = Math.max(0, Math.round(Number(annotateFullscreenTopbar?.getBoundingClientRect().height || 0)));
+            document.documentElement.style.setProperty('--annotate-topbar-height', `${Math.max(48, topbarHeight)}px`);
         }
 
         function isMobileSidebarMode() {
@@ -2603,9 +2624,11 @@
             if (annotateUiState.studioStarted && annotateUiState.fullscreen) {
                 mountAnnotateEditorToViewport();
                 normalizeAnnotateToolbarIcons();
+                updateAnnotateViewportMetrics();
             } else {
                 restoreAnnotateEditorToDashboard();
             }
+            syncAdminPanelVisibility();
             annotateEditorRoot?.classList.toggle('hidden', !annotateUiState.studioStarted);
             annotateEditorRoot?.classList.toggle('annotate-sidebar-collapsed', annotateUiState.sidebarCollapsed);
             annotateEditorRoot?.classList.toggle('annotate-inspector-collapsed', annotateUiState.inspectorCollapsed);
@@ -2634,6 +2657,7 @@
 
         function fitAnnotateStage() {
             if (!annotateImage || !annotateStage) return;
+            updateAnnotateViewportMetrics();
             const imageW = Number(annotateImage.naturalWidth || annotateImage.width || 0);
             const imageH = Number(annotateImage.naturalHeight || annotateImage.height || 0);
             const stageRect = annotateStage.getBoundingClientRect();
@@ -2641,6 +2665,8 @@
             const availH = Math.max(1, Number(stageRect.height || 0) - 24);
 
             if (imageW > 0 && imageH > 0) {
+                annotateImage.style.maxWidth = 'none';
+                annotateImage.style.maxHeight = 'none';
                 annotateImage.style.width = `${Math.round(imageW)}px`;
                 annotateImage.style.height = `${Math.round(imageH)}px`;
                 const fitZoom = Math.max(
@@ -4016,7 +4042,7 @@
 
                 role = status.role || summary.role || '';
                 isAdmin = !!status.isAdmin;
-                adminPanel.classList.toggle('hidden', false);
+                syncAdminPanelVisibility();
                 document.body.classList.toggle('is-admin', isAdmin);
                 if (!isAdmin && activeDashPage === 'admin') {
                     activeDashPage = 'uploads';
@@ -5247,6 +5273,9 @@
         window.addEventListener('resize', () => {
             if (!isMobileSidebarMode()) {
                 closeMobileSidebar();
+            }
+            if (annotateUiState.studioStarted && annotateUiState.fullscreen) {
+                updateAnnotateViewportMetrics();
             }
             if (slideshowState.open) {
                 refreshSlideOverlay().catch(() => { });
