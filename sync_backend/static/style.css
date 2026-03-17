@@ -67,6 +67,19 @@ html[data-theme="dark"] body {
   height: 0;
 }
 
+#annotateViewportMount {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  pointer-events: none;
+  display: none;
+}
+
+#annotateViewportMount.active {
+  display: block;
+  pointer-events: auto;
+}
+
 .background-ornaments {
   position: fixed;
   inset: 0;
@@ -525,6 +538,63 @@ html[data-theme="dark"] .annotate-onboarding {
   gap: 10px;
 }
 
+#annotateViewportMount .annotate-editor-root {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 100%);
+  padding: 0;
+}
+
+#annotateViewportMount .annotate-fullscreen-topbar {
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  margin: 0;
+}
+
+#annotateViewportMount .annotate-fullscreen-shell {
+  min-height: 0;
+  height: 100%;
+  grid-template-columns: minmax(130px, 170px) 1fr minmax(120px, 155px);
+  gap: 8px;
+  padding: 0 6px 6px;
+}
+
+#annotateViewportMount
+  .annotate-editor-root.annotate-sidebar-collapsed
+  .annotate-fullscreen-shell {
+  grid-template-columns: 1fr minmax(120px, 155px);
+}
+
+#annotateViewportMount
+  .annotate-editor-root.annotate-inspector-collapsed
+  .annotate-fullscreen-shell {
+  grid-template-columns: minmax(130px, 170px) 1fr;
+}
+
+#annotateViewportMount
+  .annotate-editor-root.annotate-sidebar-collapsed.annotate-inspector-collapsed
+  .annotate-fullscreen-shell {
+  grid-template-columns: 1fr;
+}
+
+#annotateViewportMount .annotate-editor-root button svg,
+#annotateViewportMount .annotate-editor-root button svg use,
+#annotateViewportMount .annotate-editor-root .icon-only svg,
+#annotateViewportMount .annotate-editor-root .icon-only svg use {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  max-width: 16px !important;
+  max-height: 16px !important;
+  display: block !important;
+  flex: 0 0 16px !important;
+}
+
 .annotate-toolbar .icon-only {
   width: 28px;
   min-width: 28px;
@@ -914,6 +984,10 @@ body.annotate-fullscreen .annotate-editor-root {
   z-index: 200;
   padding: 0;
   background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 100%);
+}
+
+body.annotate-fullscreen #annotateViewportMount {
+  z-index: 520;
 }
 
 body.annotate-fullscreen .annotate-fullscreen-shell {

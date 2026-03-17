@@ -152,6 +152,8 @@
         <div class="grid-wash"></div>
     </div>
 
+    <div id="annotateViewportMount" aria-hidden="true"></div>
+
     <main class="app-shell">
         <section class="auth-surface" id="authPanel">
             <header class="brand-head">
@@ -1022,6 +1024,7 @@
         const annotateStartBtn = document.getElementById('annotateStartBtn');
         const annotateEditorRoot = document.getElementById('annotateEditorRoot');
         const annotateExitBtn = document.getElementById('annotateExitBtn');
+        const annotateViewportMount = document.getElementById('annotateViewportMount');
         const annotateToggleSidebarBtn = document.getElementById('annotateToggleSidebarBtn');
         const annotateToggleInspectorBtn = document.getElementById('annotateToggleInspectorBtn');
         const annotateSidebarIconUse = document.getElementById('annotateSidebarIconUse');
@@ -1176,6 +1179,30 @@
             basePaths: [],
         };
         const imageSuffixes = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']);
+        const annotateEditorHomeParent = annotateEditorRoot?.parentElement || null;
+        const annotateEditorHomeNext = annotateEditorRoot?.nextSibling || null;
+
+        function mountAnnotateEditorToViewport() {
+            if (!annotateEditorRoot || !annotateViewportMount) return;
+            annotateViewportMount.classList.add('active');
+            annotateViewportMount.setAttribute('aria-hidden', 'false');
+            if (annotateEditorRoot.parentElement !== annotateViewportMount) {
+                annotateViewportMount.appendChild(annotateEditorRoot);
+            }
+        }
+
+        function restoreAnnotateEditorToDashboard() {
+            if (!annotateEditorRoot || !annotateViewportMount || !annotateEditorHomeParent) return;
+            annotateViewportMount.classList.remove('active');
+            annotateViewportMount.setAttribute('aria-hidden', 'true');
+            if (annotateEditorRoot.parentElement !== annotateEditorHomeParent) {
+                if (annotateEditorHomeNext && annotateEditorHomeNext.parentNode === annotateEditorHomeParent) {
+                    annotateEditorHomeParent.insertBefore(annotateEditorRoot, annotateEditorHomeNext);
+                } else {
+                    annotateEditorHomeParent.appendChild(annotateEditorRoot);
+                }
+            }
+        }
 
         function updateThemeModeLabel() {
             if (!themeModeLabel) return;
@@ -2539,6 +2566,11 @@
         function applyAnnotateStudioMode() {
             document.body.classList.toggle('annotate-fullscreen', annotateUiState.fullscreen);
             annotateOnboarding?.classList.toggle('hidden', annotateUiState.studioStarted);
+            if (annotateUiState.studioStarted && annotateUiState.fullscreen) {
+                mountAnnotateEditorToViewport();
+            } else {
+                restoreAnnotateEditorToDashboard();
+            }
             annotateEditorRoot?.classList.toggle('hidden', !annotateUiState.studioStarted);
             annotateEditorRoot?.classList.toggle('annotate-sidebar-collapsed', annotateUiState.sidebarCollapsed);
             annotateEditorRoot?.classList.toggle('annotate-inspector-collapsed', annotateUiState.inspectorCollapsed);
