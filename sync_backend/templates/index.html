@@ -1121,8 +1121,9 @@
             autosaveTimer: null,
             autosaveInFlight: false,
             zoom: 1,
-            minZoom: 0.2,
+            minZoom: 0.05,
             maxZoom: 6,
+            fitBaseZoom: 1,
             fitMode: true,
             panX: 0,
             panY: 0,
@@ -1255,6 +1256,30 @@
             annotateState.panX += dx;
             annotateState.panY += dy;
             applyAnnotateViewTransform();
+        }
+
+        function zoomAnnotateAroundClient(nextZoom, clientX, clientY, options = null) {
+            if (!annotateMediaStack || !annotateStage) {
+                setAnnotateZoom(nextZoom, options || {});
+                return;
+            }
+            const beforeRect = annotateMediaStack.getBoundingClientRect();
+            const stageRect = annotateStage.getBoundingClientRect();
+            const anchorX = Number.isFinite(clientX) ? Number(clientX) : stageRect.left + stageRect.width / 2;
+            const anchorY = Number.isFinite(clientY) ? Number(clientY) : stageRect.top + stageRect.height / 2;
+            const relX = anchorX - beforeRect.left;
+            const relY = anchorY - beforeRect.top;
+            setAnnotateZoom(nextZoom, { ...(options || {}), silent: true });
+            const afterRect = annotateMediaStack.getBoundingClientRect();
+            const nextAnchorX = afterRect.left + relX;
+            const nextAnchorY = afterRect.top + relY;
+            annotateState.panX += anchorX - nextAnchorX;
+            annotateState.panY += anchorY - nextAnchorY;
+            applyAnnotateViewTransform();
+            drawAnnotateLabels(annotateState.labels);
+            if (options && options.zoomOutToCenter) {
+                centerAnnotateMediaInStage();
+            }
         }
 
         function cycleThemeModePreference() {
@@ -1633,9 +1658,15 @@
 
             if (!drawW || !drawH) return;
 
+            const uiScale = Math.max(1, Math.min(3.8, 1 / Math.max(0.05, annotateState.zoom)));
+            const labelFontPx = Math.round(12 * uiScale);
+            const cornerRadius = Math.max(5, Math.round(5 * uiScale));
+            const edgeSize = Math.max(8, Math.round(8 * uiScale));
+            const labelNudge = Math.max(8, Math.round(8 * uiScale));
+
             const offsetX = 0;
             const offsetY = 0;
-            ctx.font = '12px "IBM Plex Mono", monospace';
+            ctx.font = `${labelFontPx}px "IBM Plex Mono", monospace`;
             ctx.setLineDash([]);
 
             for (let i = 0; i < labels.length; i += 1) {
@@ -1645,7 +1676,7 @@
 
                 const selected = i === annotateState.selectedLabelIdx;
                 const color = labelColorForItem(item);
-                ctx.lineWidth = selected ? 3 : 2;
+                ctx.lineWidth = (selected ? 3 : 2) * uiScale;
                 ctx.strokeStyle = selected ? '#fef3d8' : color;
                 ctx.fillStyle = `${color}${selected ? '55' : '33'}`;
                 ctx.beginPath();
@@ -1664,8 +1695,8 @@
                 const vx = p0x - cx;
                 const vy = p0y - cy;
                 const vLen = Math.max(1e-6, Math.hypot(vx, vy));
-                const tx = offsetX + (p0x * drawW) + ((vx / vLen) * 8);
-                const ty = Math.max(14, Math.min(drawH - 8, offsetY + (p0y * drawH) + ((vy / vLen) * 8)));
+                const tx = offsetX + (p0x * drawW) + ((vx / vLen) * labelNudge);
+                const ty = Math.max(labelFontPx + 2, Math.min(drawH - 8, offsetY + (p0y * drawH) + ((vy / vLen) * labelNudge)));
                 const classText = `class ${Number(item.classId || 0)}`;
                 ctx.fillStyle = selected ? '#fef3d8' : color;
                 ctx.fillText(classText, tx, ty);
@@ -1676,10 +1707,10 @@
                         const hx = offsetX + (pts[k * 2] * drawW);
                         const hy = offsetY + (pts[k * 2 + 1] * drawH);
                         ctx.beginPath();
-                        ctx.arc(hx, hy, 5, 0, Math.PI * 2);
+                        ctx.arc(hx, hy, cornerRadius, 0, Math.PI * 2);
                         ctx.fill();
                         ctx.strokeStyle = '#1f2723';
-                        ctx.lineWidth = 1.2;
+                        ctx.lineWidth = Math.max(1.2, 1.2 * uiScale);
                         ctx.stroke();
                     }
 
@@ -1689,10 +1720,10 @@
                         const b = (e + 1) % 4;
                         const mx = offsetX + (((Number(pts[a * 2] || 0) + Number(pts[b * 2] || 0)) / 2) * drawW);
                         const my = offsetY + (((Number(pts[a * 2 + 1] || 0) + Number(pts[b * 2 + 1] || 0)) / 2) * drawH);
-                        ctx.fillRect(mx - 4, my - 4, 8, 8);
+                        ctx.fillRect(mx - edgeSize / 2, my - edgeSize / 2, edgeSize, edgeSize);
                         ctx.strokeStyle = '#1f2723';
-                        ctx.lineWidth = 1.1;
-                        ctx.strokeRect(mx - 4, my - 4, 8, 8);
+                        ctx.lineWidth = Math.max(1.1, 1.1 * uiScale);
+                        ctx.strokeRect(mx - edgeSize / 2, my - edgeSize / 2, edgeSize, edgeSize);
                     }
                 }
             }
@@ -2705,8 +2736,10 @@
                     annotateState.minZoom,
                     Math.min(annotateState.maxZoom, Math.min(availW / imageW, availH / imageH)),
                 );
+                annotateState.fitBaseZoom = Math.max(0.0001, fitZoom);
                 setAnnotateZoom(fitZoom, { silent: true, fromFit: true });
             } else {
+                annotateState.fitBaseZoom = 1;
                 setAnnotateZoom(1, { silent: true, fromFit: true });
             }
 
@@ -2731,12 +2764,14 @@
                 annotateState.fitMode = false;
             }
             applyAnnotateViewTransform();
+            const fitBase = Math.max(0.0001, Number(annotateState.fitBaseZoom || 1));
+            const displayPct = Math.max(1, Math.round((value / fitBase) * 100));
             if (annotateZoomPct) {
-                annotateZoomPct.textContent = `${Math.round(value * 100)}%`;
+                annotateZoomPct.textContent = `${displayPct}%`;
             }
             drawAnnotateLabels(annotateState.labels);
             if (!opt.silent) {
-                setAnnotateStatus(`Zoom ${Math.round(value * 100)}%`, false);
+                setAnnotateStatus(`Zoom ${displayPct}%`, false);
             }
         }
 
@@ -4261,18 +4296,32 @@
         });
 
         annotateZoomOutBtn?.addEventListener('click', () => {
-            setAnnotateZoom(annotateState.zoom / 1.15);
+            zoomAnnotateAroundClient(
+                annotateState.zoom / 1.15,
+                Number.POSITIVE_INFINITY,
+                Number.POSITIVE_INFINITY,
+                { zoomOutToCenter: true },
+            );
         });
 
         annotateZoomInBtn?.addEventListener('click', () => {
-            setAnnotateZoom(annotateState.zoom * 1.15);
+            zoomAnnotateAroundClient(annotateState.zoom * 1.15);
         });
 
         annotateStage?.addEventListener('wheel', (event) => {
             if (!annotateUiState.studioStarted || activeDashPage !== 'annotate') return;
             event.preventDefault();
             const factor = event.deltaY > 0 ? 1 / 1.08 : 1.08;
-            setAnnotateZoom(annotateState.zoom * factor);
+            const zoomingOut = factor < 1;
+            const stageRect = annotateStage.getBoundingClientRect();
+            const centerX = stageRect.left + stageRect.width / 2;
+            const centerY = stageRect.top + stageRect.height / 2;
+            zoomAnnotateAroundClient(
+                annotateState.zoom * factor,
+                zoomingOut ? centerX : Number(event.clientX || centerX),
+                zoomingOut ? centerY : Number(event.clientY || centerY),
+                { zoomOutToCenter: zoomingOut },
+            );
         }, { passive: false });
 
         annotateShortcutsBtn?.addEventListener('click', () => {
@@ -5145,12 +5194,17 @@
                 return;
             }
             if (key === '+' || key === '=') {
-                setAnnotateZoom(annotateState.zoom * 1.15);
+                zoomAnnotateAroundClient(annotateState.zoom * 1.15);
                 event.preventDefault();
                 return;
             }
             if (key === '-' || key === '_') {
-                setAnnotateZoom(annotateState.zoom / 1.15);
+                zoomAnnotateAroundClient(
+                    annotateState.zoom / 1.15,
+                    Number.POSITIVE_INFINITY,
+                    Number.POSITIVE_INFINITY,
+                    { zoomOutToCenter: true },
+                );
                 event.preventDefault();
                 return;
             }

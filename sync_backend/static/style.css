@@ -569,9 +569,9 @@ html[data-theme="dark"] .annotate-onboarding {
   min-height: 0;
   height: calc(100dvh - var(--annotate-topbar-height));
   min-height: calc(100vh - var(--annotate-topbar-height));
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(
-      240px,
-      320px
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(
+      280px,
+      340px
     );
   align-items: stretch;
   gap: 8px;
@@ -632,6 +632,7 @@ html[data-theme="dark"] .annotate-onboarding {
 #annotateViewportMount .annotate-image-list,
 #annotateViewportMount .annotate-label-list {
   min-height: 0;
+  height: 100%;
   max-height: none;
   overflow: auto;
 }
@@ -1093,8 +1094,7 @@ body.annotate-fullscreen .annotate-editor-root {
 }
 
 body.annotate-fullscreen > .app-shell {
-  visibility: hidden !important;
-  pointer-events: none !important;
+  display: none !important;
 }
 
 body.annotate-fullscreen #annotateViewportMount,
@@ -1124,9 +1124,9 @@ body.annotate-fullscreen
 body.annotate-fullscreen .annotate-fullscreen-shell {
   min-height: calc(100vh - var(--annotate-topbar-height));
   height: calc(100dvh - var(--annotate-topbar-height));
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(
-      240px,
-      320px
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(
+      280px,
+      340px
     );
 }
 
