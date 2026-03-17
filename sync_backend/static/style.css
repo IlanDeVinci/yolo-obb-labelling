@@ -563,6 +563,29 @@ html[data-theme="dark"] .annotate-onboarding {
   padding: 0 6px 6px;
 }
 
+#annotateViewportMount .annotate-toolbar {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+#annotateViewportMount .annotate-toolbar > * {
+  flex: 0 0 auto !important;
+}
+
+#annotateViewportMount .annotate-toolbar .icon-only {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  min-height: 34px !important;
+  max-width: 34px !important;
+  max-height: 34px !important;
+  padding: 0 !important;
+}
+
 #annotateViewportMount
   .annotate-editor-root.annotate-sidebar-collapsed
   .annotate-fullscreen-shell {

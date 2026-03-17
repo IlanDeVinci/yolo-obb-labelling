@@ -1222,6 +1222,23 @@
             updateThemeModeIcon();
         }
 
+        function normalizeAnnotateToolbarIcons() {
+            const nodes = Array.from(document.querySelectorAll('#annotateEditorRoot button svg'));
+            for (const node of nodes) {
+                if (!(node instanceof SVGElement)) continue;
+                node.setAttribute('width', '16');
+                node.setAttribute('height', '16');
+                node.style.width = '16px';
+                node.style.height = '16px';
+                node.style.minWidth = '16px';
+                node.style.minHeight = '16px';
+                node.style.maxWidth = '16px';
+                node.style.maxHeight = '16px';
+                node.style.display = 'block';
+                node.style.flex = '0 0 16px';
+            }
+        }
+
         function cycleThemeModePreference() {
             themePreference = themePreference === 'dark' ? 'light' : 'dark';
             localStorage.setItem(THEME_MODE_STORAGE_KEY, themePreference);
@@ -2568,6 +2585,7 @@
             annotateOnboarding?.classList.toggle('hidden', annotateUiState.studioStarted);
             if (annotateUiState.studioStarted && annotateUiState.fullscreen) {
                 mountAnnotateEditorToViewport();
+                normalizeAnnotateToolbarIcons();
             } else {
                 restoreAnnotateEditorToDashboard();
             }
@@ -2590,6 +2608,10 @@
             annotateShortcutsOverlay?.setAttribute('aria-hidden', annotateUiState.shortcutsOpen ? 'false' : 'true');
             if (!annotateUiState.studioStarted) {
                 closeMobileSidebar();
+            } else {
+                requestAnimationFrame(() => {
+                    drawAnnotateLabels(annotateState.labels);
+                });
             }
         }
 
@@ -2705,9 +2727,11 @@
             annotateUiState.fullscreen = true;
             annotateUiState.shortcutsOpen = false;
             applyAnnotateStudioMode();
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
             if (!annotateState.activePath) {
                 await refreshAnnotateWorkspace();
             }
+            normalizeAnnotateToolbarIcons();
             fitAnnotateStage();
             setTimeout(() => {
                 const focusables = getAnnotateFocusableElements();
@@ -5210,6 +5234,7 @@
         if (annotateClassIdx) {
             annotateClassIdx.value = String(annotateState.activeClass);
         }
+        normalizeAnnotateToolbarIcons();
         setAnnotateMode(annotateState.mode);
         updateUndoRedoButtons();
 
