@@ -79,6 +79,11 @@
             <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8Z" stroke="currentColor" stroke-width="2" fill="none"
                 stroke-linecap="round" stroke-linejoin="round" />
         </symbol>
+        <symbol id="i-edit" viewBox="0 0 24 24">
+            <path
+                d="M3 17.25V21h3.75L18.8 8.95l-3.75-3.75L3 17.25Zm14.7-9.9 1.85-1.85a1 1 0 0 0 0-1.4l-1.5-1.5a1 1 0 0 0-1.4 0L14.8 4.45l2.9 2.9Z"
+                fill="currentColor" />
+        </symbol>
         <symbol id="i-sun" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" fill="none" />
             <path
@@ -127,6 +132,7 @@
                         </select></label>
                     <label id="projectPasswordWrap" class="hidden">Project Password<input id="projectPassword"
                             type="password" placeholder="project password" /></label>
+                    <p id="sessionStateHint" class="auth-state-hint hidden" role="status" aria-live="polite"></p>
                     <p id="loginHint" class="muted small"></p>
                 </form>
 
@@ -191,6 +197,12 @@
                             <use href="#i-folder"></use>
                         </svg>
                         <span>Images</span>
+                    </button>
+                    <button type="button" class="nav-btn" data-page="annotate">
+                        <svg>
+                            <use href="#i-edit"></use>
+                        </svg>
+                        <span>Annotate</span>
                     </button>
                     <button type="button" class="nav-btn admin-only" data-page="admin">
                         <svg>
@@ -617,6 +629,88 @@
                         </div>
                     </article>
                 </section>
+
+                <section class="page-view hidden" data-page="annotate">
+                    <header class="view-head">
+                        <h3>Web Annotation</h3>
+                        <p class="muted">Read-only annotation browser with canvas overlays and label inspection.</p>
+                    </header>
+
+                    <article class="sub-card">
+                        <div class="annotate-shell">
+                            <aside class="annotate-pane">
+                                <div class="row annotate-pane-head">
+                                    <h4>Images</h4>
+                                    <button id="annotateRefreshBtn" type="button"
+                                        class="btn ghost small-btn">Refresh</button>
+                                </div>
+                                <label>Search
+                                    <input id="annotateImageSearch" placeholder="filter by path" />
+                                </label>
+                                <p id="annotateImageCount" class="muted small">No image data loaded.</p>
+                                <div id="annotateImageList" class="annotate-image-list" role="listbox"
+                                    aria-label="Annotate image list"></div>
+                            </aside>
+
+                            <section class="annotate-workspace" aria-label="Annotation preview workspace">
+                                <div class="row annotate-toolbar">
+                                    <button id="annotateModeSelectBtn" type="button" class="btn ghost small-btn">Select
+                                        (S)</button>
+                                    <button id="annotateModeDrawBtn" type="button" class="btn ghost small-btn">Draw
+                                        (W)</button>
+                                    <label class="inline">Shape
+                                        <select id="annotateDrawShape">
+                                            <option value="obb">OBB</option>
+                                            <option value="bbox">BBox</option>
+                                        </select>
+                                    </label>
+                                    <label class="inline">Class
+                                        <input id="annotateClassIdx" type="number" min="0" step="1" value="0" />
+                                    </label>
+                                    <button id="annotateUndoBtn" type="button" class="btn ghost small-btn">Undo</button>
+                                    <button id="annotateRedoBtn" type="button" class="btn ghost small-btn">Redo</button>
+                                    <button id="annotateDeleteBtn" type="button"
+                                        class="btn danger small-btn">Delete</button>
+                                    <button id="annotatePrevBtn" type="button" class="btn ghost small-btn">Prev</button>
+                                    <button id="annotateNextBtn" type="button" class="btn ghost small-btn">Next</button>
+                                    <label class="inline"><input id="annotateShowLabels" type="checkbox" checked /> Show
+                                        labels</label>
+                                    <span id="annotateStatus" class="muted small">Select an image to preview
+                                        labels.</span>
+                                </div>
+                                <div id="annotateStage" class="annotate-stage">
+                                    <img id="annotateImage" alt="Annotation preview" />
+                                    <canvas id="annotateCanvas"></canvas>
+                                </div>
+                            </section>
+
+                            <aside class="annotate-pane">
+                                <h4>Labels</h4>
+                                <p id="annotateMeta" class="muted small">No active image.</p>
+                                <div id="annotateLabelList" class="annotate-label-list" role="listbox"
+                                    aria-label="Label list"></div>
+                                <label>Raw YOLO labels
+                                    <textarea id="annotateRawText" rows="10"
+                                        placeholder="class x1 y1 x2 y2 x3 y3 x4 y4"></textarea>
+                                </label>
+                                <div class="row">
+                                    <button id="annotateAcquireLockBtn" type="button"
+                                        class="btn ghost small-btn">Acquire Lock</button>
+                                    <button id="annotateReleaseLockBtn" type="button"
+                                        class="btn ghost small-btn">Release Lock</button>
+                                </div>
+                                <p id="annotateLockStatus" class="muted small">Lock status unknown.</p>
+                                <div class="row">
+                                    <button id="annotateReloadRawBtn" type="button" class="btn ghost small-btn">Reload
+                                        Raw</button>
+                                    <button id="annotateSaveRawBtn" type="button" class="btn solid small-btn">Save
+                                        Labels</button>
+                                </div>
+                                <p id="annotateSaveStatus" class="muted small">No unsaved changes.</p>
+                            </aside>
+                        </div>
+                    </article>
+                </section>
             </section>
         </section>
 
@@ -722,6 +816,7 @@
         const conflictChangedHash = document.getElementById('conflictChangedHash');
         const projectIdSelect = document.getElementById('projectIdSelect');
         const projectPasswordWrap = document.getElementById('projectPasswordWrap');
+        const sessionStateHint = document.getElementById('sessionStateHint');
         const loginHint = document.getElementById('loginHint');
         const themeModeBtn = document.getElementById('themeModeBtn');
         const themeModeLabel = document.getElementById('themeModeLabel');
@@ -734,6 +829,33 @@
         const imagesOpsStatus = document.getElementById('imagesOpsStatus');
         const imagesOpsProgress = document.getElementById('imagesOpsProgress');
         const imagesOpsPercent = document.getElementById('imagesOpsPercent');
+        const annotateRefreshBtn = document.getElementById('annotateRefreshBtn');
+        const annotateImageSearch = document.getElementById('annotateImageSearch');
+        const annotateImageCount = document.getElementById('annotateImageCount');
+        const annotateImageList = document.getElementById('annotateImageList');
+        const annotateModeSelectBtn = document.getElementById('annotateModeSelectBtn');
+        const annotateModeDrawBtn = document.getElementById('annotateModeDrawBtn');
+        const annotateDrawShape = document.getElementById('annotateDrawShape');
+        const annotateClassIdx = document.getElementById('annotateClassIdx');
+        const annotateUndoBtn = document.getElementById('annotateUndoBtn');
+        const annotateRedoBtn = document.getElementById('annotateRedoBtn');
+        const annotateDeleteBtn = document.getElementById('annotateDeleteBtn');
+        const annotatePrevBtn = document.getElementById('annotatePrevBtn');
+        const annotateNextBtn = document.getElementById('annotateNextBtn');
+        const annotateShowLabels = document.getElementById('annotateShowLabels');
+        const annotateStatus = document.getElementById('annotateStatus');
+        const annotateStage = document.getElementById('annotateStage');
+        const annotateImage = document.getElementById('annotateImage');
+        const annotateCanvas = document.getElementById('annotateCanvas');
+        const annotateMeta = document.getElementById('annotateMeta');
+        const annotateLabelList = document.getElementById('annotateLabelList');
+        const annotateRawText = document.getElementById('annotateRawText');
+        const annotateAcquireLockBtn = document.getElementById('annotateAcquireLockBtn');
+        const annotateReleaseLockBtn = document.getElementById('annotateReleaseLockBtn');
+        const annotateLockStatus = document.getElementById('annotateLockStatus');
+        const annotateReloadRawBtn = document.getElementById('annotateReloadRawBtn');
+        const annotateSaveRawBtn = document.getElementById('annotateSaveRawBtn');
+        const annotateSaveStatus = document.getElementById('annotateSaveStatus');
         const slideshowModal = document.getElementById('slideshowModal');
         const slideStage = document.getElementById('slideStage');
         const slideImage = document.getElementById('slideImage');
@@ -773,6 +895,7 @@
         let requireProjectPassword = false;
         let refreshTimer = null;
         let activeDashPage = localStorage.getItem(DASH_PAGE_STORAGE_KEY) || 'uploads';
+        let authHandlingInProgress = false;
         let uploadQueue = [];
         let backupItems = [];
         let dbTables = [];
@@ -781,6 +904,35 @@
         let autoSyncAfterFolderPick = false;
         let themePreference = localStorage.getItem(THEME_MODE_STORAGE_KEY) || 'dark';
         let adminImages = [];
+        let projectLocks = [];
+        const annotateState = {
+            filteredPaths: [],
+            activePath: '',
+            selectedLabelIdx: -1,
+            imageViewByPath: new Map(),
+            labelPayloadByPath: new Map(),
+            showLabels: true,
+            searchText: '',
+            mode: 'select',
+            drawShape: 'obb',
+            activeClass: 0,
+            labels: [],
+            dirty: false,
+            undoStack: [],
+            redoStack: [],
+            interaction: {
+                type: '',
+                startN: null,
+                startPoints: null,
+                startCenter: null,
+                startAngle: 0,
+                cornerIdx: -1,
+                edgeIdx: -1,
+                drawA: null,
+                drawB: null,
+                drawC: null,
+            },
+        };
         const slideshowState = {
             open: false,
             index: 0,
@@ -834,6 +986,14 @@
             }
         }
 
+        function setSessionStateHint(text, isError = true) {
+            if (!sessionStateHint) return;
+            const value = String(text || '').trim();
+            sessionStateHint.textContent = value;
+            sessionStateHint.classList.toggle('hidden', !value);
+            sessionStateHint.classList.toggle('err', !!isError && !!value);
+        }
+
         function setImagesOpsStatus(text, isError = false) {
             if (!imagesOpsStatus) return;
             imagesOpsStatus.textContent = text || '';
@@ -848,6 +1008,1014 @@
             imagesOpsProgress.max = safeTotal;
             imagesOpsProgress.value = safeProcessed;
             imagesOpsPercent.textContent = `${pct}%`;
+        }
+
+        function setAnnotateStatus(text, isError = false) {
+            if (!annotateStatus) return;
+            annotateStatus.textContent = String(text || '').trim();
+            annotateStatus.classList.toggle('err', !!isError);
+        }
+
+        function setAnnotateSaveStatus(text, isError = false) {
+            if (!annotateSaveStatus) return;
+            annotateSaveStatus.textContent = String(text || '').trim();
+            annotateSaveStatus.classList.toggle('err', !!isError);
+        }
+
+        function setAnnotateDirty(nextDirty) {
+            annotateState.dirty = !!nextDirty;
+            annotateSaveStatus?.classList.toggle('dirty', annotateState.dirty);
+            annotateStage?.classList.toggle('annotate-dirty', annotateState.dirty);
+        }
+
+        function escapeHtml(value) {
+            const text = String(value || '');
+            return text
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function deriveLabelPathCandidates(imagePath) {
+            const normalized = String(imagePath || '').replaceAll('\\', '/').trim().replace(/^\/+/, '');
+            if (!normalized) return [];
+            const parts = normalized.split('/').filter(Boolean);
+            if (!parts.length) return [];
+
+            const filename = parts[parts.length - 1] || '';
+            const dot = filename.lastIndexOf('.');
+            const stem = dot > 0 ? filename.slice(0, dot) : filename;
+            if (!stem) return [];
+            const labelName = `${stem}.txt`;
+
+            for (let i = 0; i < parts.length; i += 1) {
+                if (String(parts[i]).toLowerCase() === 'images') {
+                    const prefix = parts.slice(0, i);
+                    const suffix = parts.slice(i + 1, parts.length - 1);
+                    const root = [...prefix, 'labels', ...suffix].join('/');
+                    return [
+                        `${root}/${labelName}`,
+                        `${root}/BB/${labelName}`,
+                        `${root}/OBB/${labelName}`,
+                    ];
+                }
+            }
+
+            return [
+                `labels/${labelName}`,
+                `labels/BB/${labelName}`,
+                `labels/OBB/${labelName}`,
+            ];
+        }
+
+        function getPreferredLabelPathForActiveImage() {
+            const path = String(annotateState.activePath || '').trim();
+            if (!path) return '';
+            const payload = annotateState.labelPayloadByPath.get(path) || null;
+            const fromPayload = String(payload?.labelPath || '').trim();
+            if (fromPayload) return fromPayload;
+            const candidates = deriveLabelPathCandidates(path);
+            return candidates[0] || '';
+        }
+
+        function getAnnotateLockInfo() {
+            const labelPath = getPreferredLabelPathForActiveImage();
+            const lock = labelPath
+                ? projectLocks.find((item) => String(item?.path || '') === labelPath) || null
+                : null;
+            const owner = String(lock?.username || '');
+            const mine = !!owner && owner === currentUser;
+            return { labelPath, lock, mine, owner };
+        }
+
+        function isAnnotateEditAllowed(showMessage = true) {
+            const info = getAnnotateLockInfo();
+            if (!info.labelPath || !info.lock || info.mine) return true;
+            if (showMessage) {
+                setAnnotateStatus(`Read-only: lock held by ${info.owner}. Acquire lock to edit.`, true);
+            }
+            return false;
+        }
+
+        function confirmAnnotateDiscard() {
+            if (!annotateState.dirty) return true;
+            return confirm('You have unsaved annotate changes. Continue and discard them?');
+        }
+
+        function updateAnnotateLockStatusUi() {
+            const info = getAnnotateLockInfo();
+            const labelPath = info.labelPath;
+            const lock = info.lock;
+            const owner = info.owner;
+            const mine = info.mine;
+            const editable = !labelPath || !lock || mine;
+
+            if (annotateAcquireLockBtn) {
+                annotateAcquireLockBtn.disabled = !labelPath || !!(lock && !mine);
+            }
+            if (annotateReleaseLockBtn) {
+                annotateReleaseLockBtn.disabled = !mine;
+            }
+            if (annotateSaveRawBtn) {
+                annotateSaveRawBtn.disabled = !editable;
+            }
+            if (annotateRawText) {
+                annotateRawText.readOnly = !editable;
+            }
+            if (annotateModeDrawBtn) {
+                annotateModeDrawBtn.disabled = !editable;
+            }
+            if (annotateDrawShape) {
+                annotateDrawShape.disabled = !editable;
+            }
+            if (annotateClassIdx) {
+                annotateClassIdx.disabled = !editable;
+            }
+            updateUndoRedoButtons();
+            if (!annotateLockStatus) return;
+
+            if (!labelPath) {
+                annotateLockStatus.textContent = 'No label path resolved for this image yet.';
+                annotateLockStatus.classList.remove('err');
+                return;
+            }
+
+            if (!lock) {
+                annotateLockStatus.textContent = `Unlocked: ${labelPath}`;
+                annotateLockStatus.classList.remove('err');
+                return;
+            }
+
+            if (mine) {
+                annotateLockStatus.textContent = `Locked by you: ${labelPath}`;
+                annotateLockStatus.classList.remove('err');
+                return;
+            }
+
+            annotateLockStatus.textContent = `Locked by ${owner}: ${labelPath}`;
+            annotateLockStatus.classList.add('err');
+        }
+
+        function labelColorForItem(label) {
+            return String(label?.format || '').toLowerCase() === 'obb' ? '#ec6f08' : '#0d7662';
+        }
+
+        function pointInPolygonNormalized(x, y, pts) {
+            if (!Array.isArray(pts) || pts.length < 8) return false;
+            let inside = false;
+            for (let i = 0, j = 3; i < 4; j = i, i += 1) {
+                const xi = Number(pts[i * 2] || 0);
+                const yi = Number(pts[i * 2 + 1] || 0);
+                const xj = Number(pts[j * 2] || 0);
+                const yj = Number(pts[j * 2 + 1] || 0);
+                const hit = ((yi > y) !== (yj > y))
+                    && (x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-12) + xi);
+                if (hit) inside = !inside;
+            }
+            return inside;
+        }
+
+        function centroidDistanceSq(x, y, pts) {
+            if (!Array.isArray(pts) || pts.length < 8) return Number.POSITIVE_INFINITY;
+            const cx = (Number(pts[0] || 0) + Number(pts[2] || 0) + Number(pts[4] || 0) + Number(pts[6] || 0)) / 4;
+            const cy = (Number(pts[1] || 0) + Number(pts[3] || 0) + Number(pts[5] || 0) + Number(pts[7] || 0)) / 4;
+            const dx = x - cx;
+            const dy = y - cy;
+            return dx * dx + dy * dy;
+        }
+
+        function drawAnnotateLabels(labels) {
+            if (!annotateCanvas || !annotateImage || !annotateStage) return;
+            const ctx = annotateCanvas.getContext('2d');
+            if (!ctx) return;
+
+            const stageRect = annotateStage.getBoundingClientRect();
+            const imageRect = annotateImage.getBoundingClientRect();
+            const stageW = Math.max(1, Math.round(Number(stageRect.width || 0)));
+            const stageH = Math.max(1, Math.round(Number(stageRect.height || 0)));
+            annotateCanvas.width = stageW;
+            annotateCanvas.height = stageH;
+            ctx.clearRect(0, 0, stageW, stageH);
+
+            if (!annotateState.showLabels) return;
+
+            const drawW = Number(imageRect.width || 0);
+            const drawH = Number(imageRect.height || 0);
+            if (!drawW || !drawH) return;
+
+            const offsetX = Number(imageRect.left || 0) - Number(stageRect.left || 0);
+            const offsetY = Number(imageRect.top || 0) - Number(stageRect.top || 0);
+            ctx.font = '12px "IBM Plex Mono", monospace';
+            ctx.setLineDash([]);
+
+            for (let i = 0; i < labels.length; i += 1) {
+                const item = labels[i];
+                const pts = Array.isArray(item.points) ? item.points.map((v) => Number(v || 0)) : [];
+                if (pts.length < 8) continue;
+
+                const selected = i === annotateState.selectedLabelIdx;
+                const color = labelColorForItem(item);
+                ctx.lineWidth = selected ? 3 : 2;
+                ctx.strokeStyle = selected ? '#fef3d8' : color;
+                ctx.fillStyle = `${color}${selected ? '55' : '33'}`;
+                ctx.beginPath();
+                ctx.moveTo(offsetX + (pts[0] * drawW), offsetY + (pts[1] * drawH));
+                ctx.lineTo(offsetX + (pts[2] * drawW), offsetY + (pts[3] * drawH));
+                ctx.lineTo(offsetX + (pts[4] * drawW), offsetY + (pts[5] * drawH));
+                ctx.lineTo(offsetX + (pts[6] * drawW), offsetY + (pts[7] * drawH));
+                ctx.closePath();
+                ctx.stroke();
+                ctx.fill();
+
+                const classText = `#${i + 1} c${Number(item.classId || 0)}`;
+                const tx = offsetX + (pts[0] * drawW);
+                const ty = Math.max(14, offsetY + (pts[1] * drawH) - 5);
+                ctx.fillStyle = selected ? '#fef3d8' : color;
+                ctx.fillText(classText, tx, ty);
+
+                if (selected && annotateState.mode === 'select') {
+                    ctx.fillStyle = '#fef3d8';
+                    for (let k = 0; k < 4; k += 1) {
+                        const hx = offsetX + (pts[k * 2] * drawW);
+                        const hy = offsetY + (pts[k * 2 + 1] * drawH);
+                        ctx.beginPath();
+                        ctx.arc(hx, hy, 5, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.strokeStyle = '#1f2723';
+                        ctx.lineWidth = 1.2;
+                        ctx.stroke();
+                    }
+
+                    ctx.fillStyle = '#9ad1ff';
+                    for (let e = 0; e < 4; e += 1) {
+                        const a = e;
+                        const b = (e + 1) % 4;
+                        const mx = offsetX + (((Number(pts[a * 2] || 0) + Number(pts[b * 2] || 0)) / 2) * drawW);
+                        const my = offsetY + (((Number(pts[a * 2 + 1] || 0) + Number(pts[b * 2 + 1] || 0)) / 2) * drawH);
+                        ctx.fillRect(mx - 4, my - 4, 8, 8);
+                        ctx.strokeStyle = '#1f2723';
+                        ctx.lineWidth = 1.1;
+                        ctx.strokeRect(mx - 4, my - 4, 8, 8);
+                    }
+                }
+            }
+
+            const it = annotateState.interaction || {};
+            if (annotateState.mode === 'draw') {
+                if (annotateState.drawShape === 'bbox' && it.drawA && it.drawB) {
+                    drawPreviewShape(ctx, { type: 'bbox', a: it.drawA, b: it.drawB }, imageRect, stageRect);
+                }
+                if (annotateState.drawShape === 'obb') {
+                    if (it.drawA && it.drawB && it.drawC) {
+                        drawPreviewShape(ctx, { type: 'obb', a: it.drawA, b: it.drawB, c: it.drawC }, imageRect, stageRect);
+                    } else if (it.drawA && it.drawB) {
+                        drawPreviewShape(ctx, { type: 'obb', a: it.drawA, b: it.drawB, c: it.drawB }, imageRect, stageRect);
+                    }
+                }
+            }
+        }
+
+        function renderAnnotateLabelList(labels) {
+            if (!annotateLabelList || !annotateMeta) return;
+            if (!Array.isArray(labels) || !labels.length) {
+                annotateLabelList.innerHTML = '<p class="muted small">No labels for this image.</p>';
+                annotateMeta.textContent = annotateState.activePath
+                    ? `${annotateState.activePath} | 0 labels`
+                    : 'No active image.';
+                updateAnnotateLockStatusUi();
+                return;
+            }
+
+            annotateMeta.textContent = `${annotateState.activePath} | ${labels.length} label(s)`;
+            annotateLabelList.innerHTML = labels.map((item, idx) => {
+                const selected = idx === annotateState.selectedLabelIdx;
+                const cls = Number(item.classId || 0);
+                const format = String(item.format || '').toUpperCase();
+                const color = labelColorForItem(item);
+                return `<button type="button" class="annotate-label-item ${selected ? 'active' : ''}" data-annotate-label-idx="${idx}">
+                    <span class="annotate-chip" style="--chip:${color}"></span>
+                    <span>#${idx + 1}</span>
+                    <span class="muted small">c${cls} ${format}</span>
+                </button>`;
+            }).join('');
+            updateAnnotateLockStatusUi();
+        }
+
+        function setAnnotateMode(mode) {
+            if (mode === 'draw' && !isAnnotateEditAllowed(true)) {
+                annotateState.mode = 'select';
+            } else {
+                annotateState.mode = mode === 'draw' ? 'draw' : 'select';
+            }
+            annotateState.interaction.type = '';
+            annotateState.interaction.drawA = null;
+            annotateState.interaction.drawB = null;
+            annotateState.interaction.drawC = null;
+            annotateModeSelectBtn?.classList.toggle('active', annotateState.mode === 'select');
+            annotateModeDrawBtn?.classList.toggle('active', annotateState.mode === 'draw');
+            if (annotateCanvas) {
+                annotateCanvas.style.cursor = annotateState.mode === 'draw' ? 'crosshair' : 'default';
+            }
+            setAnnotateStatus(
+                annotateState.mode === 'draw'
+                    ? 'Draw mode active. OBB = 3 clicks, BBox = drag.'
+                    : 'Select mode active. Drag to move, drag corner/edge handles to edit, Shift+drag to rotate.',
+                false,
+            );
+        }
+
+        function cancelAnnotateDraw() {
+            const it = annotateState.interaction;
+            it.type = '';
+            it.drawA = null;
+            it.drawB = null;
+            it.drawC = null;
+            drawAnnotateLabels(annotateState.labels);
+        }
+
+        function cloneLabels(labels) {
+            return JSON.parse(JSON.stringify(Array.isArray(labels) ? labels : []));
+        }
+
+        function pushUndoSnapshot(snapshot) {
+            annotateState.undoStack.push(cloneLabels(snapshot));
+            if (annotateState.undoStack.length > 80) {
+                annotateState.undoStack.shift();
+            }
+            annotateState.redoStack = [];
+            updateUndoRedoButtons();
+        }
+
+        function updateUndoRedoButtons() {
+            const editable = isAnnotateEditAllowed(false);
+            if (annotateUndoBtn) annotateUndoBtn.disabled = annotateState.undoStack.length === 0 || !editable;
+            if (annotateRedoBtn) annotateRedoBtn.disabled = annotateState.redoStack.length === 0 || !editable;
+            if (annotateDeleteBtn) annotateDeleteBtn.disabled = annotateState.selectedLabelIdx < 0 || !editable;
+        }
+
+        function commitInteractiveChange(previousLabels, message) {
+            const before = JSON.stringify(previousLabels || []);
+            const after = JSON.stringify(annotateState.labels || []);
+            if (before === after) return;
+            pushUndoSnapshot(previousLabels || []);
+            if (annotateState.activePath) {
+                slideshowState.labelsByPath.set(annotateState.activePath, cloneLabels(annotateState.labels));
+            }
+            syncRawTextFromLabels();
+            renderAnnotateLabelList(annotateState.labels);
+            drawAnnotateLabels(annotateState.labels);
+            setAnnotateDirty(true);
+            setAnnotateSaveStatus('Unsaved changes from interactive editor.', false);
+            if (message) setAnnotateStatus(message, false);
+        }
+
+        function normalizedEventPoint(event) {
+            if (!annotateImage) return null;
+            const imageRect = annotateImage.getBoundingClientRect();
+            const x = Number(event.clientX || 0);
+            const y = Number(event.clientY || 0);
+            if (!imageRect.width || !imageRect.height) return null;
+            const nx = (x - imageRect.left) / imageRect.width;
+            const ny = (y - imageRect.top) / imageRect.height;
+            return {
+                nx: Math.max(0, Math.min(1, nx)),
+                ny: Math.max(0, Math.min(1, ny)),
+                inside: x >= imageRect.left && x <= imageRect.right && y >= imageRect.top && y <= imageRect.bottom,
+            };
+        }
+
+        function polygonCentroid(pts) {
+            return {
+                x: (Number(pts[0] || 0) + Number(pts[2] || 0) + Number(pts[4] || 0) + Number(pts[6] || 0)) / 4,
+                y: (Number(pts[1] || 0) + Number(pts[3] || 0) + Number(pts[5] || 0) + Number(pts[7] || 0)) / 4,
+            };
+        }
+
+        function distanceSq(ax, ay, bx, by) {
+            const dx = ax - bx;
+            const dy = ay - by;
+            return dx * dx + dy * dy;
+        }
+
+        function findLabelAtPoint(nx, ny) {
+            let selected = -1;
+            for (let i = annotateState.labels.length - 1; i >= 0; i -= 1) {
+                const pts = annotateState.labels[i]?.points || [];
+                if (pointInPolygonNormalized(nx, ny, pts)) {
+                    selected = i;
+                    break;
+                }
+            }
+            return selected;
+        }
+
+        function findCornerHandleAtPoint(nx, ny) {
+            const idx = annotateState.selectedLabelIdx;
+            if (idx < 0 || idx >= annotateState.labels.length) return -1;
+            const pts = annotateState.labels[idx]?.points || [];
+            if (!Array.isArray(pts) || pts.length < 8) return -1;
+            const threshold = 0.015;
+            for (let i = 0; i < 4; i += 1) {
+                const px = Number(pts[i * 2] || 0);
+                const py = Number(pts[i * 2 + 1] || 0);
+                if (distanceSq(nx, ny, px, py) <= threshold * threshold) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        function findEdgeHandleAtPoint(nx, ny) {
+            const idx = annotateState.selectedLabelIdx;
+            if (idx < 0 || idx >= annotateState.labels.length) return -1;
+            const pts = annotateState.labels[idx]?.points || [];
+            if (!Array.isArray(pts) || pts.length < 8) return -1;
+            const threshold = 0.018;
+            for (let e = 0; e < 4; e += 1) {
+                const a = e;
+                const b = (e + 1) % 4;
+                const mx = (Number(pts[a * 2] || 0) + Number(pts[b * 2] || 0)) / 2;
+                const my = (Number(pts[a * 2 + 1] || 0) + Number(pts[b * 2 + 1] || 0)) / 2;
+                if (distanceSq(nx, ny, mx, my) <= threshold * threshold) {
+                    return e;
+                }
+            }
+            return -1;
+        }
+
+        function cursorFromAngle(angleRad) {
+            const deg = ((Math.atan2(Math.sin(angleRad), Math.cos(angleRad)) * 180) / Math.PI + 360) % 180;
+            if (deg < 22.5 || deg >= 157.5) return 'ew-resize';
+            if (deg < 67.5) return 'nesw-resize';
+            if (deg < 112.5) return 'ns-resize';
+            return 'nwse-resize';
+        }
+
+        function updateAnnotateCursor(event) {
+            if (!annotateCanvas) return;
+            if (annotateState.mode === 'draw') {
+                annotateCanvas.style.cursor = 'crosshair';
+                return;
+            }
+
+            const it = annotateState.interaction;
+            if (it.type === 'move' || it.type === 'resize-corner' || it.type === 'resize-edge' || it.type === 'rotate') {
+                annotateCanvas.style.cursor = 'grabbing';
+                return;
+            }
+
+            const pt = normalizedEventPoint(event);
+            if (!pt || !pt.inside) {
+                annotateCanvas.style.cursor = 'default';
+                return;
+            }
+
+            const cornerIdx = findCornerHandleAtPoint(pt.nx, pt.ny);
+            if (cornerIdx >= 0 && annotateState.selectedLabelIdx >= 0) {
+                const pts = annotateState.labels[annotateState.selectedLabelIdx]?.points || [];
+                const cx = (Number(pts[0] || 0) + Number(pts[2] || 0) + Number(pts[4] || 0) + Number(pts[6] || 0)) / 4;
+                const cy = (Number(pts[1] || 0) + Number(pts[3] || 0) + Number(pts[5] || 0) + Number(pts[7] || 0)) / 4;
+                const px = Number(pts[cornerIdx * 2] || 0);
+                const py = Number(pts[cornerIdx * 2 + 1] || 0);
+                annotateCanvas.style.cursor = cursorFromAngle(Math.atan2(py - cy, px - cx));
+                return;
+            }
+
+            const edgeIdx = findEdgeHandleAtPoint(pt.nx, pt.ny);
+            if (edgeIdx >= 0 && annotateState.selectedLabelIdx >= 0) {
+                const pts = annotateState.labels[annotateState.selectedLabelIdx]?.points || [];
+                const a = edgeIdx;
+                const b = (edgeIdx + 1) % 4;
+                const ax = Number(pts[a * 2] || 0);
+                const ay = Number(pts[a * 2 + 1] || 0);
+                const bx = Number(pts[b * 2] || 0);
+                const by = Number(pts[b * 2 + 1] || 0);
+                annotateCanvas.style.cursor = cursorFromAngle(Math.atan2(by - ay, bx - ax) + Math.PI / 2);
+                return;
+            }
+
+            if (findLabelAtPoint(pt.nx, pt.ny) >= 0) {
+                annotateCanvas.style.cursor = isAnnotateEditAllowed(false) ? 'grab' : 'not-allowed';
+                return;
+            }
+
+            annotateCanvas.style.cursor = 'default';
+        }
+
+        function syncRawTextFromLabels() {
+            if (!annotateRawText) return;
+            const lines = (annotateState.labels || []).map((item) => {
+                const cls = Math.max(0, Number(item.classId || 0));
+                const pts = Array.isArray(item.points) ? item.points.slice(0, 8) : [];
+                if (String(item.format || '').toLowerCase() === 'bbox') {
+                    const xs = [pts[0], pts[2], pts[4], pts[6]].map((v) => Number(v || 0));
+                    const ys = [pts[1], pts[3], pts[5], pts[7]].map((v) => Number(v || 0));
+                    const xMin = Math.min(...xs);
+                    const xMax = Math.max(...xs);
+                    const yMin = Math.min(...ys);
+                    const yMax = Math.max(...ys);
+                    const xc = (xMin + xMax) / 2;
+                    const yc = (yMin + yMax) / 2;
+                    const w = xMax - xMin;
+                    const h = yMax - yMin;
+                    return `${cls} ${xc.toFixed(6)} ${yc.toFixed(6)} ${w.toFixed(6)} ${h.toFixed(6)}`;
+                }
+                const numeric = pts.map((v) => Number(v || 0));
+                return `${cls} ${numeric.map((v) => v.toFixed(6)).join(' ')}`;
+            });
+            annotateRawText.value = lines.join('\n') + (lines.length ? '\n' : '');
+        }
+
+        function parseRawTextToLabels(rawText) {
+            const labels = [];
+            const lines = String(rawText || '').split(/\r?\n/);
+            for (const line of lines) {
+                const stripped = line.trim();
+                if (!stripped) continue;
+                const parts = stripped.split(/\s+/);
+                const cls = Number(parts[0]);
+                if (!Number.isFinite(cls) || cls < 0) continue;
+                if (parts.length >= 9) {
+                    const nums = parts.slice(1, 9).map((v) => Number(v));
+                    if (nums.some((v) => !Number.isFinite(v))) continue;
+                    labels.push({ classId: Math.floor(cls), points: nums.map((v) => Math.max(0, Math.min(1, v))), format: 'obb' });
+                    continue;
+                }
+                if (parts.length >= 5) {
+                    const x = Number(parts[1]);
+                    const y = Number(parts[2]);
+                    const w = Number(parts[3]);
+                    const h = Number(parts[4]);
+                    if (![x, y, w, h].every((v) => Number.isFinite(v))) continue;
+                    const x1 = x - w / 2;
+                    const y1 = y - h / 2;
+                    const x2 = x + w / 2;
+                    const y2 = y - h / 2;
+                    const x3 = x + w / 2;
+                    const y3 = y + h / 2;
+                    const x4 = x - w / 2;
+                    const y4 = y + h / 2;
+                    labels.push({
+                        classId: Math.floor(cls),
+                        points: [x1, y1, x2, y2, x3, y3, x4, y4].map((v) => Math.max(0, Math.min(1, v))),
+                        format: 'bbox',
+                    });
+                }
+            }
+            return labels;
+        }
+
+        function drawPreviewShape(ctx, drawInfo, imageRect, stageRect) {
+            if (!drawInfo || !annotateState.showLabels) return;
+            const drawW = Number(imageRect.width || 0);
+            const drawH = Number(imageRect.height || 0);
+            const offsetX = Number(imageRect.left || 0) - Number(stageRect.left || 0);
+            const offsetY = Number(imageRect.top || 0) - Number(stageRect.top || 0);
+            const cls = Math.max(0, Number(annotateState.activeClass || 0));
+            const color = '#ffffff';
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.8;
+            ctx.setLineDash([5, 4]);
+
+            if (drawInfo.type === 'bbox' && drawInfo.a && drawInfo.b) {
+                const x1 = Math.min(drawInfo.a.nx, drawInfo.b.nx);
+                const y1 = Math.min(drawInfo.a.ny, drawInfo.b.ny);
+                const x2 = Math.max(drawInfo.a.nx, drawInfo.b.nx);
+                const y2 = Math.max(drawInfo.a.ny, drawInfo.b.ny);
+                ctx.strokeRect(offsetX + x1 * drawW, offsetY + y1 * drawH, (x2 - x1) * drawW, (y2 - y1) * drawH);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(`c${cls}`, offsetX + x1 * drawW, Math.max(12, offsetY + y1 * drawH - 4));
+                ctx.setLineDash([]);
+                return;
+            }
+
+            if (drawInfo.type === 'obb' && drawInfo.a && drawInfo.b && drawInfo.c) {
+                const ax = drawInfo.a.nx;
+                const ay = drawInfo.a.ny;
+                const bx = drawInfo.b.nx;
+                const by = drawInfo.b.ny;
+                const cx = drawInfo.c.nx;
+                const cy = drawInfo.c.ny;
+                const abx = bx - ax;
+                const aby = by - ay;
+                const len = Math.hypot(abx, aby);
+                if (len > 1e-6) {
+                    const ux = abx / len;
+                    const uy = aby / len;
+                    const px = -uy;
+                    const py = ux;
+                    const width = (cx - ax) * px + (cy - ay) * py;
+                    const p1 = [ax, ay];
+                    const p2 = [bx, by];
+                    const p3 = [bx + width * px, by + width * py];
+                    const p4 = [ax + width * px, ay + width * py];
+                    ctx.beginPath();
+                    ctx.moveTo(offsetX + p1[0] * drawW, offsetY + p1[1] * drawH);
+                    ctx.lineTo(offsetX + p2[0] * drawW, offsetY + p2[1] * drawH);
+                    ctx.lineTo(offsetX + p3[0] * drawW, offsetY + p3[1] * drawH);
+                    ctx.lineTo(offsetX + p4[0] * drawW, offsetY + p4[1] * drawH);
+                    ctx.closePath();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(`c${cls}`, offsetX + p1[0] * drawW, Math.max(12, offsetY + p1[1] * drawH - 4));
+                }
+            }
+            ctx.setLineDash([]);
+        }
+
+        function clamp01(v) {
+            return Math.max(0, Math.min(1, Number(v || 0)));
+        }
+
+        function updateUndoRedoAfterLoad() {
+            annotateState.undoStack = [];
+            annotateState.redoStack = [];
+            setAnnotateDirty(false);
+            updateUndoRedoButtons();
+        }
+
+        function undoAnnotateChange() {
+            if (!isAnnotateEditAllowed(true)) return;
+            if (!annotateState.undoStack.length) return;
+            annotateState.redoStack.push(cloneLabels(annotateState.labels));
+            annotateState.labels = cloneLabels(annotateState.undoStack.pop() || []);
+            annotateState.selectedLabelIdx = Math.min(annotateState.selectedLabelIdx, annotateState.labels.length - 1);
+            syncRawTextFromLabels();
+            renderAnnotateLabelList(annotateState.labels);
+            drawAnnotateLabels(annotateState.labels);
+            updateUndoRedoButtons();
+            setAnnotateDirty(true);
+            setAnnotateSaveStatus('Undid one change (unsaved).', false);
+        }
+
+        function redoAnnotateChange() {
+            if (!isAnnotateEditAllowed(true)) return;
+            if (!annotateState.redoStack.length) return;
+            annotateState.undoStack.push(cloneLabels(annotateState.labels));
+            annotateState.labels = cloneLabels(annotateState.redoStack.pop() || []);
+            annotateState.selectedLabelIdx = Math.min(annotateState.selectedLabelIdx, annotateState.labels.length - 1);
+            syncRawTextFromLabels();
+            renderAnnotateLabelList(annotateState.labels);
+            drawAnnotateLabels(annotateState.labels);
+            updateUndoRedoButtons();
+            setAnnotateDirty(true);
+            setAnnotateSaveStatus('Redid one change (unsaved).', false);
+        }
+
+        function deleteSelectedAnnotateLabel() {
+            if (!isAnnotateEditAllowed(true)) return;
+            const idx = annotateState.selectedLabelIdx;
+            if (idx < 0 || idx >= annotateState.labels.length) return;
+            const previous = cloneLabels(annotateState.labels);
+            annotateState.labels.splice(idx, 1);
+            annotateState.selectedLabelIdx = Math.min(idx, annotateState.labels.length - 1);
+            commitInteractiveChange(previous, 'Deleted selected label.');
+            updateUndoRedoButtons();
+        }
+
+        function rotatePoints(points, center, angle) {
+            const out = [];
+            const c = Math.cos(angle);
+            const s = Math.sin(angle);
+            for (let i = 0; i < 4; i += 1) {
+                const x = Number(points[i * 2] || 0) - center.x;
+                const y = Number(points[i * 2 + 1] || 0) - center.y;
+                const rx = center.x + (x * c - y * s);
+                const ry = center.y + (x * s + y * c);
+                out.push(clamp01(rx), clamp01(ry));
+            }
+            return out;
+        }
+
+        function translatedPoints(points, dx, dy) {
+            const out = [];
+            for (let i = 0; i < 4; i += 1) {
+                out.push(clamp01(Number(points[i * 2] || 0) + dx));
+                out.push(clamp01(Number(points[i * 2 + 1] || 0) + dy));
+            }
+            return out;
+        }
+
+        function setCornerPoint(points, cornerIdx, nx, ny) {
+            const out = points.slice(0, 8);
+            out[cornerIdx * 2] = clamp01(nx);
+            out[cornerIdx * 2 + 1] = clamp01(ny);
+            return out;
+        }
+
+        function setBBoxCornerPoint(points, cornerIdx, nx, ny) {
+            const opposite = (cornerIdx + 2) % 4;
+            const ox = Number(points[opposite * 2] || 0);
+            const oy = Number(points[opposite * 2 + 1] || 0);
+            const x1 = Math.min(nx, ox);
+            const y1 = Math.min(ny, oy);
+            const x2 = Math.max(nx, ox);
+            const y2 = Math.max(ny, oy);
+            return [x1, y1, x2, y1, x2, y2, x1, y2].map(clamp01);
+        }
+
+        function resizeEdgePoints(points, edgeIdx, startN, currentN) {
+            const out = points.slice(0, 8);
+            const a = edgeIdx;
+            const b = (edgeIdx + 1) % 4;
+            const ax = Number(points[a * 2] || 0);
+            const ay = Number(points[a * 2 + 1] || 0);
+            const bx = Number(points[b * 2] || 0);
+            const by = Number(points[b * 2 + 1] || 0);
+            const ex = bx - ax;
+            const ey = by - ay;
+            const len = Math.hypot(ex, ey);
+            if (len < 1e-6) return out;
+            const nx = -ey / len;
+            const ny = ex / len;
+            const dx = Number(currentN?.nx || 0) - Number(startN?.nx || 0);
+            const dy = Number(currentN?.ny || 0) - Number(startN?.ny || 0);
+            const delta = dx * nx + dy * ny;
+            out[a * 2] = clamp01(ax + nx * delta);
+            out[a * 2 + 1] = clamp01(ay + ny * delta);
+            out[b * 2] = clamp01(bx + nx * delta);
+            out[b * 2 + 1] = clamp01(by + ny * delta);
+            return out;
+        }
+
+        function bboxPointsFromPair(a, b) {
+            const x1 = Math.min(a.nx, b.nx);
+            const y1 = Math.min(a.ny, b.ny);
+            const x2 = Math.max(a.nx, b.nx);
+            const y2 = Math.max(a.ny, b.ny);
+            return [x1, y1, x2, y1, x2, y2, x1, y2].map(clamp01);
+        }
+
+        function obbPointsFromThree(a, b, c) {
+            const abx = b.nx - a.nx;
+            const aby = b.ny - a.ny;
+            const len = Math.hypot(abx, aby);
+            if (len < 1e-6) return null;
+            const ux = abx / len;
+            const uy = aby / len;
+            const px = -uy;
+            const py = ux;
+            const width = (c.nx - a.nx) * px + (c.ny - a.ny) * py;
+            return [
+                a.nx, a.ny,
+                b.nx, b.ny,
+                b.nx + width * px, b.ny + width * py,
+                a.nx + width * px, a.ny + width * py,
+            ].map(clamp01);
+        }
+
+        function handleAnnotatePointerDown(event) {
+            const pt = normalizedEventPoint(event);
+            if (!pt || !pt.inside) return;
+            const it = annotateState.interaction;
+
+            if (annotateState.mode === 'draw') {
+                if (!isAnnotateEditAllowed(true)) return;
+                const previous = cloneLabels(annotateState.labels);
+                if (annotateState.drawShape === 'bbox') {
+                    it.type = 'draw-bbox';
+                    it.drawA = { nx: pt.nx, ny: pt.ny };
+                    it.drawB = { nx: pt.nx, ny: pt.ny };
+                    it.startPoints = previous;
+                    drawAnnotateLabels(annotateState.labels);
+                    return;
+                }
+
+                if (!it.drawA) {
+                    it.drawA = { nx: pt.nx, ny: pt.ny };
+                    setAnnotateStatus('OBB step 1/3: place second point for base edge.', false);
+                    drawAnnotateLabels(annotateState.labels);
+                    return;
+                }
+                if (!it.drawB) {
+                    const dist = Math.hypot(pt.nx - it.drawA.nx, pt.ny - it.drawA.ny);
+                    if (dist < 0.002) return;
+                    it.drawB = { nx: pt.nx, ny: pt.ny };
+                    setAnnotateStatus('OBB step 2/3: place third point to define width.', false);
+                    drawAnnotateLabels(annotateState.labels);
+                    return;
+                }
+                const points = obbPointsFromThree(it.drawA, it.drawB, { nx: pt.nx, ny: pt.ny });
+                it.drawC = { nx: pt.nx, ny: pt.ny };
+                if (points) {
+                    annotateState.labels.push({
+                        classId: Math.max(0, Number(annotateState.activeClass || 0)),
+                        points,
+                        format: 'obb',
+                    });
+                    annotateState.selectedLabelIdx = annotateState.labels.length - 1;
+                    commitInteractiveChange(previous, 'Added OBB label.');
+                }
+                it.drawA = null;
+                it.drawB = null;
+                it.drawC = null;
+                return;
+            }
+
+            const cornerIdx = findCornerHandleAtPoint(pt.nx, pt.ny);
+            if (cornerIdx >= 0 && annotateState.selectedLabelIdx >= 0) {
+                if (!isAnnotateEditAllowed(true)) return;
+                it.type = 'resize-corner';
+                it.cornerIdx = cornerIdx;
+                it.edgeIdx = -1;
+                it.startN = { nx: pt.nx, ny: pt.ny };
+                it.startPoints = cloneLabels(annotateState.labels);
+                return;
+            }
+
+            const edgeIdx = findEdgeHandleAtPoint(pt.nx, pt.ny);
+            if (edgeIdx >= 0 && annotateState.selectedLabelIdx >= 0) {
+                if (!isAnnotateEditAllowed(true)) return;
+                it.type = 'resize-edge';
+                it.edgeIdx = edgeIdx;
+                it.cornerIdx = -1;
+                it.startN = { nx: pt.nx, ny: pt.ny };
+                it.startPoints = cloneLabels(annotateState.labels);
+                return;
+            }
+
+            const hit = findLabelAtPoint(pt.nx, pt.ny);
+            if (hit >= 0) {
+                annotateState.selectedLabelIdx = hit;
+                renderAnnotateLabelList(annotateState.labels);
+                drawAnnotateLabels(annotateState.labels);
+                if (!isAnnotateEditAllowed(false)) {
+                    updateUndoRedoButtons();
+                    return;
+                }
+                it.startN = { nx: pt.nx, ny: pt.ny };
+                it.startPoints = cloneLabels(annotateState.labels);
+                if (event.shiftKey) {
+                    it.type = 'rotate';
+                    const pts = annotateState.labels[hit].points || [];
+                    const center = polygonCentroid(pts);
+                    it.startCenter = center;
+                    it.startAngle = Math.atan2(pt.ny - center.y, pt.nx - center.x);
+                } else {
+                    it.type = 'move';
+                }
+                return;
+            }
+
+            annotateState.selectedLabelIdx = -1;
+            renderAnnotateLabelList(annotateState.labels);
+            drawAnnotateLabels(annotateState.labels);
+            updateUndoRedoButtons();
+        }
+
+        function handleAnnotatePointerMove(event) {
+            updateAnnotateCursor(event);
+            const pt = normalizedEventPoint(event);
+            if (!pt) return;
+            const it = annotateState.interaction;
+
+            if (annotateState.mode === 'draw') {
+                if (it.type === 'draw-bbox' && it.drawA) {
+                    it.drawB = { nx: pt.nx, ny: pt.ny };
+                    drawAnnotateLabels(annotateState.labels);
+                    return;
+                }
+                if (annotateState.drawShape === 'obb' && it.drawA && it.drawB) {
+                    it.drawC = { nx: pt.nx, ny: pt.ny };
+                    drawAnnotateLabels(annotateState.labels);
+                }
+                return;
+            }
+
+            if (!it.type || !it.startPoints || annotateState.selectedLabelIdx < 0) return;
+            const idx = annotateState.selectedLabelIdx;
+            const labels = cloneLabels(it.startPoints);
+            const target = labels[idx];
+            if (!target) return;
+
+            if (it.type === 'move') {
+                const dx = pt.nx - it.startN.nx;
+                const dy = pt.ny - it.startN.ny;
+                target.points = translatedPoints(target.points || [], dx, dy);
+            } else if (it.type === 'resize-corner') {
+                if (String(target.format || '').toLowerCase() === 'bbox') {
+                    target.points = setBBoxCornerPoint((it.startPoints[idx]?.points || target.points || []), it.cornerIdx, pt.nx, pt.ny);
+                } else {
+                    target.points = setCornerPoint(target.points || [], it.cornerIdx, pt.nx, pt.ny);
+                }
+            } else if (it.type === 'resize-edge') {
+                target.points = resizeEdgePoints((it.startPoints[idx]?.points || target.points || []), it.edgeIdx, it.startN, pt);
+            } else if (it.type === 'rotate') {
+                const center = it.startCenter || polygonCentroid(target.points || []);
+                const ang = Math.atan2(pt.ny - center.y, pt.nx - center.x);
+                const delta = ang - Number(it.startAngle || 0);
+                target.points = rotatePoints((it.startPoints[idx]?.points || []), center, delta);
+            }
+
+            annotateState.labels = labels;
+            drawAnnotateLabels(annotateState.labels);
+            renderAnnotateLabelList(annotateState.labels);
+        }
+
+        function handleAnnotatePointerUp(event) {
+            const pt = normalizedEventPoint(event);
+            const it = annotateState.interaction;
+
+            if (annotateState.mode === 'draw') {
+                if (it.type === 'draw-bbox' && it.drawA && it.drawB) {
+                    const previous = cloneLabels(it.startPoints || annotateState.labels);
+                    const d = Math.hypot(it.drawB.nx - it.drawA.nx, it.drawB.ny - it.drawA.ny);
+                    if (d >= 0.002) {
+                        annotateState.labels = cloneLabels(previous);
+                        annotateState.labels.push({
+                            classId: Math.max(0, Number(annotateState.activeClass || 0)),
+                            points: bboxPointsFromPair(it.drawA, it.drawB),
+                            format: 'bbox',
+                        });
+                        annotateState.selectedLabelIdx = annotateState.labels.length - 1;
+                        commitInteractiveChange(previous, 'Added BBox label.');
+                    }
+                    it.type = '';
+                    it.drawA = null;
+                    it.drawB = null;
+                    it.drawC = null;
+                    drawAnnotateLabels(annotateState.labels);
+                }
+                return;
+            }
+
+            if (it.type && it.startPoints) {
+                const previous = cloneLabels(it.startPoints);
+                it.type = '';
+                it.startN = null;
+                it.startPoints = null;
+                it.startCenter = null;
+                it.cornerIdx = -1;
+                it.edgeIdx = -1;
+                commitInteractiveChange(previous, 'Updated selected label.');
+            }
+            if (pt && pt.inside) {
+                drawAnnotateLabels(annotateState.labels);
+            }
+            updateAnnotateCursor(event);
+        }
+
+        async function fetchAnnotateLabelPayload(path, forceReload = false) {
+            const key = String(path || '').trim();
+            if (!key) {
+                return { labels: [], rawText: '', labelPath: '' };
+            }
+            if (!forceReload && annotateState.labelPayloadByPath.has(key)) {
+                return annotateState.labelPayloadByPath.get(key) || { labels: [], rawText: '', labelPath: '' };
+            }
+
+            const payload = await api(`/api/admin/images/labels?path=${encodeURIComponent(key)}`);
+            const out = {
+                labels: Array.isArray(payload.labels) ? payload.labels : [],
+                rawText: String(payload.rawText || ''),
+                labelPath: String(payload.labelPath || ''),
+            };
+            annotateState.labelPayloadByPath.set(key, out);
+            return out;
+        }
+
+        function renderAnnotateImageList() {
+            if (!annotateImageList || !annotateImageCount) return;
+
+            const source = adminImages || [];
+            const search = String(annotateState.searchText || '').trim().toLowerCase();
+            const filtered = source.filter((item) => {
+                const path = String(item?.path || '').toLowerCase();
+                return !search || path.includes(search);
+            });
+            annotateState.filteredPaths = filtered.map((item) => String(item.path || '')).filter(Boolean);
+
+            annotateImageCount.textContent = `${filtered.length} / ${source.length} image(s)`;
+
+            if (!filtered.length) {
+                annotateImageList.innerHTML = '<p class="muted small">No images match your search.</p>';
+                annotateState.activePath = '';
+                renderAnnotateLabelList([]);
+                setAnnotateStatus('No matching image to preview.', true);
+                annotateImage?.removeAttribute('src');
+                const ctx = annotateCanvas?.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, annotateCanvas.width, annotateCanvas.height);
+                updateAnnotateLockStatusUi();
+                return;
+            }
+
+            if (!annotateState.activePath || !annotateState.filteredPaths.includes(annotateState.activePath)) {
+                annotateState.activePath = annotateState.filteredPaths[0];
+                annotateState.selectedLabelIdx = -1;
+            }
+
+            annotateImageList.innerHTML = filtered.map((item) => {
+                const path = String(item.path || '');
+                const active = path === annotateState.activePath;
+                const labelCount = Math.max(0, Number(item.labelCount || 0));
+                const status = String(item.status || '').trim().toLowerCase() || 'unassigned';
+                return `<button type="button" class="annotate-image-item ${active ? 'active' : ''}" data-annotate-path="${escapeHtml(path)}">
+                    <span class="annotate-image-title mono">${escapeHtml(path)}</span>
+                    <span class="annotate-image-meta muted small">${status} | labels ${labelCount}</span>
+                </button>`;
+            }).join('');
         }
 
         function updateAuthPanelSignOutVisibility() {
@@ -871,6 +2039,9 @@
         function setLoggedInState(loggedIn) {
             authPanel.classList.toggle('hidden', loggedIn);
             dashboardPanel.classList.toggle('hidden', !loggedIn);
+            if (loggedIn) {
+                setSessionStateHint('', false);
+            }
             if (!loggedIn) {
                 closeMobileSidebar();
             }
@@ -912,11 +2083,18 @@
         }
 
         function setDashboardPage(page) {
-            const allowed = new Set(['overview', 'activity', 'uploads', 'images', 'admin']);
+            const allowed = new Set(['overview', 'activity', 'uploads', 'images', 'annotate', 'admin']);
             const requested = allowed.has(page) ? page : 'uploads';
             let next = requested;
+            const previous = activeDashPage;
             if (!isAdmin && next === 'admin') {
                 next = 'uploads';
+            }
+            if (previous === 'annotate' && next !== 'annotate' && annotateState.dirty) {
+                if (!confirmAnnotateDiscard()) {
+                    return;
+                }
+                setAnnotateDirty(false);
             }
             activeDashPage = next;
             localStorage.setItem(DASH_PAGE_STORAGE_KEY, activeDashPage);
@@ -929,6 +2107,10 @@
             const navButtons = Array.from(document.querySelectorAll('#dashboardPanel .nav-btn[data-page]'));
             for (const btn of navButtons) {
                 btn.classList.toggle('active', btn.getAttribute('data-page') === next);
+            }
+
+            if (next === 'annotate' && token && (previous !== 'annotate' || !annotateState.activePath)) {
+                refreshAnnotateWorkspace().catch((error) => setMessage(error.message || String(error), true));
             }
         }
 
@@ -956,18 +2138,58 @@
             refreshTimer = setInterval(() => refreshAll(true), 5000);
         }
 
+        function isNonSessionAuthPath(path) {
+            const value = String(path || '');
+            return value.startsWith('/api/auth/login')
+                || value.startsWith('/api/auth/project-options')
+                || value.startsWith('/api/public/info')
+                || value.startsWith('/api/admin/bootstrap')
+                || value.startsWith('/api/auth/logout');
+        }
+
+        function buildHttpError(status, data) {
+            const detail = data && (data.detail || data.error) ? (data.detail || data.error) : `HTTP ${status}`;
+            const error = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            error.status = Number(status || 0);
+            return error;
+        }
+
+        async function handleUnauthorizedState(message = 'Session expired. Please sign in again.') {
+            if (authHandlingInProgress) return;
+            authHandlingInProgress = true;
+            try {
+                await handleLogout(false);
+                setSessionStateHint(message, true);
+                setMessage(message, true, true);
+            } finally {
+                authHandlingInProgress = false;
+            }
+        }
+
+        async function fetchWithAuth(path, options = null) {
+            const opt = options ? { ...options } : {};
+            const headers = opt.headers ? { ...opt.headers } : {};
+            if (token && !headers.Authorization) {
+                headers.Authorization = `Bearer ${token}`;
+            }
+            opt.headers = headers;
+            const res = await fetch(path, opt);
+            if ((res.status === 401 || res.status === 403) && token && !isNonSessionAuthPath(path)) {
+                await handleUnauthorizedState('Session expired or access changed. Please sign in again.');
+            }
+            return res;
+        }
+
         async function api(path, method = 'GET', body = null, customHeaders = null) {
             const headers = customHeaders || { 'Content-Type': 'application/json' };
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-            const res = await fetch(path, {
+            const res = await fetchWithAuth(path, {
                 method,
                 headers,
                 body: body ? JSON.stringify(body) : null,
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                const detail = data.detail || data.error || `HTTP ${res.status}`;
-                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                throw buildHttpError(res.status, data);
             }
             return data;
         }
@@ -1200,15 +2422,14 @@
 
             const headers = {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
-            const res = await fetch(`/api/admin/backups/${encodeURIComponent(backupName)}/download`, {
+            const res = await fetchWithAuth(`/api/admin/backups/${encodeURIComponent(backupName)}/download`, {
                 method: 'GET',
                 headers,
             });
 
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                const detail = data.detail || data.error || `HTTP ${res.status}`;
-                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                throw buildHttpError(res.status, data);
             }
 
             const blob = await res.blob();
@@ -1266,6 +2487,9 @@
             const query = new URLSearchParams({ sortBy, order, limit: '5000' }).toString();
             const payload = await api(`/api/admin/images?${query}`);
             renderAdminImages(payload.items || []);
+            if (activeDashPage === 'annotate') {
+                renderAnnotateImageList();
+            }
         }
 
         function getSelectedAdminImagePaths() {
@@ -1419,6 +2643,125 @@
             const labels = Array.isArray(payload.labels) ? payload.labels : [];
             slideshowState.labelsByPath.set(path, labels);
             return labels;
+        }
+
+        async function showAnnotateImage(path, options = null) {
+            const targetPath = String(path || '').trim();
+            if (!targetPath) return;
+            const opt = options || {};
+            if (annotateState.activePath && annotateState.activePath !== targetPath && annotateState.dirty && !opt.allowDiscard) {
+                if (!confirmAnnotateDiscard()) {
+                    return false;
+                }
+            }
+
+            annotateState.activePath = targetPath;
+            annotateState.selectedLabelIdx = -1;
+            renderAnnotateImageList();
+
+            let payload = annotateState.imageViewByPath.get(targetPath) || null;
+            if (!payload) {
+                const maxWidth = 1800;
+                const maxHeight = 1200;
+                payload = await api(`/api/admin/images/view?path=${encodeURIComponent(targetPath)}&maxWidth=${maxWidth}&maxHeight=${maxHeight}&quality=86`);
+                annotateState.imageViewByPath.set(targetPath, payload);
+                if (annotateState.imageViewByPath.size > 120) {
+                    const first = annotateState.imageViewByPath.keys().next().value;
+                    if (first) annotateState.imageViewByPath.delete(first);
+                }
+            }
+
+            await new Promise((resolve, reject) => {
+                annotateImage.onload = () => resolve();
+                annotateImage.onerror = () => reject(new Error('Failed to load preview image.'));
+                annotateImage.src = payload.url;
+            });
+
+            const labelPayload = await fetchAnnotateLabelPayload(targetPath);
+            slideshowState.labelsByPath.set(targetPath, labelPayload.labels);
+            annotateState.labels = cloneLabels(labelPayload.labels || []);
+            renderAnnotateLabelList(annotateState.labels);
+            drawAnnotateLabels(annotateState.labels);
+            if (annotateRawText) {
+                annotateRawText.value = labelPayload.rawText;
+            }
+            updateUndoRedoAfterLoad();
+            setAnnotateDirty(false);
+            setAnnotateSaveStatus('Loaded labels from server.', false);
+            setAnnotateStatus(`Preview ready: ${targetPath}`, false);
+            return true;
+        }
+
+        function annotateMove(delta) {
+            if (!annotateState.filteredPaths.length) return;
+            const idx = annotateState.filteredPaths.indexOf(annotateState.activePath);
+            const base = idx >= 0 ? idx : 0;
+            const next = (base + delta + annotateState.filteredPaths.length) % annotateState.filteredPaths.length;
+            const nextPath = annotateState.filteredPaths[next];
+            showAnnotateImage(nextPath).catch((error) => setMessage(error.message || String(error), true));
+        }
+
+        async function refreshAnnotateWorkspace(options = null) {
+            const opt = options || {};
+            const forceReload = !!opt.forceReload;
+            if (forceReload && annotateState.dirty) {
+                if (!confirmAnnotateDiscard()) {
+                    return;
+                }
+            }
+            if (forceReload || !adminImages.length) {
+                await loadAdminImages();
+            }
+            if (forceReload) {
+                annotateState.labelPayloadByPath.clear();
+            }
+            renderAnnotateImageList();
+            if (annotateState.activePath) {
+                await showAnnotateImage(annotateState.activePath);
+            }
+            updateAnnotateLockStatusUi();
+        }
+
+        function pickAnnotateLabelAtEvent(event) {
+            if (!annotateCanvas || !annotateImage || !annotateStage || !annotateState.activePath) return;
+            const labels = slideshowState.labelsByPath.get(annotateState.activePath) || [];
+            if (!labels.length) return;
+
+            const imageRect = annotateImage.getBoundingClientRect();
+            const x = Number(event.clientX || 0);
+            const y = Number(event.clientY || 0);
+            if (x < imageRect.left || x > imageRect.right || y < imageRect.top || y > imageRect.bottom) return;
+
+            const nx = (x - imageRect.left) / Math.max(1, imageRect.width);
+            const ny = (y - imageRect.top) / Math.max(1, imageRect.height);
+            let selected = -1;
+            for (let i = 0; i < labels.length; i += 1) {
+                const pts = Array.isArray(labels[i].points) ? labels[i].points : [];
+                if (pointInPolygonNormalized(nx, ny, pts)) {
+                    selected = i;
+                    break;
+                }
+            }
+
+            if (selected < 0) {
+                let best = Number.POSITIVE_INFINITY;
+                for (let i = 0; i < labels.length; i += 1) {
+                    const d2 = centroidDistanceSq(nx, ny, labels[i].points || []);
+                    if (d2 < best) {
+                        best = d2;
+                        selected = i;
+                    }
+                }
+                if (best > 0.05) {
+                    selected = -1;
+                }
+            }
+
+            annotateState.selectedLabelIdx = selected;
+            renderAnnotateLabelList(labels);
+            drawAnnotateLabels(labels);
+            const info = selected >= 0 ? `Selected label #${selected + 1}` : 'No label selected';
+            setAnnotateStatus(info, false);
         }
 
         async function refreshSlideOverlay() {
@@ -1838,15 +3181,14 @@
                 body.append('expected_project_id', currentProjectId);
                 body.append('overwrite', overwrite ? '1' : '0');
                 try {
-                    const res = await fetch('/api/admin/images/upload', {
+                    const res = await fetchWithAuth('/api/admin/images/upload', {
                         method: 'POST',
                         headers: { Authorization: `Bearer ${token}` },
                         body,
                     });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) {
-                        const detail = data.detail || data.error || `HTTP ${res.status}`;
-                        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                        throw buildHttpError(res.status, data);
                     }
 
                     if (data.uploaded) {
@@ -1902,15 +3244,14 @@
             body.append('expected_project_id', currentProjectId);
             body.append('overwrite', overwrite ? '1' : '0');
 
-            const res = await fetch('/api/admin/images/upload-zip', {
+            const res = await fetchWithAuth('/api/admin/images/upload-zip', {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}` },
                 body,
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                const detail = data.detail || data.error || `HTTP ${res.status}`;
-                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                throw buildHttpError(res.status, data);
             }
 
             setMessage(
@@ -1943,6 +3284,7 @@
 
                 currentProjectId = String(status.projectId || summary.projectId || '');
                 refreshUploadProjectBadge();
+                projectLocks = Array.isArray(status.locks) ? status.locks : [];
 
                 role = status.role || summary.role || '';
                 isAdmin = !!status.isAdmin;
@@ -1977,11 +3319,14 @@
                     }
                 }
                 await loadAdminImages();
+                if (activeDashPage === 'annotate') {
+                    updateAnnotateLockStatusUi();
+                }
+                return true;
             } catch (e) {
                 if (!silent) setMessage(e.message, true);
-                if (String(e.message || '').includes('401')) {
-                    handleLogout(false);
-                }
+                if (e && (e.status === 401 || e.status === 403)) return false;
+                return false;
             }
         }
 
@@ -2062,8 +3407,12 @@
                 isAdmin = !!data.isAdmin;
                 localStorage.setItem('syncToken', token);
                 localStorage.setItem('syncUsername', currentUser);
+                setSessionStateHint('', false);
+                const refreshed = await refreshAll();
+                if (!refreshed) {
+                    throw new Error('Unable to initialize session after login. Please try again.');
+                }
                 setLoggedInState(true);
-                await refreshAll();
                 startTimer();
                 setMessage(`Logged in as ${currentUser}`);
                 updateAuthPanelSignOutVisibility();
@@ -2098,6 +3447,193 @@
             if (isMobileSidebarMode()) {
                 closeMobileSidebar();
             }
+        });
+
+        annotateRefreshBtn?.addEventListener('click', () => {
+            refreshAnnotateWorkspace({ forceReload: true })
+                .then(() => setMessage('Annotate workspace refreshed.'))
+                .catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        annotateImageSearch?.addEventListener('input', () => {
+            annotateState.searchText = String(annotateImageSearch.value || '').trim();
+            renderAnnotateImageList();
+            if (annotateState.activePath) {
+                showAnnotateImage(annotateState.activePath).catch((error) => setMessage(error.message || String(error), true));
+            }
+        });
+
+        annotateImageList?.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            const button = target.closest('button[data-annotate-path]');
+            if (!button) return;
+            const path = String(button.getAttribute('data-annotate-path') || '').trim();
+            if (!path) return;
+            showAnnotateImage(path).catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        annotateLabelList?.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            const button = target.closest('button[data-annotate-label-idx]');
+            if (!button) return;
+            const idx = Number(button.getAttribute('data-annotate-label-idx'));
+            if (!Number.isFinite(idx)) return;
+            annotateState.selectedLabelIdx = idx;
+            renderAnnotateLabelList(annotateState.labels);
+            drawAnnotateLabels(annotateState.labels);
+        });
+
+        annotatePrevBtn?.addEventListener('click', () => annotateMove(-1));
+        annotateNextBtn?.addEventListener('click', () => annotateMove(1));
+
+        annotateShowLabels?.addEventListener('change', () => {
+            annotateState.showLabels = !!annotateShowLabels.checked;
+            drawAnnotateLabels(annotateState.labels);
+        });
+
+        annotateModeSelectBtn?.addEventListener('click', () => setAnnotateMode('select'));
+        annotateModeDrawBtn?.addEventListener('click', () => setAnnotateMode('draw'));
+        annotateDrawShape?.addEventListener('change', () => {
+            annotateState.drawShape = annotateDrawShape.value === 'bbox' ? 'bbox' : 'obb';
+            drawAnnotateLabels(annotateState.labels);
+        });
+        annotateClassIdx?.addEventListener('input', () => {
+            annotateState.activeClass = Math.max(0, Number(annotateClassIdx.value || 0));
+        });
+        annotateUndoBtn?.addEventListener('click', undoAnnotateChange);
+        annotateRedoBtn?.addEventListener('click', redoAnnotateChange);
+        annotateDeleteBtn?.addEventListener('click', deleteSelectedAnnotateLabel);
+
+        annotateCanvas?.addEventListener('mousedown', (event) => {
+            handleAnnotatePointerDown(event);
+        });
+        annotateCanvas?.addEventListener('mousemove', (event) => {
+            handleAnnotatePointerMove(event);
+        });
+        annotateCanvas?.addEventListener('mouseup', (event) => {
+            handleAnnotatePointerUp(event);
+        });
+        annotateCanvas?.addEventListener('mouseleave', (event) => {
+            handleAnnotatePointerUp(event);
+        });
+
+        annotateReloadRawBtn?.addEventListener('click', () => {
+            const path = String(annotateState.activePath || '').trim();
+            if (!path) {
+                setMessage('Select an image in Annotate tab first.', true);
+                return;
+            }
+            fetchAnnotateLabelPayload(path, true)
+                .then((payload) => {
+                    slideshowState.labelsByPath.set(path, payload.labels || []);
+                    annotateState.labels = cloneLabels(payload.labels || []);
+                    renderAnnotateLabelList(annotateState.labels);
+                    drawAnnotateLabels(annotateState.labels);
+                    if (annotateRawText) {
+                        annotateRawText.value = String(payload.rawText || '');
+                    }
+                    updateUndoRedoAfterLoad();
+                    setAnnotateDirty(false);
+                    setAnnotateSaveStatus('Raw labels reloaded from server.', false);
+                })
+                .catch((error) => setMessage(error.message || String(error), true));
+        });
+
+        annotateSaveRawBtn?.addEventListener('click', () => {
+            const path = String(annotateState.activePath || '').trim();
+            if (!path) {
+                setMessage('Select an image in Annotate tab first.', true);
+                return;
+            }
+            const lines = String(annotateRawText?.value || '');
+            const labelPath = getPreferredLabelPathForActiveImage();
+            annotateSaveRawBtn.disabled = true;
+            api('/api/admin/images/labels/write', 'POST', {
+                path,
+                labelPath,
+                lines,
+            })
+                .then((result) => {
+                    const latestSeq = Number(result.latestSeq || 0);
+                    setAnnotateDirty(false);
+                    setAnnotateSaveStatus(`Saved ${Number(result.count || 0)} label row(s). latestSeq=${latestSeq}`, false);
+                    annotateState.labelPayloadByPath.delete(path);
+                    return fetchAnnotateLabelPayload(path, true);
+                })
+                .then((payload) => {
+                    slideshowState.labelsByPath.set(path, payload.labels || []);
+                    annotateState.labels = cloneLabels(payload.labels || []);
+                    renderAnnotateLabelList(annotateState.labels);
+                    drawAnnotateLabels(annotateState.labels);
+                    if (annotateRawText) {
+                        annotateRawText.value = String(payload.rawText || '');
+                    }
+                    updateUndoRedoAfterLoad();
+                    return loadAdminImages();
+                })
+                .catch((error) => {
+                    const msgText = String(error?.message || error);
+                    const lockHint = /lock required|locked by/i.test(msgText)
+                        ? ' Acquire lock first from desktop/cloud workflow for this label file.'
+                        : '';
+                    setAnnotateSaveStatus(`Save failed: ${msgText}${lockHint}`, true);
+                    setMessage(`Save failed: ${msgText}${lockHint}`, true, true);
+                })
+                .finally(() => {
+                    updateAnnotateLockStatusUi();
+                });
+        });
+
+        annotateRawText?.addEventListener('input', () => {
+            if (!isAnnotateEditAllowed(true)) return;
+            setAnnotateSaveStatus('Unsaved raw label changes.', false);
+            annotateState.labels = parseRawTextToLabels(annotateRawText.value || '');
+            if (annotateState.activePath) {
+                slideshowState.labelsByPath.set(annotateState.activePath, cloneLabels(annotateState.labels));
+            }
+            setAnnotateDirty(true);
+            annotateState.selectedLabelIdx = -1;
+            renderAnnotateLabelList(annotateState.labels);
+            drawAnnotateLabels(annotateState.labels);
+        });
+
+        annotateAcquireLockBtn?.addEventListener('click', () => {
+            const labelPath = getPreferredLabelPathForActiveImage();
+            if (!labelPath) {
+                setMessage('No label path available to lock.', true);
+                return;
+            }
+            annotateAcquireLockBtn.disabled = true;
+            api('/api/locks/activate', 'POST', { path: labelPath })
+                .then(() => refreshAll(true))
+                .then(() => {
+                    updateAnnotateLockStatusUi();
+                    setMessage(`Lock acquired: ${labelPath}`);
+                })
+                .catch((error) => {
+                    setMessage(`Failed to acquire lock: ${String(error?.message || error)}`, true, true);
+                })
+                .finally(() => {
+                    annotateAcquireLockBtn.disabled = false;
+                });
+        });
+
+        annotateReleaseLockBtn?.addEventListener('click', () => {
+            annotateReleaseLockBtn.disabled = true;
+            api('/api/locks/activate', 'POST', { path: null })
+                .then(() => refreshAll(true))
+                .then(() => {
+                    updateAnnotateLockStatusUi();
+                    setMessage('Lock released.');
+                })
+                .catch((error) => {
+                    setMessage(`Failed to release lock: ${String(error?.message || error)}`, true, true);
+                })
+                .finally(() => {
+                    annotateReleaseLockBtn.disabled = false;
+                });
         });
 
         document.getElementById('createUserBtn').addEventListener('click', async () => {
@@ -2723,6 +4259,98 @@
             }
         });
 
+        window.addEventListener('keydown', (event) => {
+            if (slideshowState.open || activeDashPage !== 'annotate') return;
+            const target = event.target;
+            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+                return;
+            }
+            const key = String(event.key || '').toLowerCase();
+
+            if (key === 'escape') {
+                const it = annotateState.interaction;
+                const hadDraw = !!(it.drawA || it.drawB || it.drawC || it.type === 'draw-bbox');
+                const hadSelection = annotateState.selectedLabelIdx >= 0;
+                if (hadDraw) {
+                    cancelAnnotateDraw();
+                    setAnnotateStatus('Draw canceled.', false);
+                } else if (hadSelection) {
+                    annotateState.selectedLabelIdx = -1;
+                    renderAnnotateLabelList(annotateState.labels);
+                    drawAnnotateLabels(annotateState.labels);
+                    setAnnotateStatus('Selection cleared.', false);
+                }
+                event.preventDefault();
+                return;
+            }
+
+            if ((event.ctrlKey || event.metaKey) && key === 'z' && !event.shiftKey) {
+                undoAnnotateChange();
+                event.preventDefault();
+                return;
+            }
+            if ((event.ctrlKey || event.metaKey) && key === 's') {
+                annotateSaveRawBtn?.click();
+                event.preventDefault();
+                return;
+            }
+            if ((event.ctrlKey || event.metaKey) && (key === 'y' || (key === 'z' && event.shiftKey))) {
+                redoAnnotateChange();
+                event.preventDefault();
+                return;
+            }
+
+            if (key === 's') {
+                setAnnotateMode('select');
+                event.preventDefault();
+                return;
+            }
+            if (key === 'w') {
+                setAnnotateMode('draw');
+                event.preventDefault();
+                return;
+            }
+            if (key === 'b') {
+                annotateState.drawShape = 'bbox';
+                if (annotateDrawShape) annotateDrawShape.value = 'bbox';
+                drawAnnotateLabels(annotateState.labels);
+                event.preventDefault();
+                return;
+            }
+            if (key === 'o') {
+                annotateState.drawShape = 'obb';
+                if (annotateDrawShape) annotateDrawShape.value = 'obb';
+                drawAnnotateLabels(annotateState.labels);
+                event.preventDefault();
+                return;
+            }
+            if (key === 'delete' || key === 'backspace') {
+                deleteSelectedAnnotateLabel();
+                event.preventDefault();
+                return;
+            }
+
+            if (key === 'arrowright' || key === 'd' || key === ' ') {
+                annotateMove(1);
+                event.preventDefault();
+                return;
+            }
+            if (key === 'arrowleft' || key === 'a') {
+                annotateMove(-1);
+                event.preventDefault();
+                return;
+            }
+            if (key === 'l') {
+                if (annotateShowLabels) {
+                    annotateShowLabels.checked = !annotateShowLabels.checked;
+                    annotateState.showLabels = !!annotateShowLabels.checked;
+                    drawAnnotateLabels(annotateState.labels);
+                }
+                event.preventDefault();
+                return;
+            }
+        });
+
         document.getElementById('pickImageFolderBtn').addEventListener('click', () => {
             pickImageFolderInput.click();
         });
@@ -2829,9 +4457,14 @@
             }
 
             if (token) {
-                setLoggedInState(true);
-                await refreshAll(true);
-                startTimer();
+                const restored = await refreshAll(true);
+                if (restored) {
+                    setLoggedInState(true);
+                    startTimer();
+                } else {
+                    setLoggedInState(false);
+                    setSessionStateHint('Your previous session expired. Please sign in again.', true);
+                }
             }
         }
 
@@ -2842,7 +4475,25 @@
             if (slideshowState.open) {
                 refreshSlideOverlay().catch(() => { });
             }
+            if (activeDashPage === 'annotate') {
+                drawAnnotateLabels(annotateState.labels);
+            }
         });
+
+        window.addEventListener('beforeunload', (event) => {
+            if (!annotateState.dirty) return;
+            event.preventDefault();
+            event.returnValue = '';
+        });
+
+        if (annotateDrawShape) {
+            annotateDrawShape.value = annotateState.drawShape;
+        }
+        if (annotateClassIdx) {
+            annotateClassIdx.value = String(annotateState.activeClass);
+        }
+        setAnnotateMode(annotateState.mode);
+        updateUndoRedoButtons();
 
         init();
     </script>

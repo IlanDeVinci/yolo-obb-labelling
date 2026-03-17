@@ -103,6 +103,8 @@ _s3_client = None
 _normalize_jobs_lock = threading.Lock()
 _normalize_jobs: dict[str, dict[str, Any]] = {}
 _NORMALIZE_JOB_RETENTION_MS = 2 * 60 * 60 * 1000
+_SESSION_CLEANUP_INTERVAL_MS = 60 * 1000
+_last_session_cleanup_ms = 0
 
 
 class BootstrapPayload(BaseModel):
@@ -176,6 +178,12 @@ class AdminImageStatusSyncPayload(BaseModel):
 
 class ActivateLockPayload(BaseModel):
     path: str | None = None
+
+
+class AdminImageLabelsWritePayload(BaseModel):
+    path: str = Field(min_length=1, max_length=1024)
+    labelPath: str | None = Field(default=None, max_length=1024)
+    lines: str = Field(default="")
 
 
 class UpsertFilePayload(BaseModel):
@@ -1019,6 +1027,48 @@ def _parse_yolo_label_rows(raw_text: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _validate_yolo_label_text(raw_text: str) -> tuple[str, int]:
+    """Validate YOLO label text and return normalized text + row count.
+
+    Accepted line formats:
+    - OBB: class x1 y1 x2 y2 x3 y3 x4 y4
+    - BBox: class x_center y_center width height
+    """
+    out_lines: list[str] = []
+    count = 0
+
+    for idx, line in enumerate(str(raw_text or "").splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        parts = stripped.split()
+        if len(parts) not in {5, 9}:
+            raise HTTPException(status_code=400, detail=f"Invalid label format on line {idx}")
+
+        try:
+            class_id = int(parts[0])
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid class id on line {idx}") from exc
+        if class_id < 0:
+            raise HTTPException(status_code=400, detail=f"Class id must be >= 0 on line {idx}")
+
+        values: list[float] = []
+        try:
+            values = [float(v) for v in parts[1:]]
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid numeric value on line {idx}") from exc
+
+        for value in values:
+            if value < 0.0 or value > 1.0:
+                raise HTTPException(status_code=400, detail=f"Coordinates must be normalized to [0,1] on line {idx}")
+
+        normalized_values = " ".join(f"{v:.6f}" for v in values)
+        out_lines.append(f"{class_id} {normalized_values}")
+        count += 1
+
+    return ("\n".join(out_lines) + ("\n" if out_lines else ""), count)
+
+
 def _fetch_project_image_status_map(project_id: str) -> dict[str, str]:
     rows = _CONN.execute(
         "SELECT image_name, status FROM image_status WHERE project_id = ?",
@@ -1129,8 +1179,14 @@ def _record_deleted_file(project_id: str, *, username: str, source_token: str, p
     )
 
 
-def _cleanup_stale_sessions() -> None:
-    cutoff = _now_ms() - SESSION_TTL_SECONDS * 1000
+def _cleanup_stale_sessions(force: bool = False) -> None:
+    global _last_session_cleanup_ms
+
+    now = _now_ms()
+    if not force and (now - _last_session_cleanup_ms) < _SESSION_CLEANUP_INTERVAL_MS:
+        return
+
+    cutoff = now - SESSION_TTL_SECONDS * 1000
     with _db_lock:
         cur = _CONN.cursor()
         cur.execute("DELETE FROM sessions WHERE last_seen < ?", (cutoff,))
@@ -1138,6 +1194,7 @@ def _cleanup_stale_sessions() -> None:
             "DELETE FROM locks WHERE token NOT IN (SELECT token FROM sessions)",
         )
         _CONN.commit()
+        _last_session_cleanup_ms = now
 
 
 def _touch_session(token: str) -> None:
@@ -3181,7 +3238,7 @@ def admin_get_image_labels(
 
     label_path, content_b64 = selected
     if not content_b64:
-        return {"ok": True, "path": normalized, "labels": [], "labelPath": label_path}
+        return {"ok": True, "path": normalized, "labels": [], "labelPath": label_path, "rawText": ""}
 
     try:
         raw_text = base64.b64decode(content_b64.encode("ascii"), validate=False).decode("utf-8", errors="replace")
@@ -3194,7 +3251,77 @@ def admin_get_image_labels(
         "path": normalized,
         "labelPath": label_path,
         "count": len(labels),
+        "rawText": raw_text,
         "labels": labels,
+    }
+
+
+@app.post("/api/admin/images/labels/write")
+def admin_write_image_labels(
+    payload: AdminImageLabelsWritePayload,
+    session: SessionContext = Depends(_auth_from_header),
+) -> dict[str, Any]:
+    image_path = _normalize_path(payload.path)
+    if not _is_image_path(image_path):
+        raise HTTPException(status_code=400, detail="Path must reference an image file")
+
+    normalized_text, row_count = _validate_yolo_label_text(payload.lines)
+    candidates = _label_paths_for_image(image_path)
+    if not candidates:
+        raise HTTPException(status_code=400, detail="Could not determine label path for image")
+
+    chosen_label_path = ""
+    provided = str(payload.labelPath or "").strip()
+    if provided:
+        normalized_candidate = _normalize_path(provided)
+        if normalized_candidate not in candidates:
+            raise HTTPException(status_code=400, detail="labelPath does not match image label candidates")
+        chosen_label_path = normalized_candidate
+    else:
+        placeholders = ", ".join(["?"] * len(candidates))
+        params: list[Any] = [session.project_id, *candidates]
+        rows = _CONN.execute(
+            f"SELECT path FROM files WHERE project_id = ? AND deleted = 0 AND path IN ({placeholders})",
+            params,
+        ).fetchall()
+
+        if rows:
+            def _priority(label_path: str) -> int:
+                lower = label_path.lower()
+                if "/labels/obb/" in lower:
+                    return 0
+                if "/labels/bb/" in lower:
+                    return 1
+                return 2
+
+            chosen_label_path = sorted(
+                [str(row["path"] or "") for row in rows],
+                key=lambda item: (_priority(item), item.lower()),
+            )[0]
+        else:
+            chosen_label_path = candidates[0]
+
+    now = _now_ms()
+    update = UpsertFilePayload(
+        path=chosen_label_path,
+        deleted=False,
+        mtimeMs=now,
+        sha1=hashlib.sha1(normalized_text.encode("utf-8")).hexdigest(),
+        contentBase64=base64.b64encode(normalized_text.encode("utf-8")).decode("ascii"),
+    )
+    result = sync_upsert(SyncUpsertPayload(updates=[update]), session)
+    rejected = result.get("rejected") if isinstance(result, dict) else None
+    if rejected:
+        reason = str(rejected[0].get("reason") if isinstance(rejected[0], dict) else "Rejected by sync layer")
+        status = 409 if "lock" in reason.lower() else 400
+        raise HTTPException(status_code=status, detail=reason)
+
+    return {
+        "ok": True,
+        "path": image_path,
+        "labelPath": chosen_label_path,
+        "count": row_count,
+        "latestSeq": int(result.get("latestSeq", 0) if isinstance(result, dict) else 0),
     }
 
 
