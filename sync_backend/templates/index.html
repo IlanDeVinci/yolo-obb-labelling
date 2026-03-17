@@ -1120,11 +1120,15 @@
             minZoom: 0.2,
             maxZoom: 6,
             fitMode: true,
+            panX: 0,
+            panY: 0,
             undoStack: [],
             redoStack: [],
             interaction: {
                 type: '',
                 startN: null,
+                startClient: null,
+                startPan: null,
                 startPoints: null,
                 startCenter: null,
                 startAngle: 0,
@@ -1214,6 +1218,12 @@
                 node.style.display = 'block';
                 node.style.flex = '0 0 16px';
             }
+        }
+
+        function applyAnnotateViewTransform() {
+            if (!annotateMediaStack) return;
+            annotateMediaStack.style.transform = `translate(${annotateState.panX.toFixed(1)}px, ${annotateState.panY.toFixed(1)}px) scale(${annotateState.zoom.toFixed(3)})`;
+            annotateMediaStack.style.transformOrigin = 'center center';
         }
 
         function cycleThemeModePreference() {
@@ -1579,22 +1589,21 @@
             const ctx = annotateCanvas.getContext('2d');
             if (!ctx) return;
 
-            const stageRect = (annotateMediaStack || annotateStage).getBoundingClientRect();
             const imageRect = annotateImage.getBoundingClientRect();
-            const stageW = Math.max(1, Math.round(Number(stageRect.width || 0)));
-            const stageH = Math.max(1, Math.round(Number(stageRect.height || 0)));
-            annotateCanvas.width = stageW;
-            annotateCanvas.height = stageH;
-            ctx.clearRect(0, 0, stageW, stageH);
+            const drawW = Math.max(1, Math.round(Number(imageRect.width || 0)));
+            const drawH = Math.max(1, Math.round(Number(imageRect.height || 0)));
+            annotateCanvas.width = drawW;
+            annotateCanvas.height = drawH;
+            annotateCanvas.style.width = `${drawW}px`;
+            annotateCanvas.style.height = `${drawH}px`;
+            ctx.clearRect(0, 0, drawW, drawH);
 
             if (!annotateState.showLabels) return;
 
-            const drawW = Number(imageRect.width || 0);
-            const drawH = Number(imageRect.height || 0);
             if (!drawW || !drawH) return;
 
-            const offsetX = Number(imageRect.left || 0) - Number(stageRect.left || 0);
-            const offsetY = Number(imageRect.top || 0) - Number(stageRect.top || 0);
+            const offsetX = 0;
+            const offsetY = 0;
             ctx.font = '12px "IBM Plex Mono", monospace';
             ctx.setLineDash([]);
 
@@ -1625,7 +1634,7 @@
                 const vy = p0y - cy;
                 const vLen = Math.max(1e-6, Math.hypot(vx, vy));
                 const tx = offsetX + (p0x * drawW) + ((vx / vLen) * 8);
-                const ty = Math.max(14, Math.min(stageH - 8, offsetY + (p0y * drawH) + ((vy / vLen) * 8)));
+                const ty = Math.max(14, Math.min(drawH - 8, offsetY + (p0y * drawH) + ((vy / vLen) * 8)));
                 const classText = `class ${Number(item.classId || 0)}`;
                 ctx.fillStyle = selected ? '#fef3d8' : color;
                 ctx.fillText(classText, tx, ty);
@@ -1660,13 +1669,13 @@
             const it = annotateState.interaction || {};
             if (annotateState.mode === 'draw') {
                 if (annotateState.drawShape === 'bbox' && it.drawA && it.drawB) {
-                    drawPreviewShape(ctx, { type: 'bbox', a: it.drawA, b: it.drawB }, imageRect, stageRect);
+                    drawPreviewShape(ctx, { type: 'bbox', a: it.drawA, b: it.drawB }, imageRect, imageRect);
                 }
                 if (annotateState.drawShape === 'obb') {
                     if (it.drawA && it.drawB && it.drawC) {
-                        drawPreviewShape(ctx, { type: 'obb', a: it.drawA, b: it.drawB, c: it.drawC }, imageRect, stageRect);
+                        drawPreviewShape(ctx, { type: 'obb', a: it.drawA, b: it.drawB, c: it.drawC }, imageRect, imageRect);
                     } else if (it.drawA && it.drawB) {
-                        drawPreviewShape(ctx, { type: 'obb', a: it.drawA, b: it.drawB, c: it.drawB }, imageRect, stageRect);
+                        drawPreviewShape(ctx, { type: 'obb', a: it.drawA, b: it.drawB, c: it.drawB }, imageRect, imageRect);
                     }
                 }
             }
@@ -2215,9 +2224,18 @@
         }
 
         function handleAnnotatePointerDown(event) {
+            const it = annotateState.interaction;
+            if (event.button === 1 || event.altKey) {
+                it.type = 'pan-view';
+                it.startClient = { x: Number(event.clientX || 0), y: Number(event.clientY || 0) };
+                it.startPan = { x: Number(annotateState.panX || 0), y: Number(annotateState.panY || 0) };
+                annotateCanvas?.style.setProperty('cursor', 'grabbing');
+                event.preventDefault();
+                return;
+            }
+
             const pt = normalizedEventPoint(event);
             if (!pt || !pt.inside) return;
-            const it = annotateState.interaction;
 
             if (annotateState.mode === 'draw') {
                 if (!isAnnotateEditAllowed(true)) return;
@@ -2323,9 +2341,21 @@
 
         function handleAnnotatePointerMove(event) {
             updateAnnotateCursor(event);
+            const it = annotateState.interaction;
+            if (it.type === 'pan-view' && it.startClient && it.startPan) {
+                const dx = Number(event.clientX || 0) - Number(it.startClient.x || 0);
+                const dy = Number(event.clientY || 0) - Number(it.startClient.y || 0);
+                annotateState.panX = Number(it.startPan.x || 0) + dx;
+                annotateState.panY = Number(it.startPan.y || 0) + dy;
+                annotateState.fitMode = false;
+                annotateCanvas?.style.setProperty('cursor', 'grabbing');
+                applyAnnotateViewTransform();
+                drawAnnotateLabels(annotateState.labels);
+                return;
+            }
+
             const pt = normalizedEventPoint(event);
             if (!pt) return;
-            const it = annotateState.interaction;
 
             if (annotateState.mode === 'draw') {
                 if (it.type === 'draw-bbox' && it.drawA) {
@@ -2378,6 +2408,14 @@
         function handleAnnotatePointerUp(event) {
             const pt = normalizedEventPoint(event);
             const it = annotateState.interaction;
+
+            if (it.type === 'pan-view') {
+                it.type = '';
+                it.startClient = null;
+                it.startPan = null;
+                updateAnnotateCursor(event);
+                return;
+            }
 
             if (annotateState.mode === 'draw') {
                 if (it.type === 'draw-bbox' && it.drawA && it.drawB) {
@@ -2616,7 +2654,10 @@
                 annotateStage.scrollLeft = 0;
                 annotateStage.scrollTop = 0;
             }
+            annotateState.panX = 0;
+            annotateState.panY = 0;
             annotateState.fitMode = true;
+            applyAnnotateViewTransform();
             drawAnnotateLabels(annotateState.labels);
             setAnnotateStatus('Image fitted to stage bounds.', false);
         }
@@ -2628,10 +2669,7 @@
             if (!opt.fromFit) {
                 annotateState.fitMode = false;
             }
-            if (annotateMediaStack) {
-                annotateMediaStack.style.transform = `scale(${value.toFixed(3)})`;
-                annotateMediaStack.style.transformOrigin = 'center center';
-            }
+            applyAnnotateViewTransform();
             drawAnnotateLabels(annotateState.labels);
             if (!opt.silent) {
                 setAnnotateStatus(`Zoom ${Math.round(value * 100)}%`, false);
@@ -4262,6 +4300,11 @@
         annotateCanvas?.addEventListener('mousedown', (event) => {
             handleAnnotatePointerDown(event);
         });
+        annotateCanvas?.addEventListener('auxclick', (event) => {
+            if (event.button === 1) {
+                event.preventDefault();
+            }
+        });
         annotateCanvas?.addEventListener('mousemove', (event) => {
             handleAnnotatePointerMove(event);
         });
@@ -4270,6 +4313,11 @@
         });
         annotateCanvas?.addEventListener('mouseleave', (event) => {
             handleAnnotatePointerUp(event);
+        });
+        window.addEventListener('mouseup', (event) => {
+            if (annotateState.interaction.type === 'pan-view') {
+                handleAnnotatePointerUp(event);
+            }
         });
 
         annotateReloadRawBtn?.addEventListener('click', () => {

@@ -546,6 +546,7 @@ html[data-theme="dark"] .annotate-onboarding {
   gap: 8px;
   background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 100%);
   padding: 0;
+  overflow: hidden;
 }
 
 #annotateViewportMount .annotate-fullscreen-topbar {
@@ -558,9 +559,13 @@ html[data-theme="dark"] .annotate-onboarding {
 #annotateViewportMount .annotate-fullscreen-shell {
   min-height: 0;
   height: 100%;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 320px);
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(
+      240px,
+      320px
+    );
   gap: 8px;
   padding: 0 6px 6px;
+  overflow: hidden;
 }
 
 #annotateViewportMount .annotate-toolbar {
@@ -595,11 +600,16 @@ html[data-theme="dark"] .annotate-onboarding {
 #annotateViewportMount .annotate-workspace {
   min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 #annotateViewportMount .annotate-stage {
   min-height: 0;
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 #annotateViewportMount .annotate-image-list,
@@ -614,7 +624,9 @@ html[data-theme="dark"] .annotate-onboarding {
 }
 
 #annotateViewportMount .annotate-fullscreen-shell > .annotate-pane:last-child {
-  grid-template-rows: auto auto minmax(0, 0.9fr) auto minmax(130px, 1.1fr) auto auto;
+  grid-template-rows:
+    auto auto minmax(0, 0.9fr) auto minmax(130px, 1.1fr)
+    auto auto;
 }
 
 #annotateViewportMount #annotateRawText {
@@ -1050,10 +1062,27 @@ body.annotate-fullscreen #annotateViewportMount {
   z-index: 520;
 }
 
+body.annotate-fullscreen #dashboardPanel .content,
+body.annotate-fullscreen #dashboardPanel .mobile-nav-bar,
+body.annotate-fullscreen #dashboardPanel #dashSidebar,
+body.annotate-fullscreen #dashboardPanel #sidebarOverlay {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+body.annotate-fullscreen
+  #dashboardPanel
+  .page-view:not([data-page="annotate"]) {
+  display: none !important;
+}
+
 body.annotate-fullscreen .annotate-fullscreen-shell {
   min-height: calc(100vh - 72px);
   height: calc(100vh - 72px);
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 320px);
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(
+      240px,
+      320px
+    );
 }
 
 .annotate-editor-root.annotate-sidebar-collapsed .annotate-fullscreen-shell {
@@ -2306,7 +2335,10 @@ body.is-admin .nav-btn.admin-only {
 
 /* Keep annotation studio stable regardless of dashboard responsive rules. */
 #annotateViewportMount .annotate-shell {
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 320px) !important;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(
+      240px,
+      320px
+    ) !important;
   min-height: 0 !important;
   height: 100% !important;
 }
@@ -2319,7 +2351,10 @@ body.is-admin .nav-btn.admin-only {
 
 @media (max-width: 1200px) {
   #annotateViewportMount .annotate-shell {
-    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) minmax(190px, 250px) !important;
+    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) minmax(
+        190px,
+        250px
+      ) !important;
   }
 
   #annotateViewportMount
