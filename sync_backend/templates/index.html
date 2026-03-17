@@ -868,7 +868,8 @@
                                         <li>Arrow Left/Right or A/D/Space: prev/next image</li>
                                         <li>Delete/Backspace: delete selected label</li>
                                         <li>Ctrl/Cmd+Z, Ctrl/Cmd+Y: undo/redo</li>
-                                        <li>Q/E/R: rotate selected box counterclockwise / clockwise / 180</li>
+                                        <li>Q/E: rotate selected box counterclockwise / clockwise</li>
+                                        <li>R / Shift+R: cycle bbox corners clockwise / counterclockwise</li>
                                         <li>+/-: zoom in / zoom out, 0: fit to stage</li>
                                         <li>Ctrl+drag or middle mouse: pan view</li>
                                         <li>Ctrl/Cmd+S: save labels</li>
@@ -1132,6 +1133,7 @@
             interaction: {
                 type: '',
                 startN: null,
+                lastPointerClient: null,
                 startClient: null,
                 startPan: null,
                 startPoints: null,
@@ -1258,6 +1260,22 @@
             applyAnnotateViewTransform();
         }
 
+        function getAnnotateZoomAnchorClient() {
+            if (annotateStage && annotateState.interaction?.lastPointerClient) {
+                const rect = annotateStage.getBoundingClientRect();
+                const px = Number(annotateState.interaction.lastPointerClient.x || 0);
+                const py = Number(annotateState.interaction.lastPointerClient.y || 0);
+                if (px >= rect.left && px <= rect.right && py >= rect.top && py <= rect.bottom) {
+                    return { x: px, y: py };
+                }
+            }
+            if (annotateStage) {
+                const rect = annotateStage.getBoundingClientRect();
+                return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            }
+            return { x: 0, y: 0 };
+        }
+
         function zoomAnnotateAroundClient(nextZoom, clientX, clientY, options = null) {
             if (!annotateMediaStack || !annotateStage) {
                 setAnnotateZoom(nextZoom, options || {});
@@ -1277,9 +1295,6 @@
             annotateState.panY += anchorY - nextAnchorY;
             applyAnnotateViewTransform();
             drawAnnotateLabels(annotateState.labels);
-            if (options && options.zoomOutToCenter) {
-                centerAnnotateMediaInStage();
-            }
         }
 
         function cycleThemeModePreference() {
@@ -1658,10 +1673,11 @@
 
             if (!drawW || !drawH) return;
 
-            const uiScale = Math.max(1, Math.min(3.8, 1 / Math.max(0.05, annotateState.zoom)));
+            const uiScale = Math.max(1, Math.min(10, 1 / Math.max(0.05, annotateState.zoom)));
             const labelFontPx = Math.round(12 * uiScale);
             const cornerRadius = Math.max(5, Math.round(5 * uiScale));
             const edgeSize = Math.max(8, Math.round(8 * uiScale));
+            const rotRadius = Math.max(4, Math.round(4 * uiScale));
             const labelNudge = Math.max(8, Math.round(8 * uiScale));
 
             const offsetX = 0;
@@ -1724,6 +1740,22 @@
                         ctx.strokeStyle = '#1f2723';
                         ctx.lineWidth = Math.max(1.1, 1.1 * uiScale);
                         ctx.strokeRect(mx - edgeSize / 2, my - edgeSize / 2, edgeSize, edgeSize);
+                    }
+
+                    if (String(item.format || '').toLowerCase() === 'bbox') {
+                        for (let rk = 0; rk < 4; rk += 1) {
+                            const hp = getRotationHandlePoint(pts, rk);
+                            if (!hp) continue;
+                            const hx = offsetX + (hp.nx * drawW);
+                            const hy = offsetY + (hp.ny * drawH);
+                            ctx.beginPath();
+                            ctx.arc(hx, hy, rotRadius, 0, Math.PI * 2);
+                            ctx.fillStyle = '#9ad1ff';
+                            ctx.fill();
+                            ctx.strokeStyle = '#1f2723';
+                            ctx.lineWidth = Math.max(1, uiScale);
+                            ctx.stroke();
+                        }
                     }
                 }
             }
@@ -1876,6 +1908,39 @@
             return dx * dx + dy * dy;
         }
 
+        function getHandleScaleFactor() {
+            return Math.max(1, 1 / Math.max(0.05, Number(annotateState.zoom || 1)));
+        }
+
+        function getNormalizedPixelScale() {
+            const rect = annotateImage?.getBoundingClientRect();
+            const width = Math.max(1, Number(rect?.width || 1));
+            const height = Math.max(1, Number(rect?.height || 1));
+            return {
+                x: 1 / width,
+                y: 1 / height,
+            };
+        }
+
+        function getRotationHandlePoint(points, cornerIdx) {
+            const pts = Array.isArray(points) ? points : [];
+            if (pts.length < 8) return null;
+            const center = polygonCentroid(pts);
+            const cx = Number(pts[cornerIdx * 2] || 0);
+            const cy = Number(pts[cornerIdx * 2 + 1] || 0);
+            const vx = cx - center.x;
+            const vy = cy - center.y;
+            const len = Math.max(1e-6, Math.hypot(vx, vy));
+            const scale = getHandleScaleFactor();
+            const pxScale = getNormalizedPixelScale();
+            const offsetX = (12 * scale) * pxScale.x;
+            const offsetY = (12 * scale) * pxScale.y;
+            return {
+                nx: clamp01(cx + (vx / len) * offsetX),
+                ny: clamp01(cy + (vy / len) * offsetY),
+            };
+        }
+
         function findLabelAtPoint(nx, ny) {
             let selected = -1;
             for (let i = annotateState.labels.length - 1; i >= 0; i -= 1) {
@@ -1893,7 +1958,8 @@
             if (idx < 0 || idx >= annotateState.labels.length) return -1;
             const pts = annotateState.labels[idx]?.points || [];
             if (!Array.isArray(pts) || pts.length < 8) return -1;
-            const threshold = 0.015;
+            const pxScale = getNormalizedPixelScale();
+            const threshold = 8 * getHandleScaleFactor() * Math.max(pxScale.x, pxScale.y);
             for (let i = 0; i < 4; i += 1) {
                 const px = Number(pts[i * 2] || 0);
                 const py = Number(pts[i * 2 + 1] || 0);
@@ -1909,7 +1975,8 @@
             if (idx < 0 || idx >= annotateState.labels.length) return -1;
             const pts = annotateState.labels[idx]?.points || [];
             if (!Array.isArray(pts) || pts.length < 8) return -1;
-            const threshold = 0.018;
+            const pxScale = getNormalizedPixelScale();
+            const threshold = 9 * getHandleScaleFactor() * Math.max(pxScale.x, pxScale.y);
             for (let e = 0; e < 4; e += 1) {
                 const a = e;
                 const b = (e + 1) % 4;
@@ -1917,6 +1984,25 @@
                 const my = (Number(pts[a * 2 + 1] || 0) + Number(pts[b * 2 + 1] || 0)) / 2;
                 if (distanceSq(nx, ny, mx, my) <= threshold * threshold) {
                     return e;
+                }
+            }
+            return -1;
+        }
+
+        function findRotationHandleAtPoint(nx, ny) {
+            const idx = annotateState.selectedLabelIdx;
+            if (idx < 0 || idx >= annotateState.labels.length) return -1;
+            const target = annotateState.labels[idx] || null;
+            if (String(target?.format || '').toLowerCase() !== 'bbox') return -1;
+            const pts = target?.points || [];
+            if (!Array.isArray(pts) || pts.length < 8) return -1;
+            const pxScale = getNormalizedPixelScale();
+            const threshold = 9 * getHandleScaleFactor() * Math.max(pxScale.x, pxScale.y);
+            for (let i = 0; i < 4; i += 1) {
+                const handle = getRotationHandlePoint(pts, i);
+                if (!handle) continue;
+                if (distanceSq(nx, ny, handle.nx, handle.ny) <= threshold * threshold) {
+                    return i;
                 }
             }
             return -1;
@@ -1938,7 +2024,7 @@
             }
 
             const it = annotateState.interaction;
-            if (it.type === 'move' || it.type === 'resize-corner' || it.type === 'resize-edge' || it.type === 'rotate') {
+            if (it.type === 'move' || it.type === 'resize-corner' || it.type === 'resize-edge' || it.type === 'rotate' || it.type === 'reorder-corners') {
                 annotateCanvas.style.cursor = 'grabbing';
                 return;
             }
@@ -1970,6 +2056,12 @@
                 const bx = Number(pts[b * 2] || 0);
                 const by = Number(pts[b * 2 + 1] || 0);
                 annotateCanvas.style.cursor = cursorFromAngle(Math.atan2(by - ay, bx - ax) + Math.PI / 2);
+                return;
+            }
+
+            const rotIdx = findRotationHandleAtPoint(pt.nx, pt.ny);
+            if (rotIdx >= 0 && annotateState.selectedLabelIdx >= 0) {
+                annotateCanvas.style.cursor = 'grab';
                 return;
             }
 
@@ -2208,6 +2300,20 @@
             commitInteractiveChange(prev, `Rotated ${deg > 0 ? '+' : ''}${deg}deg.`);
         }
 
+        function rotateSelectedCornerStep(step) {
+            const idx = annotateState.selectedLabelIdx;
+            if (idx < 0 || idx >= annotateState.labels.length) return;
+            const prev = cloneLabels(annotateState.labels);
+            const target = annotateState.labels[idx];
+            if (String(target?.format || '').toLowerCase() !== 'bbox') {
+                rotateSelectedByDegrees(step > 0 ? 10 : -10);
+                return;
+            }
+            const turns = step > 0 ? 1 : -1;
+            target.points = rotateCornerOrder(target.points || [], turns);
+            commitInteractiveChange(prev, `Rotated bbox corners ${turns > 0 ? 'clockwise' : 'counterclockwise'}.`);
+        }
+
         function translatedPoints(points, dx, dy) {
             const out = [];
             for (let i = 0; i < 4; i += 1) {
@@ -2287,6 +2393,7 @@
 
         function handleAnnotatePointerDown(event) {
             const it = annotateState.interaction;
+            it.lastPointerClient = { x: Number(event.clientX || 0), y: Number(event.clientY || 0) };
             const ctrlLeftPan = event.button === 0 && event.ctrlKey;
             if (event.button === 1 || ctrlLeftPan) {
                 it.type = 'pan-view';
@@ -2373,6 +2480,24 @@
                 return;
             }
 
+            const rotationIdx = findRotationHandleAtPoint(pt.nx, pt.ny);
+            if (rotationIdx >= 0 && annotateState.selectedLabelIdx >= 0) {
+                if (!isAnnotateEditAllowed(true)) return;
+                const selected = annotateState.labels[annotateState.selectedLabelIdx] || null;
+                if (String(selected?.format || '').toLowerCase() === 'bbox') {
+                    it.type = 'reorder-corners';
+                    it.cornerIdx = rotationIdx;
+                    it.edgeIdx = -1;
+                    it.startN = { nx: pt.nx, ny: pt.ny };
+                    it.startPoints = cloneLabels(annotateState.labels);
+                    const pts = selected?.points || [];
+                    const center = polygonCentroid(pts);
+                    it.startCenter = center;
+                    it.startAngle = Math.atan2(pt.ny - center.y, pt.nx - center.x);
+                    return;
+                }
+            }
+
             const hit = findLabelAtPoint(pt.nx, pt.ny);
             if (hit >= 0) {
                 annotateState.selectedLabelIdx = hit;
@@ -2403,6 +2528,7 @@
         }
 
         function handleAnnotatePointerMove(event) {
+            annotateState.interaction.lastPointerClient = { x: Number(event.clientX || 0), y: Number(event.clientY || 0) };
             updateAnnotateCursor(event);
             const it = annotateState.interaction;
             if (it.type === 'pan-view' && it.startClient && it.startPan) {
@@ -4296,31 +4422,27 @@
         });
 
         annotateZoomOutBtn?.addEventListener('click', () => {
+            const anchor = getAnnotateZoomAnchorClient();
             zoomAnnotateAroundClient(
                 annotateState.zoom / 1.15,
-                Number.POSITIVE_INFINITY,
-                Number.POSITIVE_INFINITY,
-                { zoomOutToCenter: true },
+                anchor.x,
+                anchor.y,
             );
         });
 
         annotateZoomInBtn?.addEventListener('click', () => {
-            zoomAnnotateAroundClient(annotateState.zoom * 1.15);
+            const anchor = getAnnotateZoomAnchorClient();
+            zoomAnnotateAroundClient(annotateState.zoom * 1.15, anchor.x, anchor.y);
         });
 
         annotateStage?.addEventListener('wheel', (event) => {
             if (!annotateUiState.studioStarted || activeDashPage !== 'annotate') return;
             event.preventDefault();
             const factor = event.deltaY > 0 ? 1 / 1.08 : 1.08;
-            const zoomingOut = factor < 1;
-            const stageRect = annotateStage.getBoundingClientRect();
-            const centerX = stageRect.left + stageRect.width / 2;
-            const centerY = stageRect.top + stageRect.height / 2;
             zoomAnnotateAroundClient(
                 annotateState.zoom * factor,
-                zoomingOut ? centerX : Number(event.clientX || centerX),
-                zoomingOut ? centerY : Number(event.clientY || centerY),
-                { zoomOutToCenter: zoomingOut },
+                Number(event.clientX || 0),
+                Number(event.clientY || 0),
             );
         }, { passive: false });
 
@@ -5189,21 +5311,22 @@
                 return;
             }
             if (key === 'r') {
-                rotateSelectedByDegrees(180);
+                rotateSelectedCornerStep(event.shiftKey ? -1 : 1);
                 event.preventDefault();
                 return;
             }
             if (key === '+' || key === '=') {
-                zoomAnnotateAroundClient(annotateState.zoom * 1.15);
+                const anchor = getAnnotateZoomAnchorClient();
+                zoomAnnotateAroundClient(annotateState.zoom * 1.15, anchor.x, anchor.y);
                 event.preventDefault();
                 return;
             }
             if (key === '-' || key === '_') {
+                const anchor = getAnnotateZoomAnchorClient();
                 zoomAnnotateAroundClient(
                     annotateState.zoom / 1.15,
-                    Number.POSITIVE_INFINITY,
-                    Number.POSITIVE_INFINITY,
-                    { zoomOutToCenter: true },
+                    anchor.x,
+                    anchor.y,
                 );
                 event.preventDefault();
                 return;
