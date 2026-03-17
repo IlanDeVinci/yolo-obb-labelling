@@ -274,7 +274,9 @@ def _normalize_path(value: str) -> str:
 
 def _requires_explicit_lock(path: str) -> bool:
     lower = path.lower()
-    return lower.endswith(".txt") and "/labels/" in lower
+    if not lower.endswith(".txt"):
+        return False
+    return lower.startswith("labels/") or "/labels/" in lower
 
 
 def _is_image_path(path: str) -> bool:
@@ -283,7 +285,9 @@ def _is_image_path(path: str) -> bool:
 
 def _is_label_text_path(path: str) -> bool:
     lower = str(path or "").lower()
-    return lower.endswith(".txt") and "/labels/" in lower
+    if not lower.endswith(".txt"):
+        return False
+    return lower.startswith("labels/") or "/labels/" in lower
 
 
 def _resolve_normalize_image_paths(project_id: str, requested_paths: list[str] | None) -> list[str]:
@@ -1086,13 +1090,14 @@ def _fetch_project_image_status_map(project_id: str) -> dict[str, str]:
     return out
 
 
-def _fetch_project_label_counts_by_stem(project_id: str) -> dict[str, int]:
+def _fetch_project_label_counts_by_stem(project_id: str) -> dict[str, dict[str, int]]:
     rows = _CONN.execute(
         "SELECT path, content_base64 FROM files WHERE project_id = ? AND deleted = 0 ORDER BY path ASC",
         (project_id,),
     ).fetchall()
 
     counts: dict[str, int] = {}
+    counts_by_path: dict[str, int] = {}
     for row in rows:
         path = str(row["path"] or "")
         if not _is_label_text_path(path):
@@ -1104,6 +1109,7 @@ def _fetch_project_label_counts_by_stem(project_id: str) -> dict[str, int]:
         content_b64 = str(row["content_base64"] or "")
         if not content_b64:
             counts.setdefault(stem, 0)
+            counts_by_path[path] = max(counts_by_path.get(path, 0), 0)
             continue
 
         try:
@@ -1115,8 +1121,9 @@ def _fetch_project_label_counts_by_stem(project_id: str) -> dict[str, int]:
         label_count = len(parsed)
         # Avoid double-counting when both bb/obb files exist for same image stem.
         counts[stem] = max(counts.get(stem, 0), label_count)
+        counts_by_path[path] = max(counts_by_path.get(path, 0), label_count)
 
-    return counts
+    return {"_by_stem": counts, "_by_path": counts_by_path}
 
 
 def _collect_project_image_rows_from_db(project_id: str) -> dict[str, dict[str, Any]]:
@@ -2790,12 +2797,18 @@ def admin_list_images(
             s3_rows = {}
 
     status_by_name = _fetch_project_image_status_map(session.project_id)
-    label_counts_by_stem = _fetch_project_label_counts_by_stem(session.project_id)
+    label_counts_payload = _fetch_project_label_counts_by_stem(session.project_id)
+    label_counts_by_stem = label_counts_payload.get("_by_stem", {})
+    label_counts_by_path = label_counts_payload.get("_by_path", {})
     items: list[dict[str, Any]] = []
     all_paths = sorted(set(db_rows.keys()) | set(s3_rows.keys()), key=lambda v: v.lower())
     for path in all_paths:
         image_name = Path(path).name
         image_stem = Path(path).stem
+        label_candidates = _label_paths_for_image(path)
+        count_from_candidates = 0
+        for candidate in label_candidates:
+            count_from_candidates = max(count_from_candidates, int(label_counts_by_path.get(candidate, 0)))
         db_item = db_rows.get(path)
         s3_item = s3_rows.get(path)
         size_bytes = int((s3_item or {}).get("sizeBytes") or (db_item or {}).get("sizeBytes") or 0)
@@ -2808,7 +2821,7 @@ def admin_list_images(
                 "mtimeMs": int(modified_ms),
                 "updatedAt": int((db_item or {}).get("updatedAt") or 0),
                 "status": status_by_name.get(image_name, ""),
-                "labelCount": int(label_counts_by_stem.get(image_stem, 0)),
+                "labelCount": int(max(count_from_candidates, int(label_counts_by_stem.get(image_stem, 0)))),
                 "indexedInDb": bool(db_item),
                 "presentInS3": bool(s3_item),
             }
@@ -3219,9 +3232,9 @@ def admin_get_image_labels(
 
     def _priority(label_path: str) -> int:
         lower = label_path.lower()
-        if "/labels/obb/" in lower:
+        if lower.startswith("labels/obb/") or "/labels/obb/" in lower:
             return 0
-        if "/labels/bb/" in lower:
+        if lower.startswith("labels/bb/") or "/labels/bb/" in lower:
             return 1
         return 2
 
@@ -3288,9 +3301,9 @@ def admin_write_image_labels(
         if rows:
             def _priority(label_path: str) -> int:
                 lower = label_path.lower()
-                if "/labels/obb/" in lower:
+                if lower.startswith("labels/obb/") or "/labels/obb/" in lower:
                     return 0
-                if "/labels/bb/" in lower:
+                if lower.startswith("labels/bb/") or "/labels/bb/" in lower:
                     return 1
                 return 2
 

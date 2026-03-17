@@ -493,6 +493,93 @@ html[data-theme="dark"] .auth-state-hint {
   min-height: 360px;
 }
 
+.annotate-onboarding {
+  border: 1px solid #d4ddd5;
+  border-radius: 14px;
+  background: linear-gradient(160deg, #fbfdfb, #eef7f2);
+  padding: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+html[data-theme="dark"] .annotate-onboarding {
+  border-color: #3b5b66;
+  background: linear-gradient(160deg, #1b2f35, #1a2830);
+}
+
+.annotate-onboarding-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.annotate-editor-root {
+  display: grid;
+  gap: 10px;
+}
+
+.annotate-fullscreen-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #d2ddd4;
+  border-radius: 12px;
+  background: #f7fbf9;
+  padding: 10px;
+}
+
+html[data-theme="dark"] .annotate-fullscreen-topbar {
+  border-color: #3b5c68;
+  background: #1d2f38;
+}
+
+.annotate-top-status-strip {
+  border: 1px solid #d2ddd4;
+  border-radius: 12px;
+  background: #f7fbf9;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.annotate-shortcuts-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 16, 16, 0.5);
+  display: grid;
+  place-items: center;
+  z-index: 160;
+}
+
+.annotate-shortcuts-card {
+  width: min(560px, calc(100vw - 28px));
+  border: 1px solid #c9dbd2;
+  border-radius: 14px;
+  background: #f8fcfa;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+html[data-theme="dark"] .annotate-shortcuts-card {
+  border-color: #3f606c;
+  background: #1d3139;
+}
+
+html[data-theme="dark"] .annotate-top-status-strip {
+  border-color: #3b5c68;
+  background: #1d2f38;
+}
+
+.annotate-fullscreen-shell {
+  min-height: 72vh;
+}
+
 .annotate-workspace {
   display: grid;
   gap: 10px;
@@ -558,6 +645,22 @@ html[data-theme="dark"] .annotate-pane {
   cursor: pointer;
 }
 
+.annotate-image-preview-wrap {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #cfe0d7;
+  background: #eef6f2;
+}
+
+.annotate-image-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .annotate-image-item:hover,
 .annotate-label-item:hover {
   border-color: #80b6a4;
@@ -576,6 +679,26 @@ html[data-theme="dark"] .annotate-pane {
 
 .annotate-image-meta {
   font-size: 0.76rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.annotate-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #c6ddd2;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: #edf7f2;
+  color: #225045;
+  font-size: 0.72rem;
+}
+
+.annotate-badge.lock {
+  border-color: #d8c6a8;
+  background: #fff4e6;
+  color: #754916;
 }
 
 .annotate-label-item {
@@ -601,6 +724,9 @@ html[data-theme="dark"] .annotate-pane {
   text-align: center;
   padding: 14px;
   gap: 6px;
+  min-height: 60vh;
+  max-height: calc(100vh - 240px);
+  overflow: hidden;
 }
 
 .annotate-stage.annotate-dirty {
@@ -622,7 +748,7 @@ html[data-theme="dark"] .annotate-stage {
   width: auto;
   height: auto;
   max-width: 100%;
-  max-height: 64vh;
+  max-height: 100%;
   object-fit: contain;
   object-position: center;
 }
@@ -680,6 +806,68 @@ html[data-theme="dark"] #annotateSaveStatus.err {
 
 html[data-theme="dark"] #annotateLockStatus.err {
   color: #ffb6b6;
+}
+
+html[data-theme="dark"] .annotate-badge {
+  border-color: #3f6a73;
+  background: #203a40;
+  color: #cde9e3;
+}
+
+html[data-theme="dark"] .annotate-badge.lock {
+  border-color: #8a6a3e;
+  background: #3c2e1d;
+  color: #ffd6a2;
+}
+
+body.annotate-fullscreen .mobile-nav-bar,
+body.annotate-fullscreen #dashSidebar,
+body.annotate-fullscreen #sidebarOverlay,
+body.annotate-fullscreen #sidebarToggleBtn {
+  display: none !important;
+}
+
+body.annotate-fullscreen .dashboard {
+  grid-template-columns: 1fr;
+}
+
+body.annotate-fullscreen .content {
+  max-width: none;
+}
+
+body.annotate-fullscreen .page-view[data-page="annotate"] .sub-card {
+  border-radius: 12px;
+  padding: 10px;
+}
+
+body.annotate-fullscreen .annotate-fullscreen-shell {
+  min-height: calc(100vh - 210px);
+  grid-template-columns: minmax(260px, 320px) 1fr minmax(280px, 340px);
+}
+
+.annotate-editor-root.annotate-sidebar-collapsed .annotate-fullscreen-shell {
+  grid-template-columns: 1fr minmax(280px, 340px);
+}
+
+.annotate-editor-root.annotate-sidebar-collapsed
+  .annotate-fullscreen-shell
+  > aside:first-child {
+  display: none;
+}
+
+.annotate-editor-root.annotate-inspector-collapsed .annotate-fullscreen-shell {
+  grid-template-columns: minmax(260px, 320px) 1fr;
+}
+
+.annotate-editor-root.annotate-inspector-collapsed
+  .annotate-fullscreen-shell
+  > aside:last-child {
+  display: none;
+}
+
+.annotate-editor-root.annotate-sidebar-collapsed.annotate-inspector-collapsed
+  .annotate-fullscreen-shell {
+  grid-template-columns: 1fr;
 }
 
 .dashboard {
